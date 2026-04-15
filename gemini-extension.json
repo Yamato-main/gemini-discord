@@ -1,0 +1,22 @@
+{
+  "name": "gemini-discord",
+  "version": "0.1.0",
+  "description": "Always-on Discord gateway for Gemini CLI. Bidirectional chat, conversation memory, streaming responses.",
+  "contextFileName": "GEMINI.md",
+  "settings": [
+    {
+      "name": "Discord Bot Token",
+      "description": "Bot token from discord.com/developers/applications",
+      "envVar": "DISCORD_BOT_TOKEN",
+      "sensitive": true
+    }
+  ],
+  "mcpServers": {
+    "discord-bridge": {
+      "command": "node",
+      "args": ["${extensionPath}${/}bootstrap.cjs"],
+      "cwd": "${extensionPath}"
+    }
+  },
+  "excludeTools": ["run_shell_command"]
+}

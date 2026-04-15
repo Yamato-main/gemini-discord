@@ -1,0 +1,10 @@
+.env
+.memory.json
+.memory.json.tmp
+start-daemon.sh
+dist/
+node_modules/
+*.log
+.DS_Store
+.gemini-discord/
+tmp/

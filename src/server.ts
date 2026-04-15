@@ -1,0 +1,52 @@
+/**
+ * MCP Server entry point (Track 2).
+ * Spawned by Gemini CLI as a subprocess.
+ * Registers 5 tools that communicate with the daemon via localhost HTTP.
+ */
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { loadConfig, resolveExtensionDir } from './shared/config.js';
+import { registerStatusTool } from './tools/status.js';
+import { registerSendTool } from './tools/send.js';
+import { registerReplyTool } from './tools/reply.js';
+import { registerHistoryTool } from './tools/history.js';
+import { registerResetTool } from './tools/reset.js';
+import { registerRestartTool } from './tools/restart.js';
+import { ensureDaemonRunning } from './shared/daemon-runtime.js';
+
+// Resolve extension directory (esbuild CJS provides __dirname)
+const extensionDir = resolveExtensionDir(__dirname);
+const config = loadConfig(extensionDir);
+
+const server = new McpServer({
+  name: 'discord-bridge',
+  version: '0.1.0',
+});
+
+// Register all 6 tools
+registerStatusTool(server, config);
+registerSendTool(server, config);
+registerReplyTool(server, config);
+registerHistoryTool(server, config);
+registerResetTool(server, config);
+registerRestartTool(server, config);
+
+// Connect via stdio (Gemini CLI manages the process lifecycle)
+async function main() {
+  if (config.autoStartDaemon) {
+    try {
+      await ensureDaemonRunning(config, extensionDir);
+    } catch {
+      // Tool calls will still surface a precise offline error if startup keeps failing.
+    }
+  }
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+main().catch((err) => {
+  process.stderr.write(`gemini-discord MCP server error: ${err}\n`);
+  process.exit(1);
+});

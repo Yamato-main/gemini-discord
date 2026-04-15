@@ -1,0 +1,185 @@
+/**
+ * Discord.js client setup — DM capable, agent-aware, and optimized for memory.
+ */
+
+import {
+  Client,
+  GatewayIntentBits,
+  Options,
+  Partials,
+  type Message,
+} from 'discord.js';
+import type { Config } from '../shared/types.js';
+import { log } from './log.js';
+import { shouldAcceptMessage } from './routing.js';
+
+export interface AcceptedDiscordMessage {
+  content: string;
+  speakerKind: 'human' | 'agent';
+  trigger: string;
+  channelName: string;
+  guildName: string | null;
+  replyToMessageId: string | null;
+}
+
+export interface BotCallbacks {
+  onMessage: (message: Message, accepted: AcceptedDiscordMessage) => void;
+}
+
+export function createClient(config: Config): Client {
+  const intents = [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ];
+
+  if (config.enableDMs) {
+    intents.push(GatewayIntentBits.DirectMessages);
+  }
+
+  return new Client({
+    intents,
+    partials: config.enableDMs
+      ? [Partials.Channel, Partials.Message]
+      : [],
+    makeCache: Options.cacheWithLimits({
+      MessageManager: { maxSize: 50 },
+      GuildMemberManager: { maxSize: 10 },
+      PresenceManager: { maxSize: 0 },
+      ReactionManager: { maxSize: 0 },
+      UserManager: { maxSize: 25 },
+    }),
+  });
+}
+
+export function setupReconnectHandlers(
+  client: Client,
+  config: Config,
+  setState: (status: 'starting' | 'ready' | 'degraded') => void,
+): void {
+  client.on('shardError', (err) => {
+    log.error('WebSocket error', { msg: err.message });
+    setState('degraded');
+  });
+
+  client.on('shardDisconnect', (event) => {
+    const fatal = [4004, 4010, 4011, 4012, 4013, 4014];
+    if (fatal.includes(event.code)) {
+      log.error('Fatal disconnect', { code: event.code });
+      notifyOwner(client, config, `Bot disconnected fatally (code ${event.code}). Check token and intents.`);
+      process.exit(1);
+    }
+    log.warn('Disconnected, reconnecting', { code: event.code });
+    setState('degraded');
+  });
+
+  client.on('shardReconnecting', () => log.info('Reconnecting to Discord'));
+  client.on('shardResume', () => {
+    log.info('Connection resumed');
+    setState('ready');
+  });
+}
+
+export function setupMessageHandler(
+  client: Client,
+  config: Config,
+  callbacks: BotCallbacks,
+  isShuttingDown: () => boolean,
+): void {
+  client.on('messageCreate', async (message: Message) => {
+    if (message.partial) {
+      try {
+        await message.fetch();
+      } catch {
+        return;
+      }
+    }
+
+    if (!message.author || isShuttingDown()) return;
+
+    const isDM = !message.guild;
+    const channelName = getChannelName(message);
+    const guildName = message.guild?.name ?? null;
+    const replyToMessageId = message.reference?.messageId ?? null;
+    const repliedToBot = await isReplyToBot(message, client.user?.id ?? null, config.respondToReplies);
+
+    const decision = shouldAcceptMessage({
+      authorId: message.author.id,
+      authorTag: message.author.tag,
+      isBot: message.author.bot,
+      botUserId: client.user?.id ?? null,
+      content: message.content,
+      attachmentCount: message.attachments.size,
+      channelId: message.channelId,
+      channelName,
+      guildId: message.guildId ?? null,
+      guildName,
+      isDM,
+      mentionedBot: client.user ? message.mentions.has(client.user) : false,
+      repliedToBot,
+      replyToMessageId,
+    }, config);
+
+    if (!decision.accept || !decision.speakerKind || !decision.trigger) {
+      return;
+    }
+
+    log.info('Accepted Discord message', {
+      author: message.author.tag,
+      authorId: message.author.id,
+      speakerKind: decision.speakerKind,
+      trigger: decision.trigger,
+      channelId: message.channelId,
+      channelName,
+      guildId: message.guildId ?? null,
+    });
+
+    callbacks.onMessage(message, {
+      content: decision.content,
+      speakerKind: decision.speakerKind,
+      trigger: decision.trigger,
+      channelName,
+      guildName,
+      replyToMessageId,
+    });
+  });
+}
+
+async function isReplyToBot(
+  message: Message,
+  botUserId: string | null,
+  enabled: boolean,
+): Promise<boolean> {
+  if (!enabled || !botUserId || !message.reference?.messageId) {
+    return false;
+  }
+
+  try {
+    const reference = await message.fetchReference();
+    return reference.author.id === botUserId;
+  } catch {
+    return false;
+  }
+}
+
+function getChannelName(message: Message): string {
+  if ('name' in message.channel && typeof message.channel.name === 'string') {
+    return message.channel.name;
+  }
+
+  if (message.guild) {
+    return `channel-${message.channelId}`;
+  }
+
+  return `dm-${message.author.username}`;
+}
+
+async function notifyOwner(client: Client, config: Config, message: string): Promise<void> {
+  try {
+    if (config.ownerIds.length === 0) return;
+    const user = await client.users.fetch(config.ownerIds[0]);
+    await user.send(`⚠️ gemini-discord: ${message}`);
+  } catch {
+    // DM failed — error already logged elsewhere.
+  }
+}
