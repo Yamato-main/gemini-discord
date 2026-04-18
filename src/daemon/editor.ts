@@ -4,47 +4,104 @@
  * Uses a sliding window for display (~1900 chars) while the full response
  * is accumulated separately in gemini.ts. Uses native Discord typing indicator
  * before the first message chunk is sent.
+ *
+ * Tuned for responsiveness:
+ * - 700ms edit interval (under Discord's 5/5s rate limit, 65% faster than 2s)
+ * - Adaptive first-message: sends as soon as 20+ chars are buffered
  */
 
-import type { Message, TextBasedChannel } from 'discord.js';
-import { withRetry } from './retry.js';
+import type { Message, TextChannel, DMChannel, NewsChannel } from 'discord.js';
+import { withRetry, retrySend } from './retry.js';
 
-const STREAM_EDIT_INTERVAL = 2000;
+const STREAM_EDIT_INTERVAL = 1100; // Safe edit pacing (1 edit every 1.1s) avoiding Discord's 5 edits / 5s rate limit
 const DISPLAY_CAP = 1900;
+const FIRST_MESSAGE_THRESHOLD = 45; // Must be large enough to completely buffer `<@1485836823170121880>` before first API send
+
+export interface LiveEditorOptions {
+  placeholderDelayMs?: number | null;
+  placeholderText?: string;
+}
+
+export interface FinalizeOptions {
+  allowEmpty?: boolean;
+}
+
+/** Concrete sendable channel — bots never encounter PartialGroupDMChannel. */
+type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
 export class LiveEditor {
-  private channel: TextBasedChannel | null = null;
+  private channel: SendableChannel | null = null;
   private message: Message | null = null;
   private sentMessageIds: string[] = [];
   private displayBuf = '';
   private lastEditAt = 0;
   private editTimer: ReturnType<typeof setTimeout> | null = null;
   private typingInterval: ReturnType<typeof setInterval> | null = null;
+  private placeholderTimer: ReturnType<typeof setTimeout> | null = null;
   private editInFlight: Promise<void> | null = null;
   private finished = false;
+  private isThinking = false;
+  private lastSentContent = '';
+  private readonly placeholderDelayMs: number | null;
+  private readonly placeholderText: string;
+
+  constructor(options: LiveEditorOptions = {}) {
+    this.placeholderDelayMs = options.placeholderDelayMs === undefined ? 4000 : options.placeholderDelayMs;
+    this.placeholderText = options.placeholderText ?? '⚔️ Thinking…';
+  }
 
   /**
    * Start the native Discord typing indicator.
    */
-  async init(channel: TextBasedChannel): Promise<void> {
+  async init(channel: SendableChannel): Promise<void> {
     this.channel = channel;
-    await withRetry(() => this.channel!.sendTyping()).catch(() => {});
+    await retrySend(() => this.channel!.sendTyping()).catch(() => {});
+
+    if (this.placeholderDelayMs !== null) {
+      this.placeholderTimer = setTimeout(() => {
+        this.placeholderTimer = null;
+        if (!this.message && !this.finished && !this.editInFlight) {
+          this.sendPlaceholder();
+        }
+      }, this.placeholderDelayMs);
+    }
     
     // Keep it active every 9 seconds until we send the first real message or finish
     this.typingInterval = setInterval(() => {
-      withRetry(() => this.channel!.sendTyping()).catch(() => {});
+      if (!this.message && !this.finished) {
+        retrySend(() => this.channel!.sendTyping()).catch(() => {});
+      }
     }, 9000);
   }
 
   /**
    * Feed a token into the display buffer (sliding window).
    * The full response is accumulated by the caller (gemini.ts).
+   *
+   * Adaptive: sends the first message as soon as we have enough chars
+   * to eliminate the dead zone between typing indicator and first visible response.
    */
   feed(token: string): void {
+    this.isThinking = false;
     this.displayBuf += token;
     if (this.displayBuf.length > DISPLAY_CAP) {
       this.displayBuf = this.displayBuf.slice(-DISPLAY_CAP);
     }
+
+    // Adaptive first-message: send immediately once we cross the threshold
+    if (!this.message && !this.editInFlight && this.displayBuf.length >= FIRST_MESSAGE_THRESHOLD) {
+      this.doEdit();
+      return;
+    }
+
+    this.scheduleEdit();
+  }
+
+  /**
+   * Feed an indicator that the model is thinking or calling tools.
+   */
+  feedThought(): void {
+    this.isThinking = true;
     this.scheduleEdit();
   }
 
@@ -52,7 +109,11 @@ export class LiveEditor {
    * Finalize with the complete response text.
    * Sends or updates the message with the full response (chunked if needed).
    */
-  async finalize(fullText: string, chunkFn: (text: string) => string[]): Promise<string[]> {
+  async finalize(
+    fullText: string,
+    chunkFn: (text: string) => string[],
+    options: FinalizeOptions = {},
+  ): Promise<string[]> {
     this.finished = true;
     this.clearTimers();
 
@@ -61,25 +122,32 @@ export class LiveEditor {
       await this.editInFlight;
     }
 
-    if (!fullText.trim()) {
+    let sanitizedText = sanitizeFullResponse(fullText);
+
+    if (!sanitizedText) {
+      if (options.allowEmpty) {
+        if (this.message) {
+          await retrySend(() => this.message!.delete()).catch(() => {});
+        }
+        return [];
+      }
       await this.sendError('⚠️ Gemini returned an empty response. Try rephrasing.');
       return [];
     }
 
-    const chunks = chunkFn(fullText);
+    const chunks = chunkFn(sanitizedText);
 
     if (this.message) {
-      await withRetry(() => this.message!.edit(chunks[0]));
+      await retrySend(() => this.message!.edit(chunks[0]));
       this.sentMessageIds = [this.message.id];
-      const channel = this.message.channel;
       for (const chunk of chunks.slice(1)) {
-        const sent = await withRetry(() => channel.send(chunk));
+        const sent = await retrySend(() => this.channel!.send(chunk));
         this.sentMessageIds.push(sent.id);
       }
     } else {
       // If we never even created the first message, send it now
       for (const chunk of chunks) {
-        const sent = await withRetry(() => this.channel!.send(chunk));
+        const sent = await retrySend(() => this.channel!.send(chunk));
         this.sentMessageIds.push(sent.id);
       }
     }
@@ -99,9 +167,9 @@ export class LiveEditor {
     }
 
     if (this.message) {
-      await withRetry(() => this.message!.edit(text));
+      await retrySend(() => this.message!.edit(text));
     } else if (this.channel) {
-      await withRetry(() => this.channel!.send(text));
+      await retrySend(() => this.channel!.send(text));
     }
   }
 
@@ -120,36 +188,76 @@ export class LiveEditor {
   }
 
   private doEdit(): void {
-    if (this.finished || !this.channel) return;
+    if (this.finished || !this.channel || this.editInFlight) return;
+    if (!this.message && this.displayBuf.length === 0) return;
 
-    const content = (this.displayBuf + ' ▌').slice(0, 1990);
+    // Use a clean cursor indicator.
+    const indicator = this.isThinking ? ' ⏳' : ' ▌';
+
+    const baseContent = (this.displayBuf + indicator).slice(0, 1990);
+    const content = sanitizeStreamChunk(baseContent).trim();
+
+    if (content === this.lastSentContent) return;
+    this.lastSentContent = content;
 
     if (!this.message) {
-      // First time sending text, create the message instead of editing
-      this.editInFlight = withRetry(() => this.channel!.send(content))
+      // First time sending text — stop typing indicator, create the message
+      this.clearTypingInterval();
+      this.clearPlaceholderTimer();
+      this.editInFlight = retrySend(() => this.channel!.send(content))
         .then((msg) => {
           this.message = msg;
           this.lastEditAt = Date.now();
-          // Stop the native typing indicator now that a message exists
-          if (this.typingInterval) {
-            clearInterval(this.typingInterval);
-            this.typingInterval = null;
-          }
         })
         .catch(() => {})
         .finally(() => {
           this.editInFlight = null;
+          this.scheduleEdit(); // Schedule again if buf changed during flight
         });
     } else {
       // Subsequent updates, edit the existing message
-      this.editInFlight = withRetry(() => this.message!.edit(content))
+      this.editInFlight = retrySend(() => this.message!.edit(content))
         .then(() => {
           this.lastEditAt = Date.now();
         })
         .catch(() => {})
         .finally(() => {
           this.editInFlight = null;
+          this.scheduleEdit(); // Schedule again if buf changed during flight
         });
+    }
+  }
+
+  private sendPlaceholder(): void {
+    if (!this.channel || this.message || this.finished || this.editInFlight) return;
+
+    this.clearTypingInterval();
+    this.lastSentContent = this.placeholderText;
+    this.editInFlight = retrySend(() => this.channel!.send(this.placeholderText))
+      .then((msg) => {
+        this.message = msg;
+        this.lastEditAt = Date.now();
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.editInFlight = null;
+        if (this.displayBuf.length > 0 || this.isThinking) {
+          this.scheduleEdit();
+        }
+      });
+  }
+
+  private clearTypingInterval(): void {
+    if (this.typingInterval) {
+      clearInterval(this.typingInterval);
+      this.typingInterval = null;
+    }
+  }
+
+  private clearPlaceholderTimer(): void {
+    if (this.placeholderTimer) {
+      clearTimeout(this.placeholderTimer);
+      this.placeholderTimer = null;
     }
   }
 
@@ -158,9 +266,49 @@ export class LiveEditor {
       clearTimeout(this.editTimer);
       this.editTimer = null;
     }
-    if (this.typingInterval) {
-      clearInterval(this.typingInterval);
-      this.typingInterval = null;
-    }
+    this.clearPlaceholderTimer();
+    this.clearTypingInterval();
   }
+}
+
+// ── Performance Sanitizer ───────────────────────────────────────
+
+const RE_THOUGHT_TAGS = /\[Thought:?\s*(true|false)?\]/g;
+const RE_THOUGHT_SIMPLE = /\[Thought\]/g;
+const RE_ANALYZING_HEADER = /\*\*Analyzing[^\*]+\*\*/g;
+const RE_COT_BLOCK = /\*\*(?:Identifying|Conducting|Confirming|Formatting|Analyzing|Researching|Verifying|Processing|Evaluating|Examining)[^*]*\*\*\s*[^]*?(?=\*\*[A-Z]|\n\n(?=[A-Z])|\n*$)/g;
+const RE_STANDALONE_HEADER = /^\*\*(?:Identifying|Conducting|Confirming|Formatting|Analyzing|Researching|Verifying|Processing|Evaluating|Examining)[^*]*\*\*\s*/gm;
+const RE_META_NARRATION_IM = /^I'm (?:currently|now) (?:focused on|executing|proceeding|drafting|conducting)[^\n]*\n?/gm;
+const RE_META_NARRATION_MY = /^My (?:initial assessment|focus is on|identification)[^\n]*\n?/gm;
+const RE_EXCESSIVE_LINES = /\n{3,}/g;
+const RE_SEND_DIRECTIVE = /\[SEND:[^\]]+\][\s\S]*?\[\/SEND\]/g;
+const RE_MARKDOWN_IMAGE = /!\[([^\]]*)\]\(((?:https?|file):\/\/[^)]+|(?:\/|~\/)[^)]+)\)/g;
+
+/**
+ * Strips internal reasoning and chain-of-thought leaks from the final response.
+ */
+function sanitizeFullResponse(text: string): string {
+  return text
+    .replace(RE_THOUGHT_TAGS, '')
+    .replace(RE_THOUGHT_SIMPLE, '')
+    .replace(RE_COT_BLOCK, '')
+    .replace(RE_STANDALONE_HEADER, '')
+    .replace(RE_META_NARRATION_IM, '')
+    .replace(RE_META_NARRATION_MY, '')
+    .replace(RE_SEND_DIRECTIVE, '')
+    .replace(RE_MARKDOWN_IMAGE, '')
+    .replace(RE_EXCESSIVE_LINES, '\n\n')
+    .trim();
+}
+
+/**
+ * Lightweight sanitizer for live streaming chunks.
+ */
+function sanitizeStreamChunk(text: string): string {
+  return text
+    .replace(RE_THOUGHT_TAGS, '')
+    .replace(RE_THOUGHT_SIMPLE, '')
+    .replace(RE_ANALYZING_HEADER, '')
+    .replace(RE_SEND_DIRECTIVE, '')
+    .replace(RE_MARKDOWN_IMAGE, '');
 }
