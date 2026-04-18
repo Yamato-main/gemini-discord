@@ -384,8 +384,7 @@ export function buildDiscordAdapterInstruction(options: {
 - Never interpret "him", "her", or "them" as referring to yourself unless the message clearly points to you.
 - Keep replies natural for Discord: readable markdown, concise by default, expand only when helpful.
 - Image analysis is mandatory when attachments are present.
-- Outbound images: to send an image as a Discord attachment, output a markdown image with the ABSOLUTE path (e.g. ![description](/absolute/path/to/local/image.png)).
-- Local File Discovery: You are running on macOS. When asked for an image (e.g., "a random luffy image"), employ a two-step intelligent process: 1) First, search by name using Spotlight via the \`mdfind\` CLI tool (e.g., \`mdfind "luffy kind:image" | head -n 5\`). 2) If no files are found by name, use your innate image processing power to scan likely folders (e.g., list files in ~/Pictures or ~/Downloads) and analyze them to find one matching the description. NEVER run unbounded \`find /\` or \`find ~\`, as they will hang the daemon. Once found, output the ABSOLUTE path.
+- Outbound images: to send an image as a Discord attachment, include it as a markdown image in your response (e.g. ![description](https://url/to/image.png) or ![description](/absolute/path/to/local/image.png)). The media pipeline will download and attach it automatically.
 ${bossLine}
 - Read-only web grounding for truthfulness is allowed for any speaker when needed.
 ${freshnessInstruction}
