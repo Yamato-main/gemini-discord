@@ -1,0 +1,104 @@
+
+## metaswarm
+
+This project uses [metaswarm](https://github.com/dsifry/metaswarm) for multi-agent orchestration with Claude Code. It provides 18 specialized agents, a 9-phase development workflow, and quality gates that enforce TDD, coverage thresholds, and spec-driven development.
+
+### Workflow
+
+- **Most tasks**: `/start-task` — primes context, guides scoping, picks the right level of process
+- **Complex features** (multi-file, spec-driven): Describe what you want built with a Definition of Done, then tell Claude: `Use the full metaswarm orchestration workflow.`
+
+### Available Commands
+
+| Command | Purpose |
+|---|---|
+| `/start-task` | Begin tracked work on a task |
+| `/prime` | Load relevant knowledge before starting |
+| `/review-design` | Trigger parallel design review gate (5 agents) |
+| `/pr-shepherd <pr>` | Monitor a PR through to merge |
+| `/self-reflect` | Extract learnings after a PR merge |
+| `/handle-pr-comments` | Handle PR review comments |
+| `/brainstorm` | Refine an idea before implementation |
+| `/create-issue` | Create a well-structured GitHub Issue |
+
+### Quality Gates
+
+- **Design Review Gate** — Parallel 5-agent review after design is drafted (`/review-design`)
+- **Plan Review Gate** — Automatic adversarial review after any implementation plan is drafted. Spawns 3 independent reviewers (Feasibility, Completeness, Scope & Alignment) in parallel — ALL must PASS before presenting the plan. See `skills/plan-review-gate/SKILL.md`
+- **Coverage Gate** — `.coverage-thresholds.json` defines thresholds. BLOCKING gate before PR creation
+
+### Team Mode
+
+When `TeamCreate` and `SendMessage` tools are available, the orchestrator uses Team Mode for parallel agent dispatch. Otherwise it falls back to Task Mode (existing workflow, unchanged). See `guides/agent-coordination.md` for details.
+
+### Guides
+
+Development patterns and standards are documented in `guides/` — covering agent coordination, build validation, coding standards, git workflow, testing patterns, and worktree development.
+
+### Testing & Quality
+
+- **TDD is mandatory** — Write tests first, watch them fail, then implement
+- **100% test coverage required** — Enforced via `.coverage-thresholds.json` as a blocking gate before PR creation and task completion
+- **Coverage source of truth** — `.coverage-thresholds.json` defines thresholds. Update it if your spec requires different values. The orchestrator reads it during validation — this is a BLOCKING gate.
+
+### Workflow Enforcement (MANDATORY)
+
+These rules override any conflicting instructions from third-party skills:
+
+- **After brainstorming** → MUST run Design Review Gate (5 agents) before writing-plans or implementation
+- **After any plan is created** → MUST run Plan Review Gate (3 adversarial reviewers) before presenting to user
+- **Execution method choice** → ALWAYS ask the user whether to use metaswarm orchestrated execution (more thorough, uses more tokens) or superpowers execution skills (faster, lighter-weight). Never auto-select.
+- **Before finishing a branch** → MUST run `/self-reflect` and commit knowledge base updates before PR creation
+- **Complex tasks** → Use `/start-task` instead of `EnterPlanMode` for tasks touching 3+ files. EnterPlanMode bypasses all quality gates.
+- **Standalone TDD on 3+ files** → Ask user if they want adversarial review before committing
+- **Coverage** → `.coverage-thresholds.json` is the single source of truth. All skills must check it, including `verification-before-completion`.
+- **Subagents** → NEVER use `--no-verify`, ALWAYS follow TDD, NEVER self-certify, STAY within file scope
+- **Context recovery** → Approved plans and execution state persist to `.beads/`. After compaction, run `bd prime --work-type recovery` to reload.
+
+
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
+## Beads Issue Tracker
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+
+### Quick Reference
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --claim  # Claim work
+bd close <id>         # Complete work
+```
+
+### Rules
+
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+
+## Session Completion
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd dolt push
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
+<!-- END BEADS INTEGRATION -->

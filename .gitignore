@@ -1,10 +1,32 @@
 .env
+.env.local
+.env.*.local
 .memory.json
 .memory.json.tmp
 start-daemon.sh
 dist/
 node_modules/
+coverage/
+build/
+*.db
 *.log
+*.jsonl
+tmp/
 .DS_Store
 .gemini-discord/
-tmp/
+!.env.example
+
+# BEADS runtime
+.beads/beads.db
+.beads/daemon.lock
+.beads/daemon.pid
+.beads/daemon.log
+.beads/temp/
+
+# BEADS execution state (working files for context recovery)
+.beads/context/
+.beads/plans/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
