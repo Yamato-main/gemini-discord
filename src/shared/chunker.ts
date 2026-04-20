@@ -1,21 +1,23 @@
 /**
  * Markdown-safe message chunker for Discord's 2000-character limit.
- * Preserves code fences across chunk boundaries.
+ * Preserves code fences across chunk boundaries with automatic repair.
  */
 
 const CHUNK_LIMIT = 1990;
-const LARGE_RESPONSE_CUT = 6000;
+const LARGE_RESPONSE_CUT = 8000;
 
 /**
  * Split a message into Discord-safe chunks.
  * Preserves markdown code fences and paragraph boundaries.
+ * Repairs broken fences across chunk boundaries.
  * Truncates responses exceeding LARGE_RESPONSE_CUT with a warning.
  */
 export function chunkMessage(text: string): string[] {
   let wasTruncated = false;
 
   if (text.length > LARGE_RESPONSE_CUT) {
-    text = text.slice(0, LARGE_RESPONSE_CUT);
+    // Truncate at a fence-safe boundary
+    text = safeTruncate(text, LARGE_RESPONSE_CUT);
     wasTruncated = true;
   }
 
@@ -43,7 +45,9 @@ export function chunkMessage(text: string): string[] {
     chunks.push('⚠️ Response truncated. Ask me to continue or narrow the question.');
   }
 
-  return chunks.filter(Boolean);
+  // Repair any code fences broken across chunk boundaries
+  const repaired = repairFences(chunks.filter(Boolean));
+  return repaired;
 }
 
 /**
@@ -86,4 +90,78 @@ function findSafeSplit(text: string, limit: number): number {
   if (lastSafeNewline > limit * 0.3) return lastSafeNewline;
   // Hard split as last resort
   return limit;
+}
+
+/**
+ * Truncate text at a fence-safe boundary.
+ * Ensures we don't cut inside an open code fence.
+ */
+function safeTruncate(text: string, limit: number): string {
+  const truncated = text.slice(0, limit);
+
+  // Count fence toggles
+  let insideFence = false;
+  const fenceRegex = /^```/gm;
+  let match: RegExpExecArray | null;
+
+  while ((match = fenceRegex.exec(truncated)) !== null) {
+    insideFence = !insideFence;
+  }
+
+  // If we're inside a fence after truncation, close it
+  if (insideFence) {
+    return truncated + '\n```';
+  }
+
+  return truncated;
+}
+
+/**
+ * Repair code fences broken across chunk boundaries.
+ * If a chunk ends inside an open fence, closes it and opens the next chunk
+ * with the same fence language.
+ */
+function repairFences(chunks: string[]): string[] {
+  if (chunks.length <= 1) return chunks;
+
+  const repaired: string[] = [];
+  let carryFence: string | null = null;
+
+  for (let i = 0; i < chunks.length; i++) {
+    let chunk = chunks[i];
+
+    // If previous chunk left a fence open, re-open it here
+    if (carryFence) {
+      chunk = carryFence + '\n' + chunk;
+      carryFence = null;
+    }
+
+    // Count fence state in this chunk
+    let insideFence = false;
+    let lastOpenFence = '';
+    const lines = chunk.split('\n');
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('```')) {
+        if (!insideFence) {
+          insideFence = true;
+          lastOpenFence = trimmed; // e.g. "```typescript"
+        } else {
+          insideFence = false;
+          lastOpenFence = '';
+        }
+      }
+    }
+
+    if (insideFence && i < chunks.length - 1) {
+      // This chunk ends inside a code fence — close it, carry to next
+      chunk += '\n```';
+      carryFence = lastOpenFence || '```';
+    }
+
+    repaired.push(chunk);
+  }
+
+  return repaired;
 }

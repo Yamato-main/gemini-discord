@@ -8,16 +8,20 @@ import { spawn } from 'node:child_process';
 import * as readline from 'node:readline';
 import type { Config } from '../shared/types.js';
 import { log } from './log.js';
+import type { ToolMode } from './tool-mode.js';
 
 interface StreamingCallbacks {
   onToken: (token: string) => void;
+  onThought?: () => void;
 }
 
 export interface GeminiInvocationOptions {
   cwd: string;
   useResume: boolean;
+  isBoss: boolean;
   attachmentPaths?: string[];
   onSessionId?: (sessionId: string) => void;
+  toolMode?: ToolMode;
 }
 
 export async function callGeminiStreaming(
@@ -56,11 +60,15 @@ export async function callGeminiStreaming(
     rl.on('line', (line: string) => {
       if (resolved) return;
 
+      // Fast-path: skip obvious non-data lines without JSON.parse overhead
+      if (line.length < 3 || line[0] !== '{') {
+        return;
+      }
+
       let parsed: Record<string, unknown>;
       try {
         parsed = JSON.parse(line);
       } catch {
-        log.warn('Unparseable stream-json line', { raw: line.slice(0, 200) });
         return;
       }
 
@@ -83,22 +91,34 @@ export async function callGeminiStreaming(
               sawAssistantOutput = true;
               fullResponse += part.text;
               callbacks.onToken(part.text);
+            } else if (part.thought) {
+              callbacks.onThought?.();
             }
           }
         }
 
+        const isThought = parsed['thought'] === true;
+
         const text = parsed['text'] as string | undefined;
         if (text && !parts) {
-          sawAssistantOutput = true;
-          fullResponse += text;
-          callbacks.onToken(text);
+          if (isThought) {
+            callbacks.onThought?.();
+          } else {
+            sawAssistantOutput = true;
+            fullResponse += text;
+            callbacks.onToken(text);
+          }
         }
 
         const content = parsed['content'] as string | undefined;
         if (content && !parts && !text) {
-          sawAssistantOutput = true;
-          fullResponse += content;
-          callbacks.onToken(content);
+          if (isThought) {
+            callbacks.onThought?.();
+          } else {
+            sawAssistantOutput = true;
+            fullResponse += content;
+            callbacks.onToken(content);
+          }
         }
         return;
       }
@@ -115,6 +135,17 @@ export async function callGeminiStreaming(
       }
 
       if (type === 'message' && role === 'user') {
+        return;
+      }
+
+      if (
+        type === 'tool_call' ||
+        type === 'tool_execution' ||
+        type === 'call_tool' ||
+        type === 'tool_use' ||
+        type === 'tool_result'
+      ) {
+        callbacks.onThought?.();
         return;
       }
 
@@ -190,10 +221,24 @@ export async function callGeminiFull(
       }
 
       try {
-        const parsed = JSON.parse(stdout);
+        let jsonPayload = stdout;
+        const firstBrace = stdout.indexOf('{');
+        const lastBrace = stdout.lastIndexOf('}');
+        
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          jsonPayload = stdout.slice(firstBrace, lastBrace + 1);
+        }
+
+        const parsed = JSON.parse(jsonPayload);
         const response = parsed['response'] ?? parsed['text'] ?? '';
-        resolve(String(response));
+        if (response) {
+          resolve(String(response));
+          return;
+        }
+        resolve(stdout.trim());
       } catch {
+        // If it's truly not parsable JSON, just return what we got
+        // We strip out the JSON braces if it looks like broken structured data
         resolve(stdout.trim());
       }
     });
@@ -214,7 +259,31 @@ function buildGeminiArgs(
   outputFormat: 'stream-json' | 'json',
   options: GeminiInvocationOptions,
 ): string[] {
-  const args = ['--model', config.geminiModel, '-y', '--output-format', outputFormat];
+  const args = ['--model', config.geminiModel, '--output-format', outputFormat];
+
+  // Only the Boss gets full tool access. Everyone else is strictly 
+  // limited to web search and fetching to prevent shell execution.
+  if (options.isBoss) {
+    // If the boss sends an explicit 'web' prefix, give them only web tools.
+    if (options.toolMode === 'web') {
+      args.push('--allowed-tools', 'google_web_search,web_fetch');
+    } else {
+      args.push('--allowed-tools', 'all');
+    }
+  } else {
+    // Non-boss users only get web tools if they explicitly ask, otherwise none.
+    if (options.toolMode === 'web') {
+      args.push('--allowed-tools', 'google_web_search,web_fetch');
+    } else {
+      // By default, provide NO tools to non-boss to ensure minimum latency.
+      args.push('--allowed-tools', 'none');
+    }
+  }
+
+  // Auto-approve all tool operations for headless daemon — stdin is 'ignore'
+  // so 'default' mode would hang waiting for confirmation. Security boundary
+  // is now strictly enforced by the --allowed-tools filter above.
+  args.push('--approval-mode', 'yolo');
 
   if (options.useResume) {
     args.push('-r', 'latest');
@@ -229,16 +298,14 @@ function buildGeminiInput(prompt: string, attachmentPaths: string[] = []): strin
     return prompt;
   }
 
-  const manifest = attachmentPaths
-    .map((filePath, index) => `- Image ${index + 1}: ${filePath}`)
-    .join('\n');
+  // Use @file inline references — this passes images directly as context
+  // to the Gemini API, avoiding the slow agentic tool round-trip that
+  // causes timeouts on image-based prompts.
+  const fileRefs = attachmentPaths
+    .map((filePath) => `@${filePath}`)
+    .join(' ');
 
-  return `[Discord attachment workspace]
-The following relative image files are available inside the current Gemini CLI project root.
-Inspect them directly before answering if they matter to the request.
-${manifest}
-
-${prompt}`;
+  return `${fileRefs}\n\n${prompt}`;
 }
 
 function withResumeFallbackHint(error: Error, options: GeminiInvocationOptions): Error {

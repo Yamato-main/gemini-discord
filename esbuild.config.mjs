@@ -15,4 +15,4 @@ await Promise.all([
   build({ ...shared, entryPoints: ['scripts/setup.ts'], outfile: 'dist/setup.cjs' }),
 ]);
 
-console.log('Build complete: dist/daemon.cjs, dist/server.cjs, dist/setup.cjs');
+console.log('✅ Build complete: dist/daemon.cjs, dist/server.cjs, dist/setup.cjs');

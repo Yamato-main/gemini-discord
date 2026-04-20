@@ -3,35 +3,25 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Always-on Discord gateway for Gemini CLI. Bidirectional chat, conversation memory, streaming responses.",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Yamato-atk/gemini-discord.git"
-  },
-  "keywords": [
-    "gemini",
-    "discord",
-    "bot",
-    "mcp",
-    "ai",
-    "agent"
-  ],
-  "author": "Yamato",
   "scripts": {
     "build": "node esbuild.config.mjs",
-    "dev:daemon": "npx tsx watch src/daemon.ts",
+    "dev:daemon": "npx tsx watch --ignore 'daemon.log' --ignore '*.sqlite*' --ignore '.env' src/daemon.ts",
     "start:daemon": "node dist/daemon.cjs",
     "start:server": "node dist/server.cjs",
     "setup": "node dist/setup.cjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@google/genai": "^1.50.1",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "discord.js": "^14.18.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^3.2.4",
     "esbuild": "^0.25.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",

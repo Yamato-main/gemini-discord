@@ -67,11 +67,9 @@ export interface PromptInput {
 export interface BuildDiscordPromptOptions {
   incoming: PromptInput;
   history?: ConversationMessage[];
-  bindingKey?: string;
   bossUserId?: string;
   promptHistoryMessageLimit?: number;
   promptHistoryCharBudget?: number;
-  toolMode?: 'chat' | 'web';
 }
 
 export class ConversationMemory {
@@ -341,55 +339,34 @@ export function buildDiscordPrompt(options: BuildDiscordPromptOptions): string {
     options.bossUserId,
   );
   const historyBlock = omittedCount > 0
-    ? `(omitted ${omittedCount} earlier messages from this prompt for speed; full conversation is still stored in persistent memory)\n${transcript}`
+    ? `(${omittedCount} earlier messages omitted)\n${transcript}`
     : transcript;
 
-  return `${buildDiscordAdapterInstruction({
-    bindingKey: options.bindingKey,
-    bossUserId: options.bossUserId,
-    toolMode: options.toolMode ?? 'chat',
-  })}
+  return `${buildDiscordAdapterInstruction({ bossUserId: options.bossUserId })}
 
-[Active Discord participants]
+[Participants]
 ${buildActiveParticipantRoster(history, options.incoming, { bossUserId: options.bossUserId })}
 
-[Conversation history]
+[History]
 ${historyBlock}
 
-[Incoming Discord message]
+[Message]
 ${formatIncomingDiscordMessage(options.incoming, { bossUserId: options.bossUserId })}`;
 }
 
 export function buildDiscordAdapterInstruction(options: {
-  bindingKey?: string;
   bossUserId?: string;
-  toolMode?: 'chat' | 'web';
 } = {}): string {
-  const toolMode = options.toolMode ?? 'chat';
-  const context = options.bindingKey ? `Session: ${options.bindingKey}` : 'Discord conversation';
-
-  const freshnessInstruction = toolMode === 'web'
-    ? '- This turn is freshness-sensitive. Verify dynamic or recent facts with web/search before answering.'
-    : '- If a question depends on dynamic or recent facts, verify with web/search before answering.';
   const bossLine = options.bossUserId
-    ? `- Boss Discord ID: ${options.bossUserId}. Only the Boss may authorize privileged write/side-effect actions such as cross-channel sends or local write operations.`
-    : '- Only the designated Boss may authorize privileged write/side-effect actions such as cross-channel sends or local write operations.';
+    ? `- Boss Discord ID: ${options.bossUserId}.`
+    : '';
 
-  return `[DISCORD ADAPTER]
-- You are operating inside Discord. Keep the existing Gemini identity and instructions you already have; do not invent or restate a new persona unless a user explicitly asks.
-- Context: ${context}.
-- You have full CLI tool access: shell commands, file read/write, web search, and all other tools. Use them when the task requires it.
-- Distinguish Discord speakers by handle and ID. Never collapse multiple humans or agents into one generic "user".
-- Resolve pronouns and references using the reply target first, then the recent participant roster and transcript.
-- Never interpret "him", "her", or "them" as referring to yourself unless the message clearly points to you.
-- Keep replies natural for Discord: readable markdown, concise by default, expand only when helpful.
-- Image analysis is mandatory when attachments are present.
-- Outbound images: to send an image as a Discord attachment, include it as a markdown image in your response (e.g. ![description](https://url/to/image.png) or ![description](/absolute/path/to/local/image.png)). The media pipeline will download and attach it automatically.
+  return `[DISCORD CONTEXT]
+- You are currently operating inside Discord as an extension of the Gemini CLI.
+- Format responses in Discord-compatible Markdown.
 ${bossLine}
-- Read-only web grounding for truthfulness is allowed for any speaker when needed.
-${freshnessInstruction}
 ${getChannelMapContext()}
-[/DISCORD ADAPTER]`;
+[/DISCORD CONTEXT]`;
 }
 
 export function formatIncomingDiscordMessage(
@@ -544,6 +521,19 @@ function isMemoryFileV3(value: unknown): value is MemoryFileV3 {
   return maybe.version === 3 && typeof maybe.sessions === 'object' && maybe.sessions !== null;
 }
 
+function migrateSessionKey(key: string): string {
+  if (key.startsWith('channel:') || key.startsWith('dm:') || key === 'global') {
+    return key;
+  }
+
+  // If the key looks like a Discord snowflake (17-21 digits)
+  if (/^[0-9]{17,21}$/.test(key)) {
+    return `channel:${key}`;
+  }
+
+  return key;
+}
+
 /**
  * Coerce V2 sessions (no lastAccessedAt) — migrates to SessionEntry format.
  */
@@ -551,14 +541,14 @@ function coerceSessionsV2(raw: Record<string, unknown>): Map<string, SessionEntr
   const map = new Map<string, SessionEntry>();
   const now = Date.now();
 
-  for (const [key, value] of Object.entries(raw)) {
+  for (const [rawKey, value] of Object.entries(raw)) {
     if (!Array.isArray(value)) continue;
-    map.set(key, {
-      messages: value
-        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
-        .map((entry) => coerceMessage(entry)),
-      lastAccessedAt: now,
-    });
+    const coercedMessages = value
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      .map((entry) => coerceMessage(entry));
+
+    const key = migrateSessionKey(rawKey);
+    mergeIntoSessionMap(map, key, coercedMessages, now);
   }
 
   return map;
@@ -573,18 +563,51 @@ function coerceSessionsV3(
   const map = new Map<string, SessionEntry>();
   const now = Date.now();
 
-  for (const [key, value] of Object.entries(raw)) {
+  for (const [rawKey, value] of Object.entries(raw)) {
     if (typeof value !== 'object' || value === null) continue;
     const messages = Array.isArray(value.messages) ? value.messages : [];
-    map.set(key, {
-      messages: messages
-        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
-        .map((entry) => coerceMessage(entry)),
-      lastAccessedAt: typeof value.lastAccessedAt === 'number' ? value.lastAccessedAt : now,
-    });
+    const coercedMessages = messages
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      .map((entry) => coerceMessage(entry));
+
+    const lastAccessedAt = typeof value.lastAccessedAt === 'number' ? value.lastAccessedAt : now;
+    const key = migrateSessionKey(rawKey);
+
+    mergeIntoSessionMap(map, key, coercedMessages, lastAccessedAt);
   }
 
   return map;
+}
+
+function mergeIntoSessionMap(
+  map: Map<string, SessionEntry>,
+  key: string,
+  messages: ConversationMessage[],
+  lastAccessedAt: number,
+): void {
+  const existing = map.get(key);
+  if (existing) {
+    const allMessages = [...existing.messages, ...messages];
+    const seen = new Set<string>();
+    
+    existing.messages = allMessages
+      .filter((msg) => {
+        // Deduplicate by messageId or content+timestamp fingerprint
+        const id = msg.messageId || `${msg.createdAt}-${msg.content.slice(0, 100)}`;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeA - timeB;
+      });
+    
+    existing.lastAccessedAt = Math.max(existing.lastAccessedAt, lastAccessedAt);
+  } else {
+    map.set(key, { messages, lastAccessedAt });
+  }
 }
 
 function coerceMessage(entry: Record<string, unknown>): ConversationMessage {
@@ -672,16 +695,16 @@ function describeSpeaker(
   bossUserId?: string,
 ): string {
   if (authorId && bossUserId && authorId === bossUserId) {
-    return 'boss';
+    return 'Boss — full authority';
   }
 
   switch (speakerKind) {
     case 'agent':
-      return 'peer agent';
+      return 'Peer agent';
     case 'assistant':
-      return 'assistant';
+      return 'Assistant';
     default:
-      return 'human';
+      return 'Human user';
   }
 }
 

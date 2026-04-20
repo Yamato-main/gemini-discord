@@ -48,18 +48,18 @@ describe('resolveGeminiBindingKey', () => {
 });
 
 describe('binding workspace state', () => {
-  it('creates workspace folders and syncs project files', () => {
-    const workspace = ensureGeminiBindingWorkspace(tmpDir, 'guild:g1');
+  it('creates workspace folders without shadowing the user agent identity file', async () => {
+    const workspace = await ensureGeminiBindingWorkspace(tmpDir, 'guild:g1');
     expect(fs.existsSync(workspace.bindingDir)).toBe(true);
-    expect(fs.existsSync(path.join(workspace.bindingDir, 'GEMINI.md'))).toBe(true);
+    expect(fs.existsSync(path.join(workspace.bindingDir, 'GEMINI.md'))).toBe(false);
     expect(fs.existsSync(path.join(workspace.bindingDir, '.geminiignore'))).toBe(true);
   });
 
-  it('persists binding session state', () => {
-    const workspace = ensureGeminiBindingWorkspace(tmpDir, 'guild:g1');
-    saveBindingState(workspace.bindingDir, { hasSession: true, lastSessionId: 'session-123' });
+  it('persists binding session state', async () => {
+    const workspace = await ensureGeminiBindingWorkspace(tmpDir, 'guild:g1');
+    await saveBindingState(workspace.bindingDir, { hasSession: true, lastSessionId: 'session-123' });
 
-    expect(loadBindingState(workspace.bindingDir)).toEqual({
+    await expect(loadBindingState(workspace.bindingDir)).resolves.toEqual({
       hasSession: true,
       lastSessionId: 'session-123',
     });

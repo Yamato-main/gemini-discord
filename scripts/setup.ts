@@ -7,7 +7,9 @@ import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { parseEnvFile, resolveExtensionDir, splitIds } from '../src/shared/config.js';
 
-const extensionDir = resolveExtensionDir(__dirname);
+let tmpDir = process.cwd();
+try { tmpDir = __dirname; } catch {}
+const extensionDir = resolveExtensionDir(tmpDir);
 const envPath = path.join(extensionDir, '.env');
 const launchAgentLabel = 'com.gemini-discord.daemon';
 
@@ -23,6 +25,7 @@ async function main(): Promise<void> {
       discordBotToken: await ask(rl, 'Discord Bot Token', existing['DISCORD_BOT_TOKEN'], true),
       discordChannelId: await ask(rl, 'Primary Discord Channel ID', existing['DISCORD_CHANNEL_ID']),
       ownerIds: splitCsv(await ask(rl, 'Owner Discord User IDs (comma-separated)', existing['DISCORD_OWNER_IDS'])),
+      discordBossId: '',
       allowedChannelIds: splitCsv(await ask(rl, 'Allowed Channel IDs (comma-separated)', existing['ALLOWED_CHANNEL_IDS'])),
       allowedUserIds: splitCsv(await ask(
         rl,
@@ -38,17 +41,17 @@ async function main(): Promise<void> {
       requireMention: await askBoolean(rl, 'Require mention/reply in guild channels?', existing['REQUIRE_MENTION'], false),
       respondToReplies: await askBoolean(rl, 'Respond when users reply to the bot?', existing['RESPOND_TO_REPLIES'], true),
       enableDMs: await askBoolean(rl, 'Enable Discord DMs?', existing['ENABLE_DMS'], true),
-      memoryScope: await askEnum(rl, 'Memory scope', existing['MEMORY_SCOPE'] || 'global', ['global', 'channel']),
+      memoryScope: await askEnum(rl, 'Memory scope', existing['MEMORY_SCOPE'] || 'channel', ['global', 'channel']),
       useGeminiCliSessions: await askBoolean(
         rl,
         'Reuse real Gemini CLI sessions for Discord bindings?',
         existing['USE_GEMINI_CLI_SESSIONS'],
-        true,
+        false,
       ),
       geminiSessionBindingScope: await askEnum(
         rl,
         'Gemini session binding scope',
-        existing['GEMINI_SESSION_BINDING_SCOPE'] || 'server',
+        existing['GEMINI_SESSION_BINDING_SCOPE'] || 'channel',
         ['server', 'channel', 'global'],
       ),
       geminiPath: await ask(rl, 'Gemini CLI path', existing['GEMINI_PATH'] || 'gemini'),
@@ -56,12 +59,18 @@ async function main(): Promise<void> {
       daemonPort: await ask(rl, 'Daemon port', existing['DAEMON_PORT'] || '18790'),
       streaming: await askBoolean(rl, 'Use streaming replies?', existing['STREAMING'], true),
       autoStartDaemon: await askBoolean(rl, 'Auto-start daemon when the extension runs?', existing['AUTO_START_DAEMON'], true),
-      conversationHistoryLength: await ask(rl, 'Conversation history length (pairs)', existing['CONVERSATION_HISTORY_LENGTH'] || '10'),
+      conversationHistoryLength: await ask(rl, 'Conversation history length (pairs)', existing['CONVERSATION_HISTORY_LENGTH'] || '30'),
       queueMaxDepth: await ask(rl, 'Queue max depth', existing['QUEUE_MAX_DEPTH'] || '20'),
       geminiTimeoutMs: await ask(rl, 'Gemini timeout (ms)', existing['GEMINI_TIMEOUT_MS'] || '300000'),
       daemonApiToken: existing['DAEMON_API_TOKEN'] || crypto.randomBytes(32).toString('hex'),
       discordResetCmd: existing['DISCORD_RESET_CMD'] || '!reset',
     };
+
+    config.discordBossId = await ask(
+      rl,
+      'Boss Discord User ID (privileged actions only)',
+      existing['DISCORD_BOSS_ID'] || config.ownerIds[0],
+    );
 
     if (!config.allowedChannelIds.includes(config.discordChannelId)) {
       config.allowedChannelIds.unshift(config.discordChannelId);
@@ -71,6 +80,7 @@ async function main(): Promise<void> {
 
     validateRequired(config.discordBotToken, 'Discord Bot Token');
     validateRequired(config.discordChannelId, 'Primary Discord Channel ID');
+    validateRequired(config.discordBossId, 'Boss Discord User ID');
     validateList(config.ownerIds, 'Owner Discord User IDs');
     validateList(config.allowedChannelIds, 'Allowed Channel IDs');
 
@@ -79,6 +89,7 @@ async function main(): Promise<void> {
       `DISCORD_BOT_TOKEN=${config.discordBotToken}`,
       `DISCORD_CHANNEL_ID=${config.discordChannelId}`,
       `DISCORD_OWNER_IDS=${config.ownerIds.join(',')}`,
+      `DISCORD_BOSS_ID=${config.discordBossId}`,
       `ALLOWED_CHANNEL_IDS=${config.allowedChannelIds.join(',')}`,
       `DISCORD_ALLOWED_USER_IDS=${finalAllowedUsers.join(',')}`,
       `DISCORD_ALLOWED_AGENT_IDS=${config.allowedAgentIds.join(',')}`,
@@ -119,28 +130,14 @@ async function main(): Promise<void> {
         const plistPath = installLaunchAgent();
         output.write(`Installed launchd service at ${plistPath}\n`);
       }
-    } else if (process.platform === 'linux') {
-      const installService = await askBoolean(
-        rl,
-        'Install or refresh the Linux systemd service now?',
-        '',
-        false,
-      );
-
-      if (installService) {
-        ensureBuiltArtifacts();
-        const servicePath = installSystemdService();
-        output.write(`Installed systemd service at ${servicePath}\n`);
-        output.write(`Run: systemctl --user enable --now gemini-discord\n`);
-      }
     } else {
-      output.write('Service install skipped: unsupported OS.\n');
+      output.write('launchd install skipped: not running on macOS.\n');
     }
 
     output.write('\nSetup complete.\n');
     output.write('Next steps:\n');
     output.write('- Link the extension with `gemini extensions link .`\n');
-    output.write('- If you skipped service installation, start the daemon manually with `npm run start:daemon`\n');
+    output.write('- If you skipped launchd, start the daemon manually with `npm run start:daemon`\n');
   } finally {
     rl.close();
   }
@@ -205,44 +202,6 @@ function buildLaunchAgentPlist(daemonEntry: string, logPath: string): string {
     </dict>
   </dict>
 </plist>
-`;
-}
-
-function installSystemdService(): string {
-  const daemonEntry = path.join(extensionDir, 'dist', 'daemon.cjs');
-  const serviceName = 'gemini-discord.service';
-  const systemdDir = path.join(os.homedir(), '.config', 'systemd', 'user');
-  const servicePath = path.join(systemdDir, serviceName);
-
-  fs.mkdirSync(systemdDir, { recursive: true });
-  fs.writeFileSync(servicePath, buildSystemdService(daemonEntry), 'utf-8');
-
-  try {
-    execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' });
-  } catch {
-    // Ignore: systemctl might not be available or command failed
-  }
-  
-  return servicePath;
-}
-
-function buildSystemdService(daemonEntry: string): string {
-  const nodePath = process.execPath;
-  const safePath = process.env.PATH ?? '';
-
-  return `[Unit]
-Description=Gemini Discord Daemon
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=${nodePath} ${daemonEntry}
-WorkingDirectory=${extensionDir}
-Environment="PATH=${safePath}"
-Restart=always
-
-[Install]
-WantedBy=default.target
 `;
 }
 

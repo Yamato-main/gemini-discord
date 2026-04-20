@@ -68,16 +68,20 @@
   Peer bot IDs allowed to converse with Yamato-samurai.
 
 - `MEMORY_SCOPE`
+  `channel` is the better latency default because it avoids serializing the whole server behind one queue.
   `global` keeps one persistent memory across the whole configured Discord space.
-  `channel` isolates memory per channel.
 
 - `USE_GEMINI_CLI_SESSIONS`
-  When `true`, Discord bindings reuse Gemini CLI sessions instead of treating every turn as a fresh stateless prompt.
+  Keep this `false` for fast chat-style replies. Turning it `true` reuses Gemini CLI sessions, but it can also make Discord turns slower and more agentic.
 
 - `GEMINI_SESSION_BINDING_SCOPE`
+  `channel` is the safer default for responsiveness.
   `server` binds one Gemini session per guild and one per DM user.
-  `channel` binds per channel.
   `global` binds everything into one Gemini session.
+
+- `PROMPT_HISTORY_MAX_MESSAGES` / `PROMPT_HISTORY_MAX_CHARS`
+  Limit how much of the stored transcript is replayed into Gemini for each turn.
+  This is the main latency control when you want long-lived memory without replaying an entire server transcript.
 
 - `REQUIRE_MENTION`
   When `true`, guild messages must mention the bot, use the prefix, or reply to the bot.
@@ -106,11 +110,14 @@
 
 ```bash
 npm test
+npm run typecheck
 npm run build
 ```
 
 ## Notes
 
 - The daemon uses a single queue when memory is `global`, which prevents cross-channel race conditions from corrupting the shared transcript.
+- For lowest latency, keep `USE_GEMINI_CLI_SESSIONS=false`, `MEMORY_SCOPE=channel`, and `GEMINI_SESSION_BINDING_SCOPE=channel`.
+- Large `CONVERSATION_HISTORY_LENGTH` values are now safer because prompt replay is bounded by `PROMPT_HISTORY_MAX_MESSAGES` and `PROMPT_HISTORY_MAX_CHARS`.
 - macOS users can install the daemon as a background service through the setup wizard.
 - Discord rate limiting is retried automatically, and daemon memory is persisted atomically to `.memory.json`.

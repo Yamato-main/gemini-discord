@@ -5,7 +5,7 @@
 
 export type MemoryScope = 'global' | 'channel';
 export type SpeakerKind = 'human' | 'agent' | 'assistant';
-export type GeminiSessionBindingScope = 'global' | 'server' | 'channel';
+
 
 export interface ConversationAttachment {
   name: string;
@@ -20,6 +20,7 @@ export interface Config {
   discordBotToken: string;
   discordChannelId: string;
   ownerIds: string[];
+  discordBossId: string;
   allowedChannelIds: string[];
 
   // Routing / identity
@@ -30,13 +31,18 @@ export interface Config {
   daemonApiToken: string;
 
   // Optional with defaults
+  peerAgentId: string;
+  reportingChannelId: string;
   discordPrefix: string;
   discordResetCmd: string;
   daemonPort: number;
   geminiPath: string;
   geminiModel: string;
   geminiTimeoutMs: number;
+  geminiMaxConcurrent: number;
   conversationHistoryLength: number;
+  promptHistoryMessageLimit: number;
+  promptHistoryCharBudget: number;
   streaming: boolean;
   queueMaxDepth: number;
   enableDMs: boolean;
@@ -45,7 +51,7 @@ export interface Config {
   memoryScope: MemoryScope;
   autoStartDaemon: boolean;
   useGeminiCliSessions: boolean;
-  geminiSessionBindingScope: GeminiSessionBindingScope;
+  cliIdleTimeoutMs: number;
 }
 
 /** A single conversation message stored in persistent memory */
@@ -62,6 +68,8 @@ export interface ConversationMessage {
   guildName?: string | null;
   messageId?: string;
   replyToMessageId?: string | null;
+  replyToAuthorId?: string | null;
+  replyToAuthorName?: string | null;
   trigger?: string;
   createdAt?: string;
 }
@@ -113,7 +121,6 @@ export interface DaemonStatus {
   ownerIds: string[];
   enableDMs: boolean;
   sessionScope: MemoryScope;
-  geminiSessionBindingScope: GeminiSessionBindingScope;
   useGeminiCliSessions: boolean;
   allowlistedUsers: number;
   allowlistedAgents: number;

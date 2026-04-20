@@ -20,6 +20,9 @@ export interface AcceptedDiscordMessage {
   channelName: string;
   guildName: string | null;
   replyToMessageId: string | null;
+  replyToAuthorId: string | null;
+  replyToAuthorName: string | null;
+  isBoss: boolean;
 }
 
 export interface BotCallbacks {
@@ -90,7 +93,8 @@ export function setupMessageHandler(
     if (message.partial) {
       try {
         await message.fetch();
-      } catch {
+      } catch (err) {
+        log.warn('Failed to fetch partial message', { error: err instanceof Error ? err.message : String(err) });
         return;
       }
     }
@@ -100,8 +104,28 @@ export function setupMessageHandler(
     const isDM = !message.guild;
     const channelName = getChannelName(message);
     const guildName = message.guild?.name ?? null;
-    const replyToMessageId = message.reference?.messageId ?? null;
-    const repliedToBot = await isReplyToBot(message, client.user?.id ?? null, config.respondToReplies);
+
+    // Fast-fail routing checks to avoid expensive Discord API calls
+    if (message.author.id === client.user?.id) return;
+    if (isDM) {
+      if (!config.enableDMs) return;
+      // Security: Only the configured Boss may DM the bot directly.
+      if (message.author.id !== config.discordBossId) return;
+    } else {
+      if (!config.allowedChannelIds.includes(message.channelId)) return;
+    }
+
+    const replyContext = await getReplyContext(message);
+    const isAllowedHuman = !message.author.bot && (config.allowedUserIds.includes(message.author.id) || config.ownerIds.includes(message.author.id));
+    const isAllowedAgent = message.author.bot && config.allowedAgentIds.includes(message.author.id);
+    if (!isAllowedHuman && !isAllowedAgent) return;
+
+    const replyToMessageId = replyContext?.messageId ?? message.reference?.messageId ?? null;
+    const mentionedBot = client.user ? message.mentions.has(client.user) : false;
+    const hasPrefixTrigger = Boolean(config.discordPrefix) && message.content.trim().startsWith(config.discordPrefix);
+    const repliedToBot = (mentionedBot || hasPrefixTrigger)
+      ? false
+      : config.respondToReplies && replyContext?.authorId === (client.user?.id ?? null);
 
     const decision = shouldAcceptMessage({
       authorId: message.author.id,
@@ -115,7 +139,7 @@ export function setupMessageHandler(
       guildId: message.guildId ?? null,
       guildName,
       isDM,
-      mentionedBot: client.user ? message.mentions.has(client.user) : false,
+      mentionedBot,
       repliedToBot,
       replyToMessageId,
     }, config);
@@ -136,29 +160,49 @@ export function setupMessageHandler(
 
     callbacks.onMessage(message, {
       content: decision.content,
-      speakerKind: decision.speakerKind,
+      speakerKind: decision.speakerKind as 'human' | 'agent',
       trigger: decision.trigger,
       channelName,
       guildName,
       replyToMessageId,
+      replyToAuthorId: replyContext?.authorId ?? null,
+      replyToAuthorName: replyContext?.authorName ?? null,
+      isBoss: message.author.id === config.discordBossId,
     });
   });
 }
 
-async function isReplyToBot(
+interface ReplyContext {
+  messageId: string;
+  authorId: string;
+  authorName: string;
+}
+
+async function getReplyContext(
   message: Message,
-  botUserId: string | null,
-  enabled: boolean,
-): Promise<boolean> {
-  if (!enabled || !botUserId || !message.reference?.messageId) {
-    return false;
+): Promise<ReplyContext | null> {
+  if (!message.reference?.messageId) {
+    return null;
+  }
+
+  const cachedRef = message.channel.messages.cache.get(message.reference.messageId);
+  if (cachedRef) {
+    return {
+      messageId: cachedRef.id,
+      authorId: cachedRef.author.id,
+      authorName: cachedRef.author.tag,
+    };
   }
 
   try {
     const reference = await message.fetchReference();
-    return reference.author.id === botUserId;
+    return {
+      messageId: reference.id,
+      authorId: reference.author.id,
+      authorName: reference.author.tag,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 

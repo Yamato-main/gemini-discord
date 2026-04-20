@@ -13,6 +13,8 @@
 import type { Message, TextChannel, DMChannel, NewsChannel } from 'discord.js';
 import { withRetry, retrySend } from './retry.js';
 
+import { sanitizeStreamChunk } from './sanitizer.js';
+
 const STREAM_EDIT_INTERVAL = 1100; // Safe edit pacing (1 edit every 1.1s) avoiding Discord's 5 edits / 5s rate limit
 const DISPLAY_CAP = 1900;
 const FIRST_MESSAGE_THRESHOLD = 45; // Must be large enough to completely buffer `<@1485836823170121880>` before first API send
@@ -24,6 +26,7 @@ export interface LiveEditorOptions {
 
 export interface FinalizeOptions {
   allowEmpty?: boolean;
+  rawText?: string;
 }
 
 /** Concrete sendable channel — bots never encounter PartialGroupDMChannel. */
@@ -122,7 +125,7 @@ export class LiveEditor {
       await this.editInFlight;
     }
 
-    let sanitizedText = sanitizeFullResponse(fullText);
+    const sanitizedText = fullText.trim();
 
     if (!sanitizedText) {
       if (options.allowEmpty) {
@@ -131,12 +134,24 @@ export class LiveEditor {
         }
         return [];
       }
+
+      // If the LLM actually sent text but our pipeline erased it all,
+      // show a fallback so the user isn't stuck with an error.
+      if (options.rawText?.trim()) {
+        const fallback = `*(The response contained only metadata or internal thinking blocks)*\n\n**Raw Output Preview:**\n> ${options.rawText.slice(0, 300).replace(/\n/g, '\n> ')}...`;
+        const chunks = chunkFn(fallback);
+        return this.sendChunks(chunks);
+      }
+
       await this.sendError('⚠️ Gemini returned an empty response. Try rephrasing.');
       return [];
     }
 
     const chunks = chunkFn(sanitizedText);
+    return this.sendChunks(chunks);
+  }
 
+  private async sendChunks(chunks: string[]): Promise<string[]> {
     if (this.message) {
       await retrySend(() => this.message!.edit(chunks[0]));
       this.sentMessageIds = [this.message.id];
@@ -154,6 +169,7 @@ export class LiveEditor {
 
     return [...this.sentMessageIds];
   }
+
 
   /**
    * Display an error message.
@@ -189,7 +205,7 @@ export class LiveEditor {
 
   private doEdit(): void {
     if (this.finished || !this.channel || this.editInFlight) return;
-    if (!this.message && this.displayBuf.length === 0) return;
+    if (!this.message && this.displayBuf.length === 0 && !this.isThinking) return;
 
     // Use a clean cursor indicator.
     const indicator = this.isThinking ? ' ⏳' : ' ▌';
@@ -271,44 +287,3 @@ export class LiveEditor {
   }
 }
 
-// ── Performance Sanitizer ───────────────────────────────────────
-
-const RE_THOUGHT_TAGS = /\[Thought:?\s*(true|false)?\]/g;
-const RE_THOUGHT_SIMPLE = /\[Thought\]/g;
-const RE_ANALYZING_HEADER = /\*\*Analyzing[^\*]+\*\*/g;
-const RE_COT_BLOCK = /\*\*(?:Identifying|Conducting|Confirming|Formatting|Analyzing|Researching|Verifying|Processing|Evaluating|Examining)[^*]*\*\*\s*[^]*?(?=\*\*[A-Z]|\n\n(?=[A-Z])|\n*$)/g;
-const RE_STANDALONE_HEADER = /^\*\*(?:Identifying|Conducting|Confirming|Formatting|Analyzing|Researching|Verifying|Processing|Evaluating|Examining)[^*]*\*\*\s*/gm;
-const RE_META_NARRATION_IM = /^I'm (?:currently|now) (?:focused on|executing|proceeding|drafting|conducting)[^\n]*\n?/gm;
-const RE_META_NARRATION_MY = /^My (?:initial assessment|focus is on|identification)[^\n]*\n?/gm;
-const RE_EXCESSIVE_LINES = /\n{3,}/g;
-const RE_SEND_DIRECTIVE = /\[SEND:[^\]]+\][\s\S]*?\[\/SEND\]/g;
-const RE_MARKDOWN_IMAGE = /!\[([^\]]*)\]\(((?:https?|file):\/\/[^)]+|(?:\/|~\/)[^)]+)\)/g;
-
-/**
- * Strips internal reasoning and chain-of-thought leaks from the final response.
- */
-function sanitizeFullResponse(text: string): string {
-  return text
-    .replace(RE_THOUGHT_TAGS, '')
-    .replace(RE_THOUGHT_SIMPLE, '')
-    .replace(RE_COT_BLOCK, '')
-    .replace(RE_STANDALONE_HEADER, '')
-    .replace(RE_META_NARRATION_IM, '')
-    .replace(RE_META_NARRATION_MY, '')
-    .replace(RE_SEND_DIRECTIVE, '')
-    .replace(RE_MARKDOWN_IMAGE, '')
-    .replace(RE_EXCESSIVE_LINES, '\n\n')
-    .trim();
-}
-
-/**
- * Lightweight sanitizer for live streaming chunks.
- */
-function sanitizeStreamChunk(text: string): string {
-  return text
-    .replace(RE_THOUGHT_TAGS, '')
-    .replace(RE_THOUGHT_SIMPLE, '')
-    .replace(RE_ANALYZING_HEADER, '')
-    .replace(RE_SEND_DIRECTIVE, '')
-    .replace(RE_MARKDOWN_IMAGE, '');
-}

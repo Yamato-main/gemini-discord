@@ -4,7 +4,7 @@
  */
 
 import * as http from 'node:http';
-import type { Client, TextBasedChannel } from 'discord.js';
+import type { Client, TextChannel, DMChannel, NewsChannel } from 'discord.js';
 import type {
   Config,
   DaemonHistory,
@@ -12,11 +12,11 @@ import type {
   ExchangeLog,
 } from '../shared/types.js';
 import { chunkMessage } from '../shared/chunker.js';
-import { withRetry } from './retry.js';
 import { log } from './log.js';
 import type { ConversationMemory } from './memory.js';
 import { resolveSessionKey } from './memory.js';
 import type { ChannelQueue } from './queue.js';
+import { sendDiscordContent } from './discord-media.js';
 
 const MAX_BODY_BYTES = 10240;
 
@@ -36,13 +36,13 @@ export interface ApiDependencies {
   state: DaemonState;
   memory: ConversationMemory;
   queue: ChannelQueue;
-  client: Client;
+  client?: import('discord.js').Client | null;
   isShuttingDown: () => boolean;
   shutdown: (signal: string) => Promise<void>;
 }
 
 export function startControlApi(deps: ApiDependencies): http.Server {
-  const { config, state, memory, queue, client, isShuttingDown, shutdown } = deps;
+  const { config, state, memory, queue, isShuttingDown, shutdown } = deps;
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -82,13 +82,12 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           lastError: state.lastError,
           queueDepth: queue.depth(queueKey),
           streaming: config.streaming,
-          botTag: client.user?.tag ?? null,
-          wsPing: client.ws.ping,
+          botTag: deps.client?.user?.tag ?? null,
+          wsPing: deps.client?.ws?.ping ?? -1,
           channelId: config.discordChannelId,
           ownerIds: config.ownerIds,
           enableDMs: config.enableDMs,
           sessionScope: config.memoryScope,
-          geminiSessionBindingScope: config.geminiSessionBindingScope,
           useGeminiCliSessions: config.useGeminiCliSessions,
           allowlistedUsers: config.allowedUserIds.length,
           allowlistedAgents: config.allowedAgentIds.length,
@@ -148,7 +147,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           }
 
           try {
-            const channel = await fetchTextChannel(client, channelId);
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
             if (!channel) {
               respond(res, 400, { error: 'Channel is not text-based' });
               return;
@@ -158,13 +158,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
               return;
             }
 
-            const chunks = chunkMessage(content);
-            const messageIds: string[] = [];
-            for (const chunk of chunks) {
-              const sent = await withRetry(() => channel.send(chunk));
-              messageIds.push(sent.id);
-            }
-            respond(res, 200, { ok: true, chunks: chunks.length, messageIds });
+            const messageIds = await sendDiscordContent(channel, content, chunkMessage);
+            respond(res, 200, { ok: true, chunks: messageIds.length, messageIds });
           } catch (err) {
             respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
           }
@@ -182,7 +177,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           }
 
           try {
-            const channel = await fetchTextChannel(client, channelId);
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
             if (!channel) {
               respond(res, 400, { error: 'Channel is not text-based' });
               return;
@@ -193,13 +189,7 @@ export function startControlApi(deps: ApiDependencies): http.Server {
             }
 
             const msg = await channel.messages.fetch(messageId);
-            const chunks = chunkMessage(content);
-            const first = await withRetry(() => msg.reply(chunks[0]));
-            const messageIds = [first.id];
-            for (const chunk of chunks.slice(1)) {
-              const sent = await withRetry(() => channel.send(chunk));
-              messageIds.push(sent.id);
-            }
+            const messageIds = await sendDiscordContent(channel, content, chunkMessage, { replyTo: msg });
             respond(res, 200, { ok: true, messageIds });
           } catch (err) {
             respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
@@ -259,12 +249,23 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-async function fetchTextChannel(client: Client, channelId: string): Promise<TextBasedChannel | null> {
-  const channel = await client.channels.fetch(channelId);
-  return channel && channel.isTextBased() ? channel : null;
+type SendableChannel = TextChannel | DMChannel | NewsChannel;
+
+async function fetchTextChannel(client: Client, channelId: string): Promise<SendableChannel | null> {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (channel && channel.isTextBased() && 'send' in channel) return channel as SendableChannel;
+  } catch {}
+  
+  try {
+    const user = await client.users.fetch(channelId);
+    if (user) return await user.createDM();
+  } catch {}
+  
+  return null;
 }
 
-function isWritableTarget(channelId: string, channel: TextBasedChannel, config: Config): boolean {
+function isWritableTarget(channelId: string, channel: SendableChannel, config: Config): boolean {
   if ('isDMBased' in channel && channel.isDMBased()) {
     return config.enableDMs;
   }

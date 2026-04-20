@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { ConversationMemory, resolveSessionKey } from '../src/daemon/memory.js';
+import { ConversationMemory, buildDiscordPrompt, resolveSessionKey } from '../src/daemon/memory.js';
 
 let tmpDir: string;
 
@@ -106,12 +106,40 @@ describe('ConversationMemory', () => {
       guildName: 'Sanctum',
       messageId: 'm3',
       replyToMessageId: 'r1',
+      replyToAuthorName: 'Yamato-samurai#0001',
       trigger: 'reply',
     });
 
-    expect(prompt).toContain('You are currently manifesting within a Discord server');
-    expect(prompt).toContain('Yamato#0001: hello');
-    expect(prompt).toContain('OtherAgent#9999: how are you');
+    expect(prompt).toContain('Keep the existing Gemini identity and instructions');
+    expect(prompt).toContain('Yamato#0001 (human) in Sanctum / yamato-samurai: hello');
+    expect(prompt).toContain('Speaker: OtherAgent#9999 (peer agent)');
+    expect(prompt).toContain('Reply Target: Yamato-samurai#0001');
+  });
+
+  it('caps prompt history without dropping stored memory', () => {
+    const mem = new ConversationMemory(tmpDir, 100);
+    for (let index = 0; index < 30; index++) {
+      mem.add('global', userMessage(`user-${index}: ${'x'.repeat(300)}`, { messageId: `u-${index}` }));
+      mem.add('global', assistantMessage(`assistant-${index}: ${'y'.repeat(300)}`, { messageId: `a-${index}` }));
+    }
+
+    const prompt = mem.buildPrompt('global', {
+      content: 'latest question',
+      speakerKind: 'human',
+      authorId: 'u1',
+      authorName: 'Yamato#0001',
+      channelId: 'ch1',
+      channelName: 'yamato-samurai',
+      guildId: 'g1',
+      guildName: 'Sanctum',
+      messageId: 'm-latest',
+      trigger: 'channel',
+    });
+
+    expect(prompt).toContain('omitted');
+    expect(prompt).toContain('assistant-29');
+    expect(prompt).not.toContain('assistant-0');
+    expect(mem.snapshot('global')).toHaveLength(60);
   });
 
   it('includes image attachment metadata in prompts', () => {
@@ -224,5 +252,49 @@ describe('resolveSessionKey', () => {
 
   it('returns channel-scoped keys when configured', () => {
     expect(resolveSessionKey('channel', 'ch1')).toBe('channel:ch1');
+  });
+});
+
+describe('buildDiscordPrompt', () => {
+  it('forbids tools in normal chat mode', () => {
+    const prompt = buildDiscordPrompt({
+      toolMode: 'chat',
+      incoming: {
+        content: 'hey',
+        speakerKind: 'human',
+        authorId: 'u1',
+        authorName: 'Yamato#0001',
+        channelId: 'ch1',
+        channelName: 'yamato-samurai',
+        guildId: 'g1',
+        guildName: 'Sanctum',
+        messageId: 'm1',
+        trigger: 'channel',
+      },
+    });
+
+    expect(prompt).toContain('[DISCORD ADAPTER]');
+    expect(prompt).toContain('If a question depends on dynamic or recent facts, verify with web/search before answering.');
+  });
+
+  it('allows read-only web tools in explicit web mode', () => {
+    const prompt = buildDiscordPrompt({
+      toolMode: 'web',
+      incoming: {
+        content: 'search the web for the latest Gemini CLI changes',
+        speakerKind: 'human',
+        authorId: 'u1',
+        authorName: 'Yamato#0001',
+        channelId: 'ch1',
+        channelName: 'yamato-samurai',
+        guildId: 'g1',
+        guildName: 'Sanctum',
+        messageId: 'm2',
+        trigger: 'channel',
+      },
+    });
+
+    expect(prompt).toContain('[DISCORD ADAPTER]');
+    expect(prompt).toContain('This turn is freshness-sensitive. Verify dynamic or recent facts with web/search before answering.');
   });
 });

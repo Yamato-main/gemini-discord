@@ -13,7 +13,7 @@ import { registerReplyTool } from './tools/reply.js';
 import { registerHistoryTool } from './tools/history.js';
 import { registerResetTool } from './tools/reset.js';
 import { registerRestartTool } from './tools/restart.js';
-import { registerFindImageTool } from './tools/find-image.js';
+import { registerFindImagesTool } from './tools/find-images.js';
 import { ensureDaemonRunning } from './shared/daemon-runtime.js';
 
 // Resolve extension directory
@@ -27,14 +27,14 @@ const server = new McpServer({
   version: '0.1.0',
 });
 
-// Register all tools
+// Register all 7 tools
 registerStatusTool(server, config);
 registerSendTool(server, config);
 registerReplyTool(server, config);
 registerHistoryTool(server, config);
 registerResetTool(server, config);
 registerRestartTool(server, config);
-registerFindImageTool(server);
+registerFindImagesTool(server);
 
 // Connect via stdio (Gemini CLI manages the process lifecycle)
 async function main() {

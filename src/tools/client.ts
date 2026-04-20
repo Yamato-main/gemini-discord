@@ -27,7 +27,9 @@ interface DaemonResponse {
  */
 export async function daemonRequest(opts: RequestOptions): Promise<DaemonResponse> {
   const { method, path, config, body } = opts;
-  const extensionDir = resolveExtensionDir(__dirname);
+  let tmpDir = process.cwd();
+  try { tmpDir = __dirname; } catch {}
+  const extensionDir = resolveExtensionDir(tmpDir);
 
   let response = await requestOnce({ method, path, config, body });
   if ((response.data['error'] === 'daemon_offline' || response.data['error'] === 'daemon_timeout') && config.autoStartDaemon) {

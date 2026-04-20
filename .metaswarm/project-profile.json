@@ -1,0 +1,31 @@
+{
+  "metaswarm_version": "1.0.0",
+  "distribution": "plugin",
+  "installed_at": "2026-04-16T14:30:00Z",
+  "updated_at": "2026-04-16T14:30:00Z",
+  "detection": {
+    "language": "TypeScript",
+    "framework": null,
+    "test_runner": "vitest",
+    "linter": "eslint",
+    "formatter": "prettier",
+    "package_manager": "npm",
+    "type_checker": "tsc",
+    "ci": null,
+    "git_hooks": null
+  },
+  "choices": {
+    "coverage_threshold": 100,
+    "external_tools": false,
+    "visual_review": true,
+    "ci_pipeline": false,
+    "git_hooks": true
+  },
+  "commands": {
+    "test": "npm run test",
+    "coverage": "npm run test -- --coverage",
+    "lint": "npm run lint",
+    "typecheck": "npm run typecheck",
+    "format_check": "npx prettier --check ."
+  }
+}

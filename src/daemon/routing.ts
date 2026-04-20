@@ -31,6 +31,8 @@ export function shouldAcceptMessage(input: RoutingInput, config: Config): Routin
 
   if (input.isDM) {
     if (!config.enableDMs) return reject();
+    // Security: Only the configured Boss may DM the bot directly.
+    if (input.authorId !== config.discordBossId) return reject();
     return finalizeRoute(input, config, 'dm');
   }
 

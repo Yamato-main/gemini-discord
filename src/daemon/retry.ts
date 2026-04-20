@@ -34,6 +34,16 @@ export async function withRetry<T>(
   throw new Error('withRetry: unreachable');
 }
 
+/**
+ * withRetry variant that erases discord.js's Message<InGuild> generic
+ * so that union channel types (TextChannel | DMChannel) don't cause
+ * Promise<Message<true>> | Promise<Message<false>> inference failures.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function retrySend(fn: () => Promise<any>): Promise<any> {
+  return withRetry(fn);
+}
+
 function isRateLimitError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
   const e = err as Record<string, unknown>;

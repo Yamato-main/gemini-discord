@@ -37,8 +37,6 @@ export function registerStatusTool(server: McpServer, config: Config): void {
         `**Streaming:** ${s.streaming ? 'enabled' : 'disabled'}`,
         `**DMs:** ${s.enableDMs ? 'enabled' : 'disabled'}`,
         `**Memory Scope:** ${s.sessionScope}`,
-        `**Gemini CLI Sessions:** ${s.useGeminiCliSessions ? 'enabled' : 'disabled'}`,
-        `**Gemini Binding Scope:** ${s.geminiSessionBindingScope}`,
         `**Require Mention:** ${s.requireMention ? 'yes' : 'no'}`,
         `**Allowlisted Humans:** ${s.allowlistedUsers}`,
         `**Allowlisted Agents:** ${s.allowlistedAgents}`,

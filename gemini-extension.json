@@ -17,6 +17,5 @@
       "args": ["${extensionPath}${/}bootstrap.cjs"],
       "cwd": "${extensionPath}"
     }
-  },
-  "excludeTools": ["run_shell_command"]
+  }
 }

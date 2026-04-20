@@ -14,7 +14,9 @@ export function registerRestartTool(server: McpServer, config: Config) {
     {},
     async () => {
       try {
-        const extensionDir = resolveExtensionDir(__dirname);
+        let tmpDir = process.cwd();
+        try { tmpDir = __dirname; } catch {}
+        const extensionDir = resolveExtensionDir(tmpDir);
         await restartDaemon(config, extensionDir);
         return {
           content: [{ type: 'text', text: '✅ Discord daemon restarted successfully.' }],

@@ -23,8 +23,8 @@ describe('chunkMessage', () => {
     }
   });
 
-  it('truncates responses over 6000 chars with warning', () => {
-    const msg = 'x'.repeat(7000);
+  it('truncates responses over 8000 chars with warning', () => {
+    const msg = 'x'.repeat(9000);
     const result = chunkMessage(msg);
     const lastChunk = result[result.length - 1];
     expect(lastChunk).toContain('truncated');

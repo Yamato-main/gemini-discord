@@ -4,6 +4,9 @@
  * A task may depend on one or more shared keys (for example a global memory
  * session plus a guild-bound Gemini session). Tasks that share any key are
  * serialized; disjoint tasks still run concurrently.
+ *
+ * All in-flight tasks are held in a persistent Set to prevent GC collection
+ * of intermediate promises in multi-key chains.
  */
 
 import { log } from './log.js';
@@ -11,6 +14,7 @@ import { log } from './log.js';
 export class ChannelQueue {
   private tails: Map<string, Promise<void>> = new Map();
   private depths: Map<string, number> = new Map();
+  private readonly activeTasks: Set<Promise<void>> = new Set();
   private maxDepth: number;
 
   constructor(maxDepth: number) {
@@ -43,8 +47,12 @@ export class ChannelQueue {
         });
       })
       .finally(() => {
+        this.activeTasks.delete(newTail);
         this.releaseKeys(keys, newTail);
       });
+
+    // Strong reference prevents GC of intermediate promises in multi-key chains
+    this.activeTasks.add(newTail);
 
     for (const key of keys) {
       this.tails.set(key, newTail);
@@ -62,11 +70,18 @@ export class ChannelQueue {
   }
 
   /**
+   * Total number of in-flight tasks across all keys.
+   */
+  get totalInFlight(): number {
+    return this.activeTasks.size;
+  }
+
+  /**
    * Wait for all in-flight tasks across all channels.
    * Used by graceful shutdown.
    */
   async drainAll(): Promise<void> {
-    const tails = [...new Set(this.tails.values())];
+    const tails = [...this.activeTasks];
     await Promise.allSettled(tails);
   }
 
