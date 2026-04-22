@@ -4,7 +4,6 @@
 .memory.json
 .memory.json.tmp
 start-daemon.sh
-dist/
 node_modules/
 coverage/
 build/
@@ -14,6 +13,7 @@ build/
 tmp/
 .DS_Store
 .gemini-discord/
+graphify-out/
 !.env.example
 
 # BEADS runtime
