@@ -368,7 +368,7 @@ export function buildDiscordAdapterInstruction(
   };
 
   const bossLine = options.bossUserId
-    ? `\n- Boss Discord ID: ${options.bossUserId}`
+    ? `\n- Yamato Discord ID: ${options.bossUserId}`
     : '';
 
   return `[Runtime Context]
@@ -728,7 +728,7 @@ function describeSpeaker(
   bossUserId?: string,
 ): string {
   if (authorId && bossUserId && authorId === bossUserId) {
-    return 'Boss — full authority';
+    return 'Yamato — full authority';
   }
 
   switch (speakerKind) {
