@@ -10,7 +10,7 @@ import type { Client, TextChannel } from 'discord.js';
 import { ChannelType } from 'discord.js';
 import { log } from './log.js';
 import { chunkMessage } from '../shared/chunker.js';
-import { sendDiscordContent } from './discord-media.js';
+import { sendDiscordMessage } from './sender.js';
 
 /** name → { id, name } */
 const guildChannelMap = new Map<string, { id: string; name: string }>();
@@ -139,7 +139,7 @@ export async function processCrossChannelSends(
     try {
       const channel = await client.channels.fetch(target.id);
       if (channel && 'send' in channel && typeof channel.send === 'function') {
-        const sentIds = await sendDiscordContent(channel as TextChannel, directive.content, chunkMessage);
+        const sentIds = await sendDiscordMessage(channel as TextChannel, directive.content, chunkMessage);
         messageIds.push(...sentIds);
         log.info('Cross-channel message sent', {
           targetChannel: target.name,

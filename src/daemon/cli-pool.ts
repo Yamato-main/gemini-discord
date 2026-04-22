@@ -146,49 +146,22 @@ export class CliProcessPool {
   private async spawnProcess(
     poolKey: string,
     allowedTools: string,
-    opts: PoolSendOptions,
+    _opts: PoolSendOptions,
   ): Promise<PersistentProcess> {
     const spawnedAt = Date.now();
 
-    log.info('CLI pool: spawning new process', {
+    log.info('CLI pool: initializing process entry', {
       poolKey,
       model: this.config.geminiModel,
       allowedTools,
     });
 
-    // We use one-shot mode for reliability — each send() spawns fresh
-    // but we keep the architecture ready for interactive mode when CLI supports it cleanly.
-    // The pool key mechanism still prevents concurrent Boss/non-Boss conflicts.
-    const proc = spawn(this.config.geminiPath, [], {
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
-    });
-
-    const rl = readline.createInterface({ input: proc.stdout! });
-
-    let stderr = '';
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    // Auto-cleanup on unexpected exit
-    proc.on('exit', (code) => {
-      if (this.pool.get(poolKey)?.proc === proc) {
-        log.warn('CLI pool: process exited unexpectedly', { poolKey, code, stderr: stderr.slice(0, 300) });
-        this.pool.delete(poolKey);
-      }
-    });
-
-    proc.on('error', (err) => {
-      log.error('CLI pool: process error', { poolKey, error: err.message });
-      this.pool.delete(poolKey);
-    });
-
+    // We initialize a "lazy" entry. The actual process is spawned in collectResponse
+    // to avoid the redundant spawn-kill-respawn cycle.
     const entry: PersistentProcess = {
-      proc,
+      proc: null as any, // Will be spawned in collectResponse
       poolKey,
-      rl,
+      rl: null as any,
       busy: true,
       spawnedAt,
       lastActivityAt: spawnedAt,
@@ -237,9 +210,6 @@ export class CliProcessPool {
 
       args.push('-p', fullPrompt);
 
-      // Kill the placeholder process and spawn real one with args
-      entry.proc.kill('SIGTERM');
-      
       const proc = spawn(this.config.geminiPath, args, {
         cwd: process.cwd(),
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -251,8 +221,8 @@ export class CliProcessPool {
       const rl = readline.createInterface({ input: proc.stdout! });
       entry.rl = rl;
 
-      // Activity-based timeout: kill only if no output for 60 seconds
-      const ACTIVITY_TIMEOUT_MS = 60_000;
+      // Activity-based timeout: kill only if no output for 120 seconds
+      const ACTIVITY_TIMEOUT_MS = 120_000;
       const MAX_TOTAL_TIMEOUT_MS = this.config.geminiTimeoutMs;
       
       const activityCheck = setInterval(() => {
@@ -396,9 +366,9 @@ export class CliProcessPool {
 
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
     try {
-      entry.proc.kill('SIGTERM');
+      if (entry.proc) entry.proc.kill('SIGTERM');
     } catch {}
-    entry.rl.close();
+    if (entry.rl) entry.rl.close();
     this.pool.delete(poolKey);
   }
 

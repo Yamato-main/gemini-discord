@@ -94,12 +94,24 @@ export async function registerSlashCommands(config: Config, botUserId: string): 
 }
 
 /**
- * Perform guild-scoped registration. Called from clientReady.
+ * Perform global and guild-scoped registration. Called from clientReady.
  */
 export async function registerGuildCommands(client: Client, config: Config): Promise<void> {
   const rest = new REST({ version: '10' }).setToken(config.discordBotToken);
-  const guilds = await client.guilds.fetch();
+  
+  // 1. Global registration (Required for DMs)
+  try {
+    await rest.put(
+      Routes.applicationCommands(client.user!.id),
+      { body: COMMANDS.map(cmd => cmd.toJSON()) },
+    );
+    log.info('Registered global slash commands (for DMs)');
+  } catch (error) {
+    log.error('Failed to register global commands', { error });
+  }
 
+  // 2. Guild-scoped registration (Instant updates for guilds)
+  const guilds = await client.guilds.fetch();
   for (const [guildId] of guilds) {
     try {
       await rest.put(

@@ -185,8 +185,8 @@ async function processMessage(
       guildName: accepted.guildName,
       messageId: message.id,
       replyToMessageId: accepted.replyToMessageId,
-      replyToAuthorId: accepted.replyToAuthorId,
-      replyToAuthorName: accepted.replyToAuthorName,
+      replyToAuthorId: message.author.id,
+      replyToAuthorName: message.author.tag,
       trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
       createdAt: now,
     });

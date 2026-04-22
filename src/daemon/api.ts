@@ -16,7 +16,7 @@ import { log } from './log.js';
 import type { ConversationMemory } from './memory.js';
 import { resolveSessionKey } from './memory.js';
 import type { ChannelQueue } from './queue.js';
-import { sendDiscordContent } from './discord-media.js';
+import { sendDiscordMessage } from './sender.js';
 
 const MAX_BODY_BYTES = 10240;
 
@@ -140,9 +140,10 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         if (pathname === '/send') {
           const channelId = String(parsed['channel_id'] ?? config.discordChannelId);
           const content = String(parsed['content'] ?? '');
+          const files = Array.isArray(parsed['files']) ? parsed['files'].map(String) : undefined;
 
-          if (!content.trim()) {
-            respond(res, 400, { error: 'content is required' });
+          if (!content.trim() && (!files || files.length === 0)) {
+            respond(res, 400, { error: 'content or files are required' });
             return;
           }
 
@@ -158,7 +159,26 @@ export function startControlApi(deps: ApiDependencies): http.Server {
               return;
             }
 
-            const messageIds = await sendDiscordContent(channel, content, chunkMessage);
+            const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { files });
+
+            const sessionKey = resolveSessionKey(config.memoryScope, channelId);
+            const attachments = files?.map(f => ({ name: f.split('/').pop() || 'unknown_file' })) || [];
+            memory.add(sessionKey, {
+              role: 'assistant',
+              content: content || '(Sent an attachment)',
+              speakerKind: 'assistant',
+              authorId: deps.client.user?.id,
+              authorName: deps.client.user?.tag ?? 'Yamato-samurai',
+              channelId: channel.id,
+              channelName: channel.name ?? 'dm',
+              guildId: channel.guildId ?? null,
+              guildName: channel.guild?.name ?? null,
+              messageId: messageIds[0] ?? undefined,
+              trigger: 'tool_send',
+              createdAt: new Date().toISOString(),
+              attachments
+            });
+
             respond(res, 200, { ok: true, chunks: messageIds.length, messageIds });
           } catch (err) {
             respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
@@ -170,9 +190,10 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           const channelId = String(parsed['channel_id'] ?? '');
           const messageId = String(parsed['message_id'] ?? '');
           const content = String(parsed['content'] ?? '');
+          const files = Array.isArray(parsed['files']) ? parsed['files'].map(String) : undefined;
 
-          if (!channelId || !messageId || !content.trim()) {
-            respond(res, 400, { error: 'channel_id, message_id, and content are required' });
+          if (!channelId || !messageId || (!content.trim() && (!files || files.length === 0))) {
+            respond(res, 400, { error: 'channel_id, message_id, and either content or files are required' });
             return;
           }
 
@@ -189,7 +210,29 @@ export function startControlApi(deps: ApiDependencies): http.Server {
             }
 
             const msg = await channel.messages.fetch(messageId);
-            const messageIds = await sendDiscordContent(channel, content, chunkMessage, { replyTo: msg });
+            const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { replyTo: msg, files });
+
+            const sessionKey = resolveSessionKey(config.memoryScope, channelId);
+            const attachments = files?.map(f => ({ name: f.split('/').pop() || 'unknown_file' })) || [];
+            memory.add(sessionKey, {
+              role: 'assistant',
+              content: content || '(Sent an attachment)',
+              speakerKind: 'assistant',
+              authorId: deps.client.user?.id,
+              authorName: deps.client.user?.tag ?? 'Yamato-samurai',
+              channelId: channel.id,
+              channelName: channel.name ?? 'dm',
+              guildId: channel.guildId ?? null,
+              guildName: channel.guild?.name ?? null,
+              messageId: messageIds[0] ?? undefined,
+              replyToMessageId: msg.id,
+              replyToAuthorId: msg.author.id,
+              replyToAuthorName: msg.author.tag,
+              trigger: 'tool_reply',
+              createdAt: new Date().toISOString(),
+              attachments
+            });
+
             respond(res, 200, { ok: true, messageIds });
           } catch (err) {
             respond(res, 500, { error: err instanceof Error ? err.message : String(err) });

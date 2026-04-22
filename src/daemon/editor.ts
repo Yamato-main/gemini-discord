@@ -43,7 +43,6 @@ export class LiveEditor {
   private placeholderTimer: ReturnType<typeof setTimeout> | null = null;
   private editInFlight: Promise<void> | null = null;
   private finished = false;
-  private isThinking = false;
   private lastSentContent = '';
   private readonly placeholderDelayMs: number | null;
   private readonly placeholderText: string;
@@ -85,7 +84,6 @@ export class LiveEditor {
    * to eliminate the dead zone between typing indicator and first visible response.
    */
   feed(token: string): void {
-    this.isThinking = false;
     this.displayBuf += token;
     if (this.displayBuf.length > DISPLAY_CAP) {
       this.displayBuf = this.displayBuf.slice(-DISPLAY_CAP);
@@ -104,8 +102,7 @@ export class LiveEditor {
    * Feed an indicator that the model is thinking or calling tools.
    */
   feedThought(): void {
-    this.isThinking = true;
-    this.scheduleEdit();
+    // No-op. The native typing indicator is sufficient.
   }
 
   /**
@@ -205,10 +202,10 @@ export class LiveEditor {
 
   private doEdit(): void {
     if (this.finished || !this.channel || this.editInFlight) return;
-    if (!this.message && this.displayBuf.length === 0 && !this.isThinking) return;
+    if (!this.message && this.displayBuf.length === 0) return;
 
     // Use a clean cursor indicator.
-    const indicator = this.isThinking ? ' ⏳' : ' ▌';
+    const indicator = ' ▌';
 
     const baseContent = (this.displayBuf + indicator).slice(0, 1990);
     const content = sanitizeStreamChunk(baseContent).trim();
@@ -257,7 +254,7 @@ export class LiveEditor {
       .catch(() => {})
       .finally(() => {
         this.editInFlight = null;
-        if (this.displayBuf.length > 0 || this.isThinking) {
+        if (this.displayBuf.length > 0) {
           this.scheduleEdit();
         }
       });

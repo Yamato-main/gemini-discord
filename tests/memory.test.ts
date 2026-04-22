@@ -110,10 +110,10 @@ describe('ConversationMemory', () => {
       trigger: 'reply',
     });
 
-    expect(prompt).toContain('Keep the existing Gemini identity and instructions');
-    expect(prompt).toContain('Yamato#0001 (human) in Sanctum / yamato-samurai: hello');
-    expect(prompt).toContain('Speaker: OtherAgent#9999 (peer agent)');
-    expect(prompt).toContain('Reply Target: Yamato-samurai#0001');
+    expect(prompt).toContain('Format responses in Discord-compatible Markdown.');
+    expect(prompt).toContain('User: Yamato#0001');
+    expect(prompt).toContain('User: OtherAgent#9999');
+    expect(prompt).toContain('ReplyTo: Yamato-samurai#0001');
   });
 
   it('caps prompt history without dropping stored memory', () => {
@@ -159,7 +159,7 @@ describe('ConversationMemory', () => {
       trigger: 'channel',
     });
 
-    expect(prompt).toContain('Yamato#0001: (no text provided)');
+    expect(prompt).toContain('(no text provided)');
     expect(prompt).toContain('whiteboard.png');
     expect(prompt).toContain('image/png');
   });
@@ -273,8 +273,8 @@ describe('buildDiscordPrompt', () => {
       },
     });
 
-    expect(prompt).toContain('[DISCORD ADAPTER]');
-    expect(prompt).toContain('If a question depends on dynamic or recent facts, verify with web/search before answering.');
+    expect(prompt).toContain('[Runtime Context]');
+    expect(prompt).toContain('Format responses in Discord-compatible Markdown.');
   });
 
   it('allows read-only web tools in explicit web mode', () => {
@@ -294,7 +294,7 @@ describe('buildDiscordPrompt', () => {
       },
     });
 
-    expect(prompt).toContain('[DISCORD ADAPTER]');
-    expect(prompt).toContain('This turn is freshness-sensitive. Verify dynamic or recent facts with web/search before answering.');
+    expect(prompt).toContain('[Runtime Context]');
+    expect(prompt).toContain('Format responses in Discord-compatible Markdown.');
   });
 });

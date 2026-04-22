@@ -58,6 +58,6 @@ describe('chunkMessage', () => {
 
   it('handles empty string', () => {
     const result = chunkMessage('');
-    expect(result).toEqual(['']);
+    expect(result).toEqual([]);
   });
 });

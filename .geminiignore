@@ -1,3 +1,8 @@
 .env
 .memory.json
 .memory.json.tmp
+node_modules/
+dist/
+daemon.log
+.git/
+.beads/

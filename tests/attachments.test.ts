@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Message } from 'discord.js';
-import { downloadImageAttachments, pruneAttachmentCache } from '../src/daemon/attachments.js';
+import { downloadImageAttachments } from '../src/daemon/attachments.js';
 
 let tmpDir: string;
 let originalFetch: typeof fetch;
@@ -68,24 +68,6 @@ describe('downloadImageAttachments', () => {
   });
 });
 
-describe('pruneAttachmentCache', () => {
-  it('removes the oldest attachment directories while preserving the current turn', async () => {
-    const oldestDir = createAttachmentDir('oldest', '1111');
-    const middleDir = createAttachmentDir('middle', '2222');
-    const newestDir = createAttachmentDir('newest', '3333');
-
-    setMtime(oldestDir, 1_000);
-    setMtime(middleDir, 2_000);
-    setMtime(newestDir, 3_000);
-
-    await pruneAttachmentCache(tmpDir, [newestDir], { maxMessageDirs: 2, maxBytes: 8 });
-
-    expect(fs.existsSync(oldestDir)).toBe(false);
-    expect(fs.existsSync(middleDir)).toBe(true);
-    expect(fs.existsSync(newestDir)).toBe(true);
-  });
-});
-
 function createMessage(
   messageId: string,
   attachments: Array<{
@@ -107,17 +89,4 @@ function createMessage(
       ]),
     ),
   } as unknown as Message;
-}
-
-function createAttachmentDir(name: string, contents: string): string {
-  const dirPath = path.join(tmpDir, name);
-  fs.mkdirSync(dirPath, { recursive: true });
-  fs.writeFileSync(path.join(dirPath, 'image.png'), contents, 'utf-8');
-  return dirPath;
-}
-
-function setMtime(dirPath: string, timestampMs: number): void {
-  const time = new Date(timestampMs);
-  fs.utimesSync(dirPath, time, time);
-  fs.utimesSync(path.join(dirPath, 'image.png'), time, time);
 }

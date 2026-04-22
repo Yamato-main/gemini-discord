@@ -13,6 +13,10 @@ const LARGE_RESPONSE_CUT = 8000;
  * Truncates responses exceeding LARGE_RESPONSE_CUT with a warning.
  */
 export function chunkMessage(text: string): string[] {
+  if (!text || !text.trim()) {
+    return [];
+  }
+
   let wasTruncated = false;
 
   if (text.length > LARGE_RESPONSE_CUT) {

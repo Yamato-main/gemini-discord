@@ -18,7 +18,6 @@ import { LiveEditor } from './editor.js';
 import { downloadImageAttachments, getImageAttachmentMetadata } from './attachments.js';
 import { type ToolMode } from './tool-mode.js';
 import { processCrossChannelSends } from './channels.js';
-import { prepareDiscordMessageContent, sendPreparedDiscordFiles } from './discord-media.js';
 import { sanitizeFullResponse } from './sanitizer.js';
 import { runtimeStore } from './runtime.js';
 import { log } from './log.js';
@@ -121,11 +120,8 @@ export async function processViaCli(
         allowEmpty: prepared.allowEmpty,
         rawText: response,
       });
-      responseMessageIds.push(
-        ...await sendPreparedDiscordFiles(channel, prepared.files),
-        ...prepared.actionMessageIds,
-      );
-      return { response, messageIds: responseMessageIds, attachments: prepared.attachments };
+      responseMessageIds.push(...prepared.actionMessageIds);
+      return { response, messageIds: responseMessageIds };
     } else {
       // Non-streaming fallback
       retrySend(() => channel.sendTyping()).catch(() => {});
@@ -152,11 +148,8 @@ export async function processViaCli(
         const prepared = await finalizeAssistantResponse(response, message, accepted.isBoss);
         response = prepared.responseText;
         responseMessageIds = await sendPreparedDisplayText(channel, prepared.displayText);
-        responseMessageIds.push(
-          ...await sendPreparedDiscordFiles(channel, prepared.files),
-          ...prepared.actionMessageIds,
-        );
-        return { response, messageIds: responseMessageIds, attachments: prepared.attachments };
+        responseMessageIds.push(...prepared.actionMessageIds);
+        return { response, messageIds: responseMessageIds };
       } catch (err) {
         clearInterval(typingInterval);
         throw err;
@@ -185,8 +178,6 @@ export interface FinalizedAssistantResponse {
   displayText: string;
   responseText: string;
   allowEmpty: boolean;
-  files: AttachmentBuilder[];
-  attachments: ConversationAttachment[];
   actionMessageIds: string[];
 }
 
@@ -203,22 +194,10 @@ export async function finalizeAssistantResponse(
     allowPrivileged: allowPrivilegedActions,
   });
 
-  // 3. Extract and verify image attachments
-  const prepared = await prepareDiscordMessageContent(actionResult.cleanedResponse);
-
-  const imageMarker = prepared.files.length > 0
-    ? `[sent ${prepared.files.length} image attachment${prepared.files.length === 1 ? '' : 's'}]`
-    : '';
-
-  const responseTextForMemory = prepared.text;
-  const displayText = prepared.text || imageMarker;
-
   return {
-    displayText,
-    responseText: responseTextForMemory,
-    allowEmpty: prepared.files.length > 0,
-    files: prepared.files,
-    attachments: prepared.attachments,
+    displayText: actionResult.cleanedResponse,
+    responseText: actionResult.cleanedResponse,
+    allowEmpty: true,
     actionMessageIds: actionResult.messageIds,
   };
 }

@@ -342,7 +342,7 @@ export function buildDiscordPrompt(options: BuildDiscordPromptOptions): string {
     ? `(${omittedCount} earlier messages omitted)\n${transcript}`
     : transcript;
 
-  return `${buildDiscordAdapterInstruction({ bossUserId: options.bossUserId })}
+  return `${buildDiscordAdapterInstruction(options.incoming, { bossUserId: options.bossUserId })}
 
 [Participants]
 ${buildActiveParticipantRoster(history, options.incoming, { bossUserId: options.bossUserId })}
@@ -354,45 +354,68 @@ ${historyBlock}
 ${formatIncomingDiscordMessage(options.incoming, { bossUserId: options.bossUserId })}`;
 }
 
-export function buildDiscordAdapterInstruction(options: {
-  bossUserId?: string;
-} = {}): string {
+export function buildDiscordAdapterInstruction(
+  incoming: PromptInput | undefined,
+  options: { bossUserId?: string } = {}
+): string {
+  const chatType = incoming && !incoming.guildId ? 'direct' : 'group';
+
+  const runtimeContext = {
+    channel: "discord",
+    provider: "discord",
+    surface: "discord",
+    chat_type: chatType
+  };
+
   const bossLine = options.bossUserId
-    ? `- Boss Discord ID: ${options.bossUserId}.`
+    ? `\n- Boss Discord ID: ${options.bossUserId}`
     : '';
 
-  return `[DISCORD CONTEXT]
-- You are currently operating inside Discord as an extension of the Gemini CLI.
-- Format responses in Discord-compatible Markdown.
-${bossLine}
-${getChannelMapContext()}
-[/DISCORD CONTEXT]`;
+  return `[Runtime Context]
+${JSON.stringify(runtimeContext, null, 2)}
+- Format responses in Discord-compatible Markdown.${bossLine}
+${getChannelMapContext()}`;
 }
 
 export function formatIncomingDiscordMessage(
   input: PromptInput,
   options: { bossUserId?: string } = {},
 ): string {
-  const content = input.content || '(no text provided)';
-  const location = input.guildName
-    ? `${input.guildName} / ${input.channelName}`
-    : `Direct Message / ${input.channelName}`;
-  const attachments = formatAttachments(input.attachments) ?? 'Attachments: none';
-  const replyTarget = input.replyToAuthorName
-    ? `${input.replyToAuthorName}${input.replyToAuthorId ? ` (${input.replyToAuthorId})` : ''}`
-    : (input.replyToMessageId ?? 'none');
-  const trigger = input.trigger ?? 'channel';
   const speakerLabel = describeSpeaker(input.speakerKind, input.authorId, options.bossUserId);
+  const locationStr = input.guildName 
+    ? `Server: ${input.guildName} / #${input.channelName}` 
+    : `DM`;
+    
+  const mainParts = [
+    `Platform: Discord`,
+    locationStr,
+    `User: ${input.authorName} (${speakerLabel})`
+  ];
 
-  return `Speaker: ${input.authorName} (${speakerLabel})
-Speaker ID: ${input.authorId}
-Location: ${location}
-Channel ID: ${input.channelId}
-Message ID: ${input.messageId}
-Trigger: ${trigger}
-Reply Target: ${replyTarget}
-${attachments}
-Message: ${input.authorName}: ${content}`;
+  const metaParts = [
+    `ChannelID: ${input.channelId}`,
+    `UserID: ${input.authorId}`,
+    `MsgID: ${input.messageId}`,
+    `Trigger: ${input.trigger ?? 'channel'}`
+  ];
+
+  const replyTarget = input.replyToAuthorName
+    ? `ReplyTo: ${input.replyToAuthorName}${input.replyToAuthorId ? ` (${input.replyToAuthorId})` : ''}`
+    : '';
+    
+  let preamble = `[${mainParts.join(' | ')}]\n[Meta | ${metaParts.join(' | ')}]`;
+  if (replyTarget) {
+    preamble += `\n[${replyTarget}]`;
+  }
+  
+  const formattedAttachments = formatAttachments(input.attachments);
+  if (formattedAttachments) {
+    preamble += `\n[${formattedAttachments}]`;
+  }
+
+  const content = input.content || '(no text provided)';
+
+  return `${preamble}\n${content}`;
 }
 
 export function buildActiveParticipantRoster(
@@ -447,15 +470,25 @@ export function formatConversationMessageForContext(
 ): string {
   const speaker = entry.authorName ?? (entry.role === 'assistant' ? 'Assistant' : 'Unknown speaker');
   const speakerKind = entry.role === 'assistant' ? 'assistant' : (entry.speakerKind ?? 'human');
-  const location = entry.channelName
-    ? (entry.guildName ? `${entry.guildName} / ${entry.channelName}` : `DM / ${entry.channelName}`)
-    : 'Unknown location';
-  const replyContext = entry.replyToAuthorName
-    ? ` -> ${entry.replyToAuthorName}`
-    : '';
-  const attachments = formatAttachmentsInline(entry.attachments);
+  
+  const locationStr = entry.guildName 
+    ? `Server: ${entry.guildName} / #${entry.channelName}` 
+    : `DM`;
+    
+  const parts = [
+    `Platform: Discord`,
+    locationStr,
+    `User: ${speaker} (${describeSpeaker(speakerKind, entry.authorId, options.bossUserId)})`
+  ];
 
-  return `${speaker} (${describeSpeaker(speakerKind, entry.authorId, options.bossUserId)}) in ${location}${replyContext}: ${truncateText(entry.content || '(no text provided)', TRANSCRIPT_ENTRY_CHAR_LIMIT)}${attachments}`;
+  if (entry.messageId) parts.push(`MsgID: ${entry.messageId}`);
+  if (entry.replyToAuthorName) parts.push(`ReplyTo: ${entry.replyToAuthorName}`);
+  
+  const attachments = formatAttachmentsInline(entry.attachments);
+  const preamble = `[${parts.join(' | ')}]`;
+  const content = truncateText(entry.content || '(no text provided)', TRANSCRIPT_ENTRY_CHAR_LIMIT);
+
+  return `${preamble}${attachments}\n${content}`;
 }
 
 function formatTranscriptEntry(entry: ConversationMessage, bossUserId?: string): string {
@@ -715,3 +748,5 @@ function truncateText(value: string, maxChars: number): string {
 
   return `${value.slice(0, Math.max(0, maxChars - 1))}…`;
 }
+
+

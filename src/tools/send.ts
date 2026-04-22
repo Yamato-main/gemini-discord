@@ -12,13 +12,14 @@ export function registerSendTool(server: McpServer, config: Config): void {
     'discord_send',
     'Send a message to a Discord channel. Defaults to the primary channel if channel_id is not specified.',
     {
-      content: z.string().describe('The message content to send (max 6000 chars, auto-chunked)'),
+      content: z.string().optional().describe('Optional message content. You SHOULD put your conversational response here alongside any files, and leave your final response empty.'),
       channel_id: z
         .string()
         .optional()
         .describe('Target channel ID. Defaults to the primary channel.'),
+      files: z.array(z.string()).optional().describe('Optional array of absolute file paths to attach'),
     },
-    async ({ content, channel_id }) => {
+    async ({ content = '', channel_id, files }) => {
       const targetChannel = channel_id ?? config.discordChannelId;
 
       if (!(await isDaemonOnline(config))) {
@@ -29,7 +30,7 @@ export function registerSendTool(server: McpServer, config: Config): void {
         method: 'POST',
         path: '/send',
         config,
-        body: { channel_id: targetChannel, content },
+        body: { channel_id: targetChannel, content, files },
       });
 
       if (!res.ok) {
@@ -37,7 +38,7 @@ export function registerSendTool(server: McpServer, config: Config): void {
       }
 
       const chunks = (res.data['chunks'] as number) ?? 1;
-      return text(`✅ Sent (${chunks} chunk${chunks > 1 ? 's' : ''}) to channel ${targetChannel}`);
+      return text(`✅ Sent (${chunks} chunk${chunks > 1 ? 's' : ''}) to channel ${targetChannel}. (Please leave your final conversational response empty to avoid double-posting.)`);
     },
   );
 }

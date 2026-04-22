@@ -14,9 +14,10 @@ export function registerReplyTool(server: McpServer, config: Config): void {
     {
       channel_id: z.string().describe('The channel ID containing the message'),
       message_id: z.string().describe('The message ID to reply to (get from discord_history)'),
-      content: z.string().describe('The reply content'),
+      content: z.string().optional().describe('Optional reply content. You SHOULD put your conversational response here alongside any files, and leave your final response empty.'),
+      files: z.array(z.string()).optional().describe('Optional array of absolute file paths to attach'),
     },
-    async ({ channel_id, message_id, content }) => {
+    async ({ channel_id, message_id, content = '', files }) => {
       if (!(await isDaemonOnline(config))) {
         return text('❌ Daemon is offline. Start it: node dist/setup.cjs');
       }
@@ -25,14 +26,14 @@ export function registerReplyTool(server: McpServer, config: Config): void {
         method: 'POST',
         path: '/reply',
         config,
-        body: { channel_id, message_id, content },
+        body: { channel_id, message_id, content, files },
       });
 
       if (!res.ok) {
         return text(`❌ Reply failed: ${res.data['error'] ?? 'unknown error'}`);
       }
 
-      return text('✅ Reply sent');
+      return text('✅ Reply sent. (Please leave your final conversational response empty to avoid double-posting.)');
     },
   );
 }

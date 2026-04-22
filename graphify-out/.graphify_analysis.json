@@ -1,0 +1,585 @@
+{
+  "communities": {
+    "0": [
+      "client_daemonrequest",
+      "client_isdaemononline",
+      "client_requestonce",
+      "config_resolveextensiondir",
+      "find_images_registerfindimagestool",
+      "history_registerhistorytool",
+      "history_text",
+      "history_truncate",
+      "reply_registerreplytool",
+      "reply_text",
+      "reset_registerresettool",
+      "reset_text",
+      "restart_registerrestarttool",
+      "routing_finalizeroute",
+      "routing_reject",
+      "routing_shouldacceptmessage",
+      "routing_stripleadingbotmention",
+      "routing_stripprefix",
+      "routing_test_route",
+      "send_registersendtool",
+      "send_text",
+      "server_main",
+      "status_registerstatustool",
+      "status_statusemoji",
+      "status_text",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_routing_ts",
+      "users_yamato_yamato_code_gemini_discord_src_server_ts",
+      "users_yamato_yamato_code_gemini_discord_src_shared_types_ts",
+      "users_yamato_yamato_code_gemini_discord_src_tools_client_ts",
+      "users_yamato_yamato_code_gemini_discord_src_tools_find_images_ts",
+      "users_yamato_yamato_code_gemini_discord_src_tools_history_ts",
+      "users_yamato_yamato_code_gemini_discord_src_tools_reply_ts",
+      "users_yamato_yamato_code_gemini_discord_src_tools_reset_ts",
+      "users_yamato_yamato_code_gemini_discord_src_tools_restart_ts",
+      "users_yamato_yamato_code_gemini_discord_src_tools_send_ts",
+      "users_yamato_yamato_code_gemini_discord_src_tools_status_ts",
+      "users_yamato_yamato_code_gemini_discord_tests_routing_test_ts"
+    ],
+    "1": [
+      "api_fetchtextchannel",
+      "api_iswritabletarget",
+      "api_readbody",
+      "api_requireauth",
+      "api_respond",
+      "bot_createclient",
+      "bot_getchannelname",
+      "bot_getreplycontext",
+      "bot_notifyowner",
+      "bot_setupmessagehandler",
+      "bot_setupreconnecthandlers",
+      "commands_handleautocomplete",
+      "commands_registerguildcommands",
+      "commands_registerslashcommands",
+      "commands_setupinteractionhandler",
+      "commands_validatemodel",
+      "gateway_initgateway",
+      "gateway_isresetcommand",
+      "log_emit",
+      "preflight_checkportinuse",
+      "preflight_parseenvquick",
+      "preflight_runpreflight",
+      "preflight_shellescape",
+      "queue_test_delay",
+      "runtime_getruntime",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_api_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_bot_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_commands_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_gateway_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_log_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_preflight_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_probe_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_queue_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_runtime_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_semaphore_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_ts",
+      "users_yamato_yamato_code_gemini_discord_tests_queue_test_ts"
+    ],
+    "2": [
+      "editor_liveeditor",
+      "editor_liveeditor_clearplaceholdertimer",
+      "editor_liveeditor_cleartimers",
+      "editor_liveeditor_cleartypinginterval",
+      "editor_liveeditor_constructor",
+      "editor_liveeditor_doedit",
+      "editor_liveeditor_feed",
+      "editor_liveeditor_feedthought",
+      "editor_liveeditor_finalize",
+      "editor_liveeditor_init",
+      "editor_liveeditor_scheduleedit",
+      "editor_liveeditor_sendchunks",
+      "editor_liveeditor_senderror",
+      "editor_liveeditor_sendplaceholder",
+      "engine_cli_finalizeassistantresponse",
+      "engine_cli_formaterror",
+      "engine_cli_getattachmentstmpdir",
+      "engine_cli_processviacli",
+      "engine_cli_sendprepareddisplaytext",
+      "gateway_processmessage",
+      "retry_getretryafter",
+      "retry_isratelimiterror",
+      "retry_retrysend",
+      "retry_sleep",
+      "retry_test_fn",
+      "retry_withretry",
+      "sanitizer_sanitizefullresponse",
+      "sanitizer_sanitizestreamchunk",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_editor_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_engine_cli_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_retry_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_sanitizer_ts",
+      "users_yamato_yamato_code_gemini_discord_tests_retry_test_ts"
+    ],
+    "3": [
+      "engine_cli_resolveprocessingcontext",
+      "memory_buildactiveparticipantroster",
+      "memory_builddiscordadapterinstruction",
+      "memory_builddiscordprompt",
+      "memory_buildtranscript",
+      "memory_coerceattachments",
+      "memory_coercemessage",
+      "memory_coercesessionsv2",
+      "memory_coercesessionsv3",
+      "memory_conversationmemory_tryparsefile",
+      "memory_describespeaker",
+      "memory_formatattachment",
+      "memory_formatattachments",
+      "memory_formatattachmentsinline",
+      "memory_formatconversationmessageforcontext",
+      "memory_formatincomingdiscordmessage",
+      "memory_formattranscriptentry",
+      "memory_ismemoryfilev2",
+      "memory_ismemoryfilev3",
+      "memory_mergeintosessionmap",
+      "memory_migratesessionkey",
+      "memory_optionalnullablestring",
+      "memory_optionalstring",
+      "memory_resolvesessionkey",
+      "memory_test_assistantmessage",
+      "memory_test_usermessage",
+      "memory_truncatetext",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_memory_ts",
+      "users_yamato_yamato_code_gemini_discord_tests_memory_test_ts"
+    ],
+    "4": [
+      "cli_pool_buildpoolkey",
+      "cli_pool_cliprocesspool",
+      "cli_pool_cliprocesspool_collectresponse",
+      "cli_pool_cliprocesspool_constructor",
+      "cli_pool_cliprocesspool_evict",
+      "cli_pool_cliprocesspool_evictoldestidle",
+      "cli_pool_cliprocesspool_kill",
+      "cli_pool_cliprocesspool_killall",
+      "cli_pool_cliprocesspool_resetidletimer",
+      "cli_pool_cliprocesspool_send",
+      "cli_pool_cliprocesspool_spawnprocess",
+      "cli_pool_cliprocesspool_status",
+      "cli_pool_resolveallowedtools",
+      "gemini_buildgeminiargs",
+      "gemini_buildgeminiinput",
+      "gemini_callgeminifull",
+      "gemini_callgeministreaming",
+      "gemini_withresumefallbackhint",
+      "tool_mode_resolvetoolmode",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_cli_pool_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_gemini_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_tool_mode_ts",
+      "users_yamato_yamato_code_gemini_discord_tests_tool_mode_test_ts"
+    ],
+    "5": [
+      "config_loadconfig",
+      "config_parseboolean",
+      "config_parseenvfile",
+      "config_parsememoryscope",
+      "config_resolvebossid",
+      "config_splitids",
+      "config_updateenvmodel",
+      "setup_ask",
+      "setup_askboolean",
+      "setup_askenum",
+      "setup_buildlaunchagentplist",
+      "setup_ensurebuiltartifacts",
+      "setup_escapexml",
+      "setup_installlaunchagent",
+      "setup_main",
+      "setup_splitcsv",
+      "setup_validatelist",
+      "setup_validaterequired",
+      "users_yamato_yamato_code_gemini_discord_list_channels_ts",
+      "users_yamato_yamato_code_gemini_discord_scripts_setup_ts",
+      "users_yamato_yamato_code_gemini_discord_src_shared_config_ts"
+    ],
+    "6": [
+      "api_startcontrolapi",
+      "daemon_main",
+      "memory_conversationmemory",
+      "memory_conversationmemory_buildprompt",
+      "memory_conversationmemory_channels",
+      "memory_conversationmemory_constructor",
+      "memory_conversationmemory_evictstale",
+      "memory_conversationmemory_flush",
+      "memory_conversationmemory_flushasync",
+      "memory_conversationmemory_flushsync",
+      "memory_conversationmemory_loadfromdisk",
+      "memory_conversationmemory_participants",
+      "memory_conversationmemory_reset",
+      "memory_conversationmemory_serializev3",
+      "memory_conversationmemory_sessions",
+      "memory_conversationmemory_snapshot",
+      "memory_conversationmemory_startautoflush",
+      "memory_conversationmemory_stopautoflush",
+      "memory_conversationmemory_touchsession",
+      "probe_probediscordgateway"
+    ],
+    "7": [
+      "sorter_addsearchbox",
+      "sorter_addsortindicators",
+      "sorter_enableui",
+      "sorter_getnthcolumn",
+      "sorter_gettable",
+      "sorter_gettablebody",
+      "sorter_gettableheader",
+      "sorter_loadcolumns",
+      "sorter_loaddata",
+      "sorter_loadrowdata",
+      "sorter_onfilterinput",
+      "sorter_removesortindicators",
+      "sorter_sortbyindex",
+      "users_yamato_yamato_code_gemini_discord_coverage_sorter_js"
+    ],
+    "8": [
+      "daemon_runtime_ensuredaemonrunning",
+      "daemon_runtime_getdaemonstartedat",
+      "daemon_runtime_isdaemonhealthy",
+      "daemon_runtime_restartdaemon",
+      "daemon_runtime_shutdowndaemon",
+      "daemon_runtime_startdaemonprocess",
+      "daemon_runtime_test_createconfig",
+      "daemon_runtime_test_createresponse",
+      "daemon_runtime_test_unref",
+      "daemon_runtime_waitforhealth",
+      "daemon_runtime_waitforhealthstate",
+      "daemon_runtime_waitfornewstarttime",
+      "users_yamato_yamato_code_gemini_discord_src_shared_daemon_runtime_ts",
+      "users_yamato_yamato_code_gemini_discord_tests_daemon_runtime_test_ts"
+    ],
+    "9": [
+      "channels_appendnotices",
+      "channels_buildguildchannelmap",
+      "channels_extractcrosschannelsends",
+      "channels_getchannelmapcontext",
+      "channels_processcrosschannelsends",
+      "chunker_chunkmessage",
+      "chunker_findsafesplit",
+      "chunker_repairfences",
+      "chunker_safetruncate",
+      "sender_senddiscordmessage",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_channels_ts",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_sender_ts",
+      "users_yamato_yamato_code_gemini_discord_src_shared_chunker_ts",
+      "users_yamato_yamato_code_gemini_discord_tests_chunker_test_ts"
+    ],
+    "10": [
+      "block_navigation_gotonext",
+      "block_navigation_gotoprevious",
+      "block_navigation_makecurrent",
+      "block_navigation_toggleclass",
+      "memory_conversationmemory_add",
+      "queue_channelqueue",
+      "queue_channelqueue_constructor",
+      "queue_channelqueue_depth",
+      "queue_channelqueue_drainall",
+      "queue_channelqueue_enqueue",
+      "queue_channelqueue_releasekeys",
+      "queue_channelqueue_totalinflight",
+      "queue_normalizekeys",
+      "users_yamato_yamato_code_gemini_discord_coverage_block_navigation_js"
+    ],
+    "11": [
+      "actor:yamato",
+      "component:discord-daemon",
+      "component:mcp-server",
+      "config:memory_scope",
+      "library:discord.js",
+      "library:genai",
+      "library:mcp-sdk",
+      "project:gemini-discord",
+      "tool:discord_history",
+      "tool:discord_reply",
+      "tool:discord_reset",
+      "tool:discord_restart",
+      "tool:discord_send",
+      "tool:discord_status"
+    ],
+    "12": [
+      "prettify_a",
+      "prettify_b",
+      "prettify_c",
+      "prettify_d",
+      "prettify_g",
+      "prettify_i",
+      "prettify_k",
+      "prettify_o",
+      "prettify_q",
+      "prettify_y",
+      "users_yamato_yamato_code_gemini_discord_coverage_prettify_js"
+    ],
+    "13": [
+      "attachments_downloadimageattachments",
+      "attachments_getimageattachmentmetadata",
+      "attachments_getimageattachments",
+      "attachments_isimageattachment",
+      "attachments_sanitizefilename",
+      "attachments_test_createattachmentdir",
+      "attachments_test_createmessage",
+      "attachments_test_setmtime",
+      "attachments_toconversationattachment",
+      "users_yamato_yamato_code_gemini_discord_src_daemon_attachments_ts",
+      "users_yamato_yamato_code_gemini_discord_tests_attachments_test_ts"
+    ],
+    "14": [
+      "semaphore_semaphore",
+      "semaphore_semaphore_acquirewithtimeout",
+      "semaphore_semaphore_constructor",
+      "semaphore_semaphore_inflight",
+      "semaphore_semaphore_release",
+      "semaphore_semaphore_waiting",
+      "semaphore_test_task",
+      "users_yamato_yamato_code_gemini_discord_tests_semaphore_test_ts"
+    ],
+    "15": [
+      "users_yamato_yamato_code_gemini_discord_update_engine_cli_js"
+    ],
+    "16": [
+      "users_yamato_yamato_code_gemini_discord_test_tool_js"
+    ],
+    "17": [
+      "users_yamato_yamato_code_gemini_discord_update_mjs"
+    ],
+    "18": [
+      "users_yamato_yamato_code_gemini_discord_test_gemini_js"
+    ],
+    "19": [
+      "users_yamato_yamato_code_gemini_discord_esbuild_config_mjs"
+    ],
+    "20": [
+      "users_yamato_yamato_code_gemini_discord_vitest_config_ts"
+    ],
+    "21": [
+      "users_yamato_yamato_code_gemini_discord_fix_memory_js"
+    ],
+    "22": [
+      "users_yamato_yamato_code_gemini_discord_tests_discord_media_test_ts"
+    ],
+    "23": [
+      "users_yamato_yamato_code_gemini_discord_tests_binding_concurrency_test_ts"
+    ],
+    "24": [
+      "users_yamato_yamato_code_gemini_discord_tests_binding_test_ts"
+    ],
+    "25": [
+      "binding_manager"
+    ],
+    "26": [
+      "routing_logic"
+    ],
+    "27": [
+      "chunker_utility"
+    ],
+    "28": [
+      "retry_utility"
+    ],
+    "29": [
+      "tool_mode_resolver"
+    ],
+    "30": [
+      "attachments_manager"
+    ],
+    "31": [
+      "discord_media_utility"
+    ],
+    "32": [
+      "daemon_runtime_utility"
+    ],
+    "33": [
+      "update_engine_patch"
+    ],
+    "34": [
+      "test_gemini_latency"
+    ],
+    "35": [
+      "file:package.json"
+    ],
+    "36": [
+      "file:readme.md"
+    ]
+  },
+  "cohesion": {
+    "0": 0.09,
+    "1": 0.09,
+    "2": 0.13,
+    "3": 0.13,
+    "4": 0.13,
+    "5": 0.18,
+    "6": 0.16,
+    "7": 0.27,
+    "8": 0.3,
+    "9": 0.22,
+    "10": 0.19,
+    "11": 0.15,
+    "12": 0.35,
+    "13": 0.24,
+    "14": 0.29,
+    "15": 1.0,
+    "16": 1.0,
+    "17": 1.0,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0,
+    "24": 1.0,
+    "25": 1.0,
+    "26": 1.0,
+    "27": 1.0,
+    "28": 1.0,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0,
+    "32": 1.0,
+    "33": 1.0,
+    "34": 1.0,
+    "35": 1.0,
+    "36": 1.0
+  },
+  "gods": [
+    {
+      "id": "memory_conversationmemory",
+      "label": "ConversationMemory",
+      "degree": 20
+    },
+    {
+      "id": "engine_cli_processviacli",
+      "label": "processViaCli()",
+      "degree": 17
+    },
+    {
+      "id": "editor_liveeditor",
+      "label": "LiveEditor",
+      "degree": 14
+    },
+    {
+      "id": "daemon_main",
+      "label": "main()",
+      "degree": 12
+    },
+    {
+      "id": "retry_retrysend",
+      "label": "retrySend()",
+      "degree": 12
+    },
+    {
+      "id": "setup_main",
+      "label": "main()",
+      "degree": 11
+    },
+    {
+      "id": "cli_pool_cliprocesspool",
+      "label": "CliProcessPool",
+      "degree": 11
+    },
+    {
+      "id": "queue_channelqueue",
+      "label": "ChannelQueue",
+      "degree": 8
+    },
+    {
+      "id": "daemon_runtime_restartdaemon",
+      "label": "restartDaemon()",
+      "degree": 7
+    },
+    {
+      "id": "config_loadconfig",
+      "label": "loadConfig()",
+      "degree": 7
+    }
+  ],
+  "surprises": [
+    {
+      "source": "main()",
+      "target": "ensureDaemonRunning()",
+      "source_files": [
+        "/Users/yamato/Yamato code/gemini-discord/src/server.ts",
+        "/Users/yamato/Yamato code/gemini-discord/src/shared/daemon-runtime.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities; peripheral node `main()` unexpectedly reaches hub `ensureDaemonRunning()`"
+    },
+    {
+      "source": "processMessage()",
+      "target": "resolveToolMode()",
+      "source_files": [
+        "/Users/yamato/Yamato code/gemini-discord/src/daemon/gateway.ts",
+        "/Users/yamato/Yamato code/gemini-discord/src/daemon/tool-mode.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities; peripheral node `resolveToolMode()` unexpectedly reaches hub `processMessage()`"
+    },
+    {
+      "source": "withRetry()",
+      "target": "fn()",
+      "source_files": [
+        "/Users/yamato/Yamato code/gemini-discord/src/daemon/retry.ts",
+        "/Users/yamato/Yamato code/gemini-discord/tests/retry.test.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; peripheral node `fn()` unexpectedly reaches hub `withRetry()`"
+    },
+    {
+      "source": "route()",
+      "target": "shouldAcceptMessage()",
+      "source_files": [
+        "/Users/yamato/Yamato code/gemini-discord/tests/routing.test.ts",
+        "/Users/yamato/Yamato code/gemini-discord/src/daemon/routing.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; peripheral node `route()` unexpectedly reaches hub `shouldAcceptMessage()`"
+    },
+    {
+      "source": "main()",
+      "target": "main()",
+      "source_files": [
+        "/Users/yamato/Yamato code/gemini-discord/scripts/setup.ts",
+        "/Users/yamato/Yamato code/gemini-discord/src/daemon.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "conceptually_related_to",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `ConversationMemory` connect `Community 6` to `Community 10`, `Community 3`?",
+      "why": "High betweenness centrality (0.086) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `processViaCli()` connect `Community 2` to `Community 3`, `Community 4`, `Community 6`, `Community 13`, `Community 14`?",
+      "why": "High betweenness centrality (0.063) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `main()` connect `Community 6` to `Community 1`, `Community 10`, `Community 5`, `Community 14`?",
+      "why": "High betweenness centrality (0.048) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 12 inferred relationships involving `processViaCli()` (e.g. with `processMessage()` and `getImageAttachmentMetadata()`) actually correct?",
+      "why": "`processViaCli()` has 12 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 8 inferred relationships involving `main()` (e.g. with `runPreflight()` and `loadConfig()`) actually correct?",
+      "why": "`main()` has 8 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 10 inferred relationships involving `retrySend()` (e.g. with `.init()` and `.finalize()`) actually correct?",
+      "why": "`retrySend()` has 10 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `Workspace Binding Manager`, `Message Routing Logic`, `Message Chunker Utility` to the rest of the system?",
+      "why": "10 weakly-connected nodes found - possible documentation gaps or missing edges."
+    }
+  ]
+}

@@ -30,20 +30,23 @@ export interface BotCallbacks {
 }
 
 export function createClient(config: Config): Client {
+  log.info('Client creating', { enableDMs: config.enableDMs, bossId: config.discordBossId });
   const intents = [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildIntegrations,
     GatewayIntentBits.MessageContent,
   ];
 
   if (config.enableDMs) {
     intents.push(GatewayIntentBits.DirectMessages);
+    intents.push(GatewayIntentBits.DirectMessageTyping);
   }
 
   return new Client({
     intents,
     partials: config.enableDMs
-      ? [Partials.Channel, Partials.Message]
+      ? [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction, Partials.ThreadMember]
       : [],
     makeCache: Options.cacheWithLimits({
       MessageManager: { maxSize: 50 },
@@ -107,6 +110,7 @@ export function setupMessageHandler(
 
     // Fast-fail routing checks to avoid expensive Discord API calls
     if (message.author.id === client.user?.id) return;
+
     if (isDM) {
       if (!config.enableDMs) return;
       // Security: Only the configured Boss may DM the bot directly.
