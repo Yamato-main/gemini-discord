@@ -130,21 +130,21 @@ Requires:
 
 - Node.js 22+
 - Gemini CLI installed and authenticated
-- A Discord bot token
+- A Discord bot token (from [Discord Developer Portal](https://discord.com/developers/applications))
 
-Install as a Gemini CLI extension:
+The installation process is frictionless. You don't need to manually configure `.env` files or start the daemon.
 
 ```bash
-gemini extensions install /absolute/path/to/gemini-discord
+gemini extensions install Yamato-atk/gemini-discord
 ```
 
-When you publish the repo later, replace that local path with the Git URL.
+During installation, the Gemini CLI will interactively prompt you for the required configuration variables (like your Discord Bot Token and Channel IDs) and save them securely to your system keychain. 
 
-Then configure the required environment values.
+On the first run, the extension will automatically install dependencies, build itself, and spawn the daemon in the background.
 
 ## Important Configuration
 
-Key settings in `.env`:
+Key settings that you will be prompted for during installation:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

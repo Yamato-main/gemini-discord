@@ -56,7 +56,7 @@
   "mcpServers": {
     "discord-bridge": {
       "command": "node",
-      "args": ["${extensionPath}${/}bootstrap.cjs"],
+      "args": ["${extensionPath}${/}dist${/}server.cjs"],
       "cwd": "${extensionPath}",
       "env": {
         "DISCORD_BOT_TOKEN": "${DISCORD_BOT_TOKEN}",

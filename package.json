@@ -5,6 +5,13 @@
   "description": "Always-on Discord gateway for Gemini CLI. Bidirectional chat, conversation memory, streaming responses.",
   "files": [
     "dist",
+    "src",
+    "scripts",
+    "bootstrap.cjs",
+    "esbuild.config.mjs",
+    "tsconfig.json",
+    "package.json",
+    "package-lock.json",
     "gemini-extension.json",
     "GEMINI.md",
     "README.md",

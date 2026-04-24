@@ -9,7 +9,6 @@ start-daemon.sh
 node_modules/
 coverage/
 build/
-dist/
 *.db
 *.log
 *.jsonl
