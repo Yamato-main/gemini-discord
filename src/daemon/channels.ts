@@ -12,8 +12,15 @@ import { log } from './log.js';
 import { chunkMessage } from '../shared/chunker.js';
 import { sendDiscordMessage } from './sender.js';
 
-/** name → { id, name } */
-const guildChannelMap = new Map<string, { id: string; name: string }>();
+export interface DiscoveredChannelTarget {
+  id: string;
+  name: string;
+}
+
+/** Alias lookup for ids, names, mentions, and #name handles. */
+const channelAliasMap = new Map<string, DiscoveredChannelTarget>();
+/** Unique discovered channels keyed by id for prompt/status rendering. */
+const discoveredChannels = new Map<string, DiscoveredChannelTarget>();
 let lastChannelMapRefresh = 0;
 const CHANNEL_MAP_TTL_MS = 10 * 60 * 1000;
 const RE_CROSS_SEND = /\[SEND:#([^\]]+)\]([\s\S]*?)\[\/SEND\]/g;
@@ -33,7 +40,8 @@ export async function buildGuildChannelMap(client: Client): Promise<void> {
     return; // debounce rapid requests
   }
 
-  guildChannelMap.clear();
+  channelAliasMap.clear();
+  discoveredChannels.clear();
   const guilds = await client.guilds.fetch();
 
   for (const [guildId] of guilds) {
@@ -47,8 +55,10 @@ export async function buildGuildChannelMap(client: Client): Promise<void> {
           channel.type === ChannelType.GuildAnnouncement ||
           channel.type === ChannelType.GuildForum
         ) {
-          guildChannelMap.set(channel.name, { id: channelId, name: channel.name });
-          guildChannelMap.set(channelId, { id: channelId, name: channel.name });
+          registerDiscoveredChannel({
+            id: channelId,
+            name: channel.name,
+          });
         }
       }
     } catch (err) {
@@ -61,20 +71,43 @@ export async function buildGuildChannelMap(client: Client): Promise<void> {
 
   lastChannelMapRefresh = Date.now();
   log.info('Channel map built', {
-    channels: guildChannelMap.size,
-    names: [...guildChannelMap.keys()].join(', '),
+    channels: discoveredChannels.size,
+    names: [...discoveredChannels.values()].map((channel) => channel.name).join(', '),
   });
 }
 
 /**
  * Build a channel list string for inclusion in system prompts.
  */
+export function getChannelMapEntries(): Array<[string, DiscoveredChannelTarget]> {
+  return Array.from(discoveredChannels.values())
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((channel) => [channel.name, channel] as [string, DiscoveredChannelTarget]);
+}
+
 export function getChannelMapContext(): string {
-  if (guildChannelMap.size === 0) return '';
-  const lines = [...guildChannelMap.entries()].map(
+  if (discoveredChannels.size === 0) return '';
+  const lines = getChannelMapEntries().map(
     ([name, { id }]) => `- #${name} → <#${id}>`,
   );
   return `\n## Server Channels\nYou can send messages to other channels using the cross-channel directive.\nFormat: [SEND:#channel-name]your message here[/SEND]\nThe daemon will intercept this and post the message in the target channel.\nAvailable channels:\n${lines.join('\n')}`;
+}
+
+export async function resolveDiscoveredChannel(
+  query: string,
+  client?: Client | null,
+): Promise<DiscoveredChannelTarget | null> {
+  const cached = resolveChannelFromCache(query);
+  if (cached) {
+    return cached;
+  }
+
+  if (!client) {
+    return null;
+  }
+
+  await buildGuildChannelMap(client);
+  return resolveChannelFromCache(query);
 }
 
 /**
@@ -122,12 +155,12 @@ export async function processCrossChannelSends(
   }
 
   for (const directive of directives) {
-    let target = guildChannelMap.get(directive.target);
-    
-    // Lazy refresh on failure or TTL expiration
-    if (!target || Date.now() - lastChannelMapRefresh > CHANNEL_MAP_TTL_MS) {
+    let target = await resolveDiscoveredChannel(directive.target, client);
+
+    // Lazy refresh on TTL expiration even when cache hit, so channel list stays fresh.
+    if (target && Date.now() - lastChannelMapRefresh > CHANNEL_MAP_TTL_MS) {
       await buildGuildChannelMap(client);
-      target = guildChannelMap.get(directive.target);
+      target = await resolveDiscoveredChannel(directive.target, client);
     }
 
     if (!target) {
@@ -173,4 +206,51 @@ function appendNotices(cleaned: string, notices: string[]): string {
   }
 
   return `${cleaned}\n\n${notices.join('\n')}`;
+}
+
+function registerDiscoveredChannel(channel: DiscoveredChannelTarget): void {
+  discoveredChannels.set(channel.id, channel);
+  const aliases = new Set([
+    channel.id,
+    channel.name,
+    channel.name.toLowerCase(),
+    `#${channel.name}`,
+    `#${channel.name.toLowerCase()}`,
+    `<#${channel.id}>`,
+  ]);
+
+  for (const alias of aliases) {
+    channelAliasMap.set(alias, channel);
+  }
+}
+
+function resolveChannelFromCache(query: string): DiscoveredChannelTarget | null {
+  const normalized = normalizeChannelQuery(query);
+  for (const candidate of normalized) {
+    const target = channelAliasMap.get(candidate);
+    if (target) {
+      return target;
+    }
+  }
+
+  return null;
+}
+
+function normalizeChannelQuery(query: string): string[] {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const values = new Set<string>([trimmed, trimmed.toLowerCase()]);
+  const withoutHash = trimmed.replace(/^#/, '');
+  values.add(withoutHash);
+  values.add(withoutHash.toLowerCase());
+
+  const mentionMatch = trimmed.match(/^<#([0-9]+)>$/);
+  if (mentionMatch) {
+    values.add(mentionMatch[1]);
+  }
+
+  return [...values];
 }

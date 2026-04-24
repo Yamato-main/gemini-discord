@@ -12,6 +12,7 @@ export interface DaemonRuntime {
   cliPool: CliProcessPool | null;
   isShuttingDown: boolean;
   agentExchangeCount: Map<string, number>;
+  lastInteractiveMessageAt: number | null;
 }
 
 export const runtimeStore: DaemonRuntime = {
@@ -22,6 +23,7 @@ export const runtimeStore: DaemonRuntime = {
   cliPool: null,
   isShuttingDown: false,
   agentExchangeCount: new Map<string, number>(),
+  lastInteractiveMessageAt: null,
 };
 
 export function getRuntime(): DaemonRuntime {

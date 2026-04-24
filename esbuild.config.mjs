@@ -12,7 +12,7 @@ const shared = {
 await Promise.all([
   build({ ...shared, entryPoints: ['src/daemon.ts'],    outfile: 'dist/daemon.cjs' }),
   build({ ...shared, entryPoints: ['src/server.ts'],    outfile: 'dist/server.cjs' }),
-  build({ ...shared, entryPoints: ['scripts/setup.ts'], outfile: 'dist/setup.cjs' }),
+  build({ ...shared, entryPoints: ['scripts/install-service.ts'], outfile: 'dist/install-service.cjs' }),
 ]);
 
-console.log('✅ Build complete: dist/daemon.cjs, dist/server.cjs, dist/setup.cjs');
+console.log('✅ Build complete: dist/daemon.cjs, dist/server.cjs, dist/install-service.cjs');

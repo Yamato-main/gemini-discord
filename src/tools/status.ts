@@ -37,6 +37,8 @@ export function registerStatusTool(server: McpServer, config: Config): void {
         `**Streaming:** ${s.streaming ? 'enabled' : 'disabled'}`,
         `**DMs:** ${s.enableDMs ? 'enabled' : 'disabled'}`,
         `**Memory Scope:** ${s.sessionScope}`,
+        `**Gemini Session Binding Scope:** ${s.geminiSessionBindingScope}`,
+        `**Gemini Headless Mode:** ${s.headlessMode ?? 'unknown'}`,
         `**Require Mention:** ${s.requireMention ? 'yes' : 'no'}`,
         `**Allowlisted Humans:** ${s.allowlistedUsers}`,
         `**Allowlisted Agents:** ${s.allowlistedAgents}`,
@@ -45,6 +47,31 @@ export function registerStatusTool(server: McpServer, config: Config): void {
         `**Queue Depth:** ${s.queueDepth}`,
         `**Uptime Since:** ${s.startedAt}`,
       ];
+
+      if (s.channels && s.channels.length > 0) {
+        lines.push('', '### Discovered Channels');
+        s.channels.forEach(c => {
+          lines.push(`- **#${c.name}**: \`${c.id}\``);
+        });
+      }
+
+      if (s.autonomous) {
+        lines.push('', '### Autonomous');
+        lines.push(`- **Enabled:** ${s.autonomous.enabled ? 'yes' : 'no'}`);
+        lines.push(`- **Running:** ${s.autonomous.running ? 'yes' : 'no'}`);
+        lines.push(`- **Interval:** ${s.autonomous.intervalMs}ms`);
+        lines.push(`- **Target Channel:** ${s.autonomous.targetChannelName || s.autonomous.targetChannelId || '(default)'}`);
+        for (const source of s.autonomous.sources) {
+          lines.push(`- **${source.id}:** ${source.lastDecision ?? 'idle'} | signal ${source.lastSignalScore} | last post ${source.lastPostedAt ?? 'never'}`);
+        }
+      }
+
+      if (s.bindings && s.bindings.length > 0) {
+        lines.push('', '### Gemini Bindings');
+        for (const binding of s.bindings) {
+          lines.push(`- **${binding.workspace}:** ${binding.hasSession ? `session ${binding.lastSessionId ?? '(unknown id)'}` : 'no session yet'}`);
+        }
+      }
 
       if (s.lastError) {
         lines.push(`**Last Error:** ${s.lastError}`);

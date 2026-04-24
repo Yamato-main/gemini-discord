@@ -68,6 +68,7 @@ export interface BuildDiscordPromptOptions {
   incoming: PromptInput;
   history?: ConversationMessage[];
   bossUserId?: string;
+  ownerIds?: string[];
   promptHistoryMessageLimit?: number;
   promptHistoryCharBudget?: number;
 }
@@ -337,91 +338,83 @@ export function buildDiscordPrompt(options: BuildDiscordPromptOptions): string {
     options.promptHistoryMessageLimit ?? DEFAULT_PROMPT_HISTORY_MESSAGE_LIMIT,
     options.promptHistoryCharBudget ?? DEFAULT_PROMPT_HISTORY_CHAR_BUDGET,
     options.bossUserId,
+    options.ownerIds,
   );
   const historyBlock = omittedCount > 0
     ? `(${omittedCount} earlier messages omitted)\n${transcript}`
     : transcript;
 
-  return `${buildDiscordAdapterInstruction(options.incoming, { bossUserId: options.bossUserId })}
+  return `${buildDiscordAdapterInstruction(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}
 
 [Participants]
-${buildActiveParticipantRoster(history, options.incoming, { bossUserId: options.bossUserId })}
+${buildActiveParticipantRoster(history, options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}
 
 [History]
 ${historyBlock}
 
 [Message]
-${formatIncomingDiscordMessage(options.incoming, { bossUserId: options.bossUserId })}`;
+${formatIncomingDiscordMessage(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}`;
+}
+
+/**
+ * Build a minimal prompt for session mode.
+ *
+ * When `useGeminiCliSessions=true`, the CLI process resumes its own session
+ * via `-r latest`. The session file IS the conversation history — replaying
+ * it in the prompt would duplicate everything the model already knows.
+ *
+ * This prompt only contains:
+ * - Runtime context header (Discord adapter instruction)
+ * - The current incoming message with speaker/channel metadata
+ *
+ * The CLI session handles everything else: prior messages, images, tool
+ * call chains, system context. The bot IS the CLI agent, not a copy.
+ */
+export function buildSessionModePrompt(options: {
+  incoming: PromptInput;
+  bossUserId?: string;
+  ownerIds?: string[];
+}): string {
+  return `${buildDiscordAdapterInstruction(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}
+
+[Message]
+${formatIncomingDiscordMessage(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}`;
 }
 
 export function buildDiscordAdapterInstruction(
   incoming: PromptInput | undefined,
-  options: { bossUserId?: string } = {}
+  options: { bossUserId?: string; ownerIds?: string[] } = {}
 ): string {
   const chatType = incoming && !incoming.guildId ? 'direct' : 'group';
+  const bossLine = options.bossUserId ? ` (Owner: ${options.bossUserId})` : '';
 
-  const runtimeContext = {
-    channel: "discord",
-    provider: "discord",
-    surface: "discord",
-    chat_type: chatType
-  };
-
-  const bossLine = options.bossUserId
-    ? `\n- Yamato Discord ID: ${options.bossUserId}`
-    : '';
-
-  return `[Runtime Context]
-${JSON.stringify(runtimeContext, null, 2)}
-- Format responses in Discord-compatible Markdown.${bossLine}
+  return `[Runtime: Discord ${chatType}${bossLine}]
+- Respond with Discord Markdown.
 ${getChannelMapContext()}`;
 }
 
 export function formatIncomingDiscordMessage(
   input: PromptInput,
-  options: { bossUserId?: string } = {},
+  options: { bossUserId?: string; ownerIds?: string[] } = {},
 ): string {
-  const speakerLabel = describeSpeaker(input.speakerKind, input.authorId, options.bossUserId);
-  const locationStr = input.guildName 
-    ? `Server: ${input.guildName} / #${input.channelName}` 
-    : `DM`;
-    
-  const mainParts = [
-    `Platform: Discord`,
-    locationStr,
-    `User: ${input.authorName} (${speakerLabel})`
-  ];
-
-  const metaParts = [
-    `ChannelID: ${input.channelId}`,
-    `UserID: ${input.authorId}`,
-    `MsgID: ${input.messageId}`,
-    `Trigger: ${input.trigger ?? 'channel'}`
-  ];
-
-  const replyTarget = input.replyToAuthorName
-    ? `ReplyTo: ${input.replyToAuthorName}${input.replyToAuthorId ? ` (${input.replyToAuthorId})` : ''}`
-    : '';
-    
-  let preamble = `[${mainParts.join(' | ')}]\n[Meta | ${metaParts.join(' | ')}]`;
-  if (replyTarget) {
-    preamble += `\n[${replyTarget}]`;
-  }
+  const speakerLabel = describeSpeaker(input.speakerKind, input.authorId, options.bossUserId, options.ownerIds);
+  const location = input.guildName ? `${input.guildName} / #${input.channelName}` : 'DM';
+  const attachments = formatAttachmentsInline(input.attachments);
+  const content = input.content || (attachments ? '' : '(no text provided)');
+  const timestamp = ` [${new Date().toLocaleTimeString()}]`;
   
-  const formattedAttachments = formatAttachments(input.attachments);
-  if (formattedAttachments) {
-    preamble += `\n[${formattedAttachments}]`;
+  let header = `[${location} | ${input.authorName} (${speakerLabel})]${attachments}${timestamp}`;
+  if (input.replyToAuthorName) {
+    header += ` (Reply to ${input.replyToAuthorName})`;
   }
 
-  const content = input.content || '(no text provided)';
-
-  return `${preamble}\n${content}`;
+  return `${header}\n${content}`;
 }
 
 export function buildActiveParticipantRoster(
   history: ConversationMessage[],
   incoming: PromptInput,
-  options: { bossUserId?: string } = {},
+  options: { bossUserId?: string; ownerIds?: string[] } = {},
 ): string {
   const recentMessages = [...history.slice(-12)];
   recentMessages.push({
@@ -450,7 +443,7 @@ export function buildActiveParticipantRoster(
     if (seen.has(entry.authorId)) continue;
 
     seen.add(entry.authorId);
-    participants.push(`- ${entry.authorName} (${describeSpeaker(entry.speakerKind ?? 'human', entry.authorId, options.bossUserId)})`);
+    participants.push(`- ${entry.authorName} (${describeSpeaker(entry.speakerKind ?? 'human', entry.authorId, options.bossUserId, options.ownerIds)})`);
 
     if (participants.length >= ACTIVE_PARTICIPANT_LIMIT) {
       break;
@@ -466,33 +459,27 @@ export function buildActiveParticipantRoster(
 
 export function formatConversationMessageForContext(
   entry: ConversationMessage,
-  options: { bossUserId?: string } = {},
+  options: { bossUserId?: string; ownerIds?: string[] } = {},
 ): string {
-  const speaker = entry.authorName ?? (entry.role === 'assistant' ? 'Assistant' : 'Unknown speaker');
-  const speakerKind = entry.role === 'assistant' ? 'assistant' : (entry.speakerKind ?? 'human');
-  
-  const locationStr = entry.guildName 
-    ? `Server: ${entry.guildName} / #${entry.channelName}` 
-    : `DM`;
-    
-  const parts = [
-    `Platform: Discord`,
-    locationStr,
-    `User: ${speaker} (${describeSpeaker(speakerKind, entry.authorId, options.bossUserId)})`
-  ];
-
-  if (entry.messageId) parts.push(`MsgID: ${entry.messageId}`);
-  if (entry.replyToAuthorName) parts.push(`ReplyTo: ${entry.replyToAuthorName}`);
-  
+  const speaker = entry.authorName ?? (entry.role === 'assistant' ? 'Assistant' : 'Unknown');
+  const kind = entry.role === 'assistant' ? 'assistant' : (entry.speakerKind ?? 'human');
+  const label = describeSpeaker(kind, entry.authorId, options.bossUserId, options.ownerIds);
+  const location = entry.guildName ? `#${entry.channelName}` : 'DM';
   const attachments = formatAttachmentsInline(entry.attachments);
-  const preamble = `[${parts.join(' | ')}]`;
-  const content = truncateText(entry.content || '(no text provided)', TRANSCRIPT_ENTRY_CHAR_LIMIT);
+  const imageRefs = formatImageRefsBlock(entry.attachments);
+  const content = truncateText(entry.content || (attachments ? '' : '(no text)'), TRANSCRIPT_ENTRY_CHAR_LIMIT);
 
-  return `${preamble}${attachments}\n${content}`;
+  const timestamp = entry.createdAt ? ` [${new Date(entry.createdAt).toLocaleTimeString()}]` : '';
+
+  let result = `[${location} | ${speaker} (${label})]${attachments}${timestamp}\n${content}`;
+  if (imageRefs) {
+    result += `\n${imageRefs}`;
+  }
+  return result;
 }
 
-function formatTranscriptEntry(entry: ConversationMessage, bossUserId?: string): string {
-  return formatConversationMessageForContext(entry, { bossUserId });
+function formatTranscriptEntry(entry: ConversationMessage, bossUserId?: string, ownerIds?: string[]): string {
+  return formatConversationMessageForContext(entry, { bossUserId, ownerIds });
 }
 
 function buildTranscript(
@@ -500,6 +487,7 @@ function buildTranscript(
   maxMessages: number,
   maxChars: number,
   bossUserId?: string,
+  ownerIds?: string[],
 ): { transcript: string; omittedCount: number } {
   if (history.length === 0) {
     return {
@@ -518,11 +506,11 @@ function buildTranscript(
       break;
     }
 
-    const formatted = formatTranscriptEntry(history[index], bossUserId);
+    const formatted = formatTranscriptEntry(history[index], bossUserId, ownerIds);
     const entryCost = formatted.length + 1;
 
     if (entryCost > maxChars && selected.length === 0) {
-      selected.unshift(truncateText(formatted, maxChars));
+      selected.push(truncateText(formatted, maxChars));
       omittedCount = index;
       break;
     }
@@ -532,9 +520,11 @@ function buildTranscript(
       break;
     }
 
-    selected.unshift(formatted);
+    selected.push(formatted);
     usedChars += entryCost;
   }
+
+  selected.reverse();
 
   return {
     transcript: selected.join('\n'),
@@ -656,7 +646,7 @@ function coerceMessage(entry: Record<string, unknown>): ConversationMessage {
     content: String(entry.content ?? ''),
     speakerKind,
     authorId: optionalString(entry.authorId),
-    authorName: optionalString(entry.authorName) ?? (role === 'assistant' ? 'Yamato-samurai' : undefined),
+    authorName: optionalString(entry.authorName) ?? (role === 'assistant' ? 'Assistant' : undefined),
     attachments: coerceAttachments(entry.attachments),
     channelId: optionalString(entry.channelId),
     channelName: optionalString(entry.channelName),
@@ -722,13 +712,58 @@ function formatAttachment(attachment: ConversationAttachment): string {
   return parts.join(' · ');
 }
 
+/**
+ * Format image URLs as references the model can see and potentially refetch.
+ * This grounds visual history — without it, the model only sees labels like
+ * "image.png · image/png · 450KB" which carry zero visual information.
+ */
+function formatImageRefsBlock(attachments?: ConversationAttachment[]): string {
+  if (!attachments || attachments.length === 0) return '';
+
+  const imageUrls = attachments
+    .filter(a => a.url && isImageContentType(a.contentType))
+    .map(a => a.url!);
+
+  if (imageUrls.length === 0) return '';
+
+  return imageUrls.map(url => `[image: ${url}]`).join('\n');
+}
+
+function isImageContentType(contentType?: string): boolean {
+  if (!contentType) return true; // assume image if content type unknown
+  return contentType.startsWith('image/');
+}
+
+/**
+ * Extract all image URLs from a history array.
+ * Used by the CLI engine to pass previous-turn images as file references
+ * so Gemini can actually see them, not just read metadata labels.
+ */
+export function extractHistoryImageUrls(history: ConversationMessage[]): string[] {
+  const urls: string[] = [];
+  for (const msg of history) {
+    if (!msg.attachments) continue;
+    for (const att of msg.attachments) {
+      if (att.url && isImageContentType(att.contentType)) {
+        urls.push(att.url);
+      }
+    }
+  }
+  return urls;
+}
+
 function describeSpeaker(
   speakerKind: ConversationMessage['speakerKind'] | PromptInput['speakerKind'],
   authorId: string | undefined,
   bossUserId?: string,
+  ownerIds?: string[],
 ): string {
   if (authorId && bossUserId && authorId === bossUserId) {
-    return 'Yamato — full authority';
+    return 'Owner — full authority';
+  }
+
+  if (authorId && ownerIds && ownerIds.includes(authorId)) {
+    return 'Admin — high authority';
   }
 
   switch (speakerKind) {
@@ -737,7 +772,7 @@ function describeSpeaker(
     case 'assistant':
       return 'Assistant';
     default:
-      return 'Human user';
+      return 'Guest — no authority';
   }
 }
 

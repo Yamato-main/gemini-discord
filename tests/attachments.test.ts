@@ -21,7 +21,8 @@ afterEach(() => {
 describe('downloadImageAttachments', () => {
   it('downloads Discord image attachments into the binding workspace', async () => {
     globalThis.fetch = vi.fn(async () => new Response(Buffer.from('fake-image-bytes'), { status: 200 })) as typeof fetch;
-    const attachmentsRoot = path.join(tmpDir, 'discord-attachments');
+    const bindingDir = path.join(tmpDir, 'binding');
+    const attachmentsRoot = path.join(bindingDir, 'discord-attachments');
 
     const message = createMessage('m1', [
       {
@@ -33,10 +34,11 @@ describe('downloadImageAttachments', () => {
       },
     ]);
 
-    const downloaded = await downloadImageAttachments(message, attachmentsRoot);
+    const downloaded = await downloadImageAttachments(message, attachmentsRoot, bindingDir);
 
     expect(downloaded).toHaveLength(1);
-    expect(downloaded[0].relativePath).toBe(path.join('discord-attachments', 'm1', '1-reference.png'));
+    const expectedRelativePath = path.relative(bindingDir, downloaded[0].localPath);
+    expect(downloaded[0].relativePath).toBe(expectedRelativePath);
     expect(fs.existsSync(downloaded[0].localPath)).toBe(true);
     expect(fs.readFileSync(downloaded[0].localPath, 'utf-8')).toBe('fake-image-bytes');
   });
@@ -48,7 +50,8 @@ describe('downloadImageAttachments', () => {
       return new Response(Buffer.from('fake-image-bytes'), { status: 200 });
     }) as typeof fetch;
 
-    const attachmentsRoot = path.join(tmpDir, 'discord-attachments');
+    const bindingDir = path.join(tmpDir, 'binding');
+    const attachmentsRoot = path.join(bindingDir, 'discord-attachments');
     const message = createMessage('m2', [
       { id: 'a1', name: 'img1.png', contentType: 'image/png', size: 100, url: 'url1' },
       { id: 'a2', name: 'img2.png', contentType: 'image/png', size: 100, url: 'url2' },
@@ -57,7 +60,7 @@ describe('downloadImageAttachments', () => {
     ]);
 
     const start = Date.now();
-    const downloaded = await downloadImageAttachments(message, attachmentsRoot);
+    const downloaded = await downloadImageAttachments(message, attachmentsRoot, bindingDir);
     const end = Date.now();
 
     expect(downloaded).toHaveLength(4);

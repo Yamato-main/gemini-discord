@@ -27,6 +27,7 @@ export interface AcceptedDiscordMessage {
 
 export interface BotCallbacks {
   onMessage: (message: Message, accepted: AcceptedDiscordMessage) => void;
+  onIgnoredMessage?: (message: Message, trackOnlyContext: Omit<AcceptedDiscordMessage, 'trigger' | 'isBoss'>) => void;
 }
 
 export function createClient(config: Config): Client {
@@ -93,41 +94,53 @@ export function setupMessageHandler(
   isShuttingDown: () => boolean,
 ): void {
   client.on('messageCreate', async (message: Message) => {
-    if (message.partial) {
-      try {
-        await message.fetch();
-      } catch (err) {
-        log.warn('Failed to fetch partial message', { error: err instanceof Error ? err.message : String(err) });
+    try {
+      if (message.partial) {
+        try {
+          await message.fetch();
+        } catch (err) {
+          log.warn('Failed to fetch partial message', { error: err instanceof Error ? err.message : String(err) });
+          return;
+        }
+      }
+
+      if (isShuttingDown()) return;
+      if (!message.author) {
+        log.warn('Received message without author', { id: message.id, channelId: message.channelId });
         return;
       }
-    }
 
-    if (!message.author || isShuttingDown()) return;
+      const isDM = !message.guild;
+      const isSelf = message.author.id === client.user?.id;
+      const channelName = getChannelName(message);
+      const guildName = message.guild?.name ?? null;
 
-    const isDM = !message.guild;
-    const channelName = getChannelName(message);
-    const guildName = message.guild?.name ?? null;
-
-    // Fast-fail routing checks to avoid expensive Discord API calls
-    if (message.author.id === client.user?.id) return;
+      // Fast-fail routing checks to avoid expensive Discord API calls
+      const isCronTrigger = isSelf && message.content.startsWith('[CRON]');
+      if (isSelf && !isCronTrigger) return;
+      if (isCronTrigger) message.delete().catch(() => {});
 
     if (isDM) {
-      if (!config.enableDMs) return;
-      // Security: Only the configured Boss may DM the bot directly.
-      if (message.author.id !== config.discordBossId) return;
+      if (!config.enableDMs) {
+        log.warn('DM received but ENABLE_DMS is false', { author: message.author.tag });
+        return;
+      }
+      // Security: ONLY the configured Boss may DM the bot.
+      if (message.author.id !== config.discordBossId) {
+        log.info('DM rejected: Not Boss', { author: message.author.tag, id: message.author.id, bossId: config.discordBossId });
+        return;
+      }
     } else {
       if (!config.allowedChannelIds.includes(message.channelId)) return;
+      // In servers, we let all messages pass to routing so the bot has context.
     }
 
     const replyContext = await getReplyContext(message);
-    const isAllowedHuman = !message.author.bot && (config.allowedUserIds.includes(message.author.id) || config.ownerIds.includes(message.author.id));
-    const isAllowedAgent = message.author.bot && config.allowedAgentIds.includes(message.author.id);
-    if (!isAllowedHuman && !isAllowedAgent) return;
 
     const replyToMessageId = replyContext?.messageId ?? message.reference?.messageId ?? null;
     const mentionedBot = client.user ? message.mentions.has(client.user) : false;
     const hasPrefixTrigger = Boolean(config.discordPrefix) && message.content.trim().startsWith(config.discordPrefix);
-    const repliedToBot = (mentionedBot || hasPrefixTrigger)
+    const repliedToBot = (mentionedBot || hasPrefixTrigger || isCronTrigger)
       ? false
       : config.respondToReplies && replyContext?.authorId === (client.user?.id ?? null);
 
@@ -148,7 +161,22 @@ export function setupMessageHandler(
       replyToMessageId,
     }, config);
 
-    if (!decision.accept || !decision.speakerKind || !decision.trigger) {
+    if (!decision.accept) {
+      if (decision.trackOnly && decision.speakerKind && callbacks.onIgnoredMessage) {
+        callbacks.onIgnoredMessage(message, {
+          content: decision.content,
+          speakerKind: decision.speakerKind as 'human' | 'agent',
+          channelName,
+          guildName,
+          replyToMessageId: replyToMessageId,
+          replyToAuthorId: replyContext?.authorId ?? null,
+          replyToAuthorName: replyContext?.authorName ?? null,
+        });
+      }
+      return;
+    }
+
+    if (!decision.speakerKind || !decision.trigger) {
       return;
     }
 
@@ -162,17 +190,23 @@ export function setupMessageHandler(
       guildId: message.guildId ?? null,
     });
 
-    callbacks.onMessage(message, {
-      content: decision.content,
-      speakerKind: decision.speakerKind as 'human' | 'agent',
-      trigger: decision.trigger,
-      channelName,
-      guildName,
-      replyToMessageId,
-      replyToAuthorId: replyContext?.authorId ?? null,
-      replyToAuthorName: replyContext?.authorName ?? null,
-      isBoss: message.author.id === config.discordBossId,
-    });
+    const isBoss = message.author.id === config.discordBossId || decision.trigger === 'cron';
+    if (callbacks.onMessage) {
+        callbacks.onMessage(message, {
+          content: decision.content,
+          speakerKind: decision.speakerKind as 'human' | 'agent',
+          trigger: decision.trigger,
+          channelName,
+          guildName,
+          replyToMessageId: decision.trigger === 'reply' ? replyToMessageId : null,
+          replyToAuthorId: decision.trigger === 'reply' ? (replyContext?.authorId ?? null) : null,
+          replyToAuthorName: decision.trigger === 'reply' ? (replyContext?.authorName ?? null) : null,
+          isBoss,
+        });
+      }
+    } catch (err) {
+      log.error('Error in message handler', { error: err instanceof Error ? err.message : String(err) });
+    }
   });
 }
 

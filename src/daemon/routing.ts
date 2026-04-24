@@ -19,13 +19,14 @@ export interface RoutingInput {
 
 export interface RoutingDecision {
   accept: boolean;
+  trackOnly?: boolean;
   content: string;
   speakerKind?: SpeakerKind;
   trigger?: string;
 }
 
 export function shouldAcceptMessage(input: RoutingInput, config: Config): RoutingDecision {
-  if (input.authorId === input.botUserId) {
+  if (input.authorId === input.botUserId && !input.content.startsWith('[CRON]')) {
     return reject();
   }
 
@@ -40,28 +41,44 @@ export function shouldAcceptMessage(input: RoutingInput, config: Config): Routin
     return reject();
   }
 
-  const isAllowedHuman =
-    !input.isBot &&
-    (config.allowedUserIds.includes(input.authorId) || config.ownerIds.includes(input.authorId));
-  const isAllowedAgent = input.isBot && config.allowedAgentIds.includes(input.authorId);
+  const isBoss = input.authorId === config.discordBossId;
+  const isSelf = input.authorId === input.botUserId;
 
-  if (!isAllowedHuman && !isAllowedAgent) {
+  // Humans must be in the allowlist
+  if (!input.isBot && !config.allowedUserIds.includes(input.authorId)) {
     return reject();
   }
 
-  const speakerKind: SpeakerKind = isAllowedAgent ? 'agent' : 'human';
-  const stripped = stripLeadingBotMention(stripPrefix(input.content, config.discordPrefix), input.botUserId);
-  const hasExplicitTrigger = stripped.usedPrefix || input.mentionedBot || (config.respondToReplies && input.repliedToBot);
-
-  if (speakerKind === 'agent' && !hasExplicitTrigger) {
+  // For DMs, we are strict. For servers, we allow all humans to trigger.
+  if (input.isDM && !isBoss) {
     return reject();
   }
 
-  if (speakerKind === 'human' && config.requireMention && !hasExplicitTrigger) {
+  // Agents are strictly blocked unless they are the bot itself (CRON) or in allowed list.
+  if (input.isBot && !isSelf && !config.allowedAgentIds.includes(input.authorId)) {
     return reject();
   }
 
+  const speakerKind: SpeakerKind = isSelf || input.isBot ? 'agent' : 'human';
+  let contentToStrip = input.content;
+  let isCron = false;
+  if (contentToStrip.startsWith('[CRON]')) {
+    contentToStrip = contentToStrip.slice(6).trim();
+    isCron = true;
+  }
+  const stripped = stripLeadingBotMention(stripPrefix(contentToStrip, config.discordPrefix), input.botUserId);
+  const hasExplicitTrigger = isCron || stripped.usedPrefix || input.mentionedBot || (config.respondToReplies && input.repliedToBot);
   const normalized = stripped.content.trim();
+
+  // Trigger Enforcement
+  if (!input.isDM && !hasExplicitTrigger) {
+    // If requireMention is true, we must have a prefix/mention/reply
+    if (config.requireMention) return trackOnly(normalized, speakerKind);
+    
+    // Peer agents MUST always have an explicit trigger to prevent infinite loops
+    if (input.isBot) return trackOnly(normalized, speakerKind);
+  }
+
   if (!normalized && input.attachmentCount === 0) {
     return reject();
   }
@@ -74,7 +91,7 @@ export function shouldAcceptMessage(input: RoutingInput, config: Config): Routin
         ? 'mention'
         : input.repliedToBot
           ? 'reply'
-          : 'channel';
+          : isCron ? 'cron' : 'channel';
 
   return {
     accept: true,
@@ -83,6 +100,11 @@ export function shouldAcceptMessage(input: RoutingInput, config: Config): Routin
     trigger,
   };
 }
+
+function trackOnly(content: string, speakerKind: SpeakerKind): RoutingDecision {
+  return { accept: false, trackOnly: true, content, speakerKind };
+}
+
 
 function stripPrefix(content: string, prefix: string): { content: string; usedPrefix: boolean } {
   const trimmed = content.trim();
@@ -127,13 +149,8 @@ function finalizeRoute(
     return reject();
   }
 
-  if (!input.isBot) {
-    const isAllowedHuman =
-      config.allowedUserIds.includes(input.authorId) || config.ownerIds.includes(input.authorId);
-    if (!isAllowedHuman) {
-      return reject();
-    }
-  }
+  // We allow all humans in the routing decision now.
+  // Guests are handled by the trigger logic in shouldAcceptMessage.
 
   const stripped = stripLeadingBotMention(stripPrefix(input.content, config.discordPrefix), input.botUserId);
   const normalized = stripped.content.trim();

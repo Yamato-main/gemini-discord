@@ -9,6 +9,21 @@ import * as readline from 'node:readline';
 import type { Config } from '../shared/types.js';
 import { log } from './log.js';
 import type { ToolMode } from './tool-mode.js';
+import { buildGeminiCliPrompt } from './gemini-input.js';
+
+const DISCORD_BRIDGE_TOOLS = [
+  'discord_status',
+  'discord_send',
+  'discord_reply',
+  'discord_history',
+  'discord_reset',
+  'discord_restart',
+  'discord_find_images',
+  'discord_channels',
+  'schedule_cron_job',
+  'list_cron_jobs',
+  'delete_cron_job',
+].join(',');
 
 interface StreamingCallbacks {
   onToken: (token: string) => void;
@@ -60,8 +75,9 @@ export async function callGeminiStreaming(
     rl.on('line', (line: string) => {
       if (resolved) return;
 
-      // Fast-path: skip obvious non-data lines without JSON.parse overhead
-      if (line.length < 3 || line[0] !== '{') {
+      // Fast-path: skip obvious non-data lines without JSON.parse overhead.
+      // All valid Gemini stream-json lines start with {"type":
+      if (line.length < 10 || !line.startsWith('{"type":')) {
         return;
       }
 
@@ -261,24 +277,7 @@ function buildGeminiArgs(
 ): string[] {
   const args = ['--model', config.geminiModel, '--output-format', outputFormat];
 
-  // Only the Boss gets full tool access. Everyone else is strictly 
-  // limited to web search and fetching to prevent shell execution.
-  if (options.isBoss) {
-    // If the boss sends an explicit 'web' prefix, give them only web tools.
-    if (options.toolMode === 'web') {
-      args.push('--allowed-tools', 'google_web_search,web_fetch');
-    } else {
-      args.push('--allowed-tools', 'all');
-    }
-  } else {
-    // Non-boss users only get web tools if they explicitly ask, otherwise none.
-    if (options.toolMode === 'web') {
-      args.push('--allowed-tools', 'google_web_search,web_fetch');
-    } else {
-      // By default, provide NO tools to non-boss to ensure minimum latency.
-      args.push('--allowed-tools', 'none');
-    }
-  }
+  args.push('--allowed-tools', resolveAllowedTools(options.isBoss, options.toolMode ?? 'chat'));
 
   // Auto-approve all tool operations for headless daemon — stdin is 'ignore'
   // so 'default' mode would hang waiting for confirmation. Security boundary
@@ -289,23 +288,25 @@ function buildGeminiArgs(
     args.push('-r', 'latest');
   }
 
-  args.push('-p', buildGeminiInput(prompt, options.attachmentPaths));
+  args.push('-p', buildGeminiCliPrompt(prompt, options.attachmentPaths));
   return args;
 }
 
-function buildGeminiInput(prompt: string, attachmentPaths: string[] = []): string {
-  if (attachmentPaths.length === 0) {
-    return prompt;
+function resolveAllowedTools(isBoss: boolean, toolMode: ToolMode): string {
+  switch (toolMode) {
+    case 'chat':
+      return 'none';
+    case 'web':
+      return 'google_web_search,web_fetch';
+    case 'discord':
+      return isBoss ? DISCORD_BRIDGE_TOOLS : 'none';
+    case 'web_discord':
+      return isBoss ? `google_web_search,web_fetch,${DISCORD_BRIDGE_TOOLS}` : 'google_web_search,web_fetch';
+    case 'full':
+      return isBoss ? 'all' : 'none';
+    default:
+      return 'none';
   }
-
-  // Use @file inline references — this passes images directly as context
-  // to the Gemini API, avoiding the slow agentic tool round-trip that
-  // causes timeouts on image-based prompts.
-  const fileRefs = attachmentPaths
-    .map((filePath) => `@${filePath}`)
-    .join(' ');
-
-  return `${fileRefs}\n\n${prompt}`;
 }
 
 function withResumeFallbackHint(error: Error, options: GeminiInvocationOptions): Error {

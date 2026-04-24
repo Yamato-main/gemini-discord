@@ -17,6 +17,22 @@ import * as readline from 'node:readline';
 import type { Config } from '../shared/types.js';
 import type { ToolMode } from './tool-mode.js';
 import { log } from './log.js';
+import { buildGeminiCliPrompt } from './gemini-input.js';
+import { extractGeminiResultText, getGeminiTextDelta } from './gemini-output.js';
+
+const DISCORD_BRIDGE_TOOLS = [
+  'discord_status',
+  'discord_send',
+  'discord_reply',
+  'discord_history',
+  'discord_reset',
+  'discord_restart',
+  'discord_find_images',
+  'discord_channels',
+  'schedule_cron_job',
+  'list_cron_jobs',
+  'delete_cron_job',
+].join(',');
 
 export interface StreamCallbacks {
   onToken: (token: string) => void;
@@ -24,9 +40,12 @@ export interface StreamCallbacks {
 }
 
 export interface PoolSendOptions {
+  cwd: string;
+  resumeSessionId?: string | null;
   isBoss: boolean;
   toolMode: ToolMode;
   attachmentPaths?: string[];
+  onSessionId?: (sessionId: string) => void;
 }
 
 interface PersistentProcess {
@@ -59,19 +78,37 @@ interface PoolStatus {
  * This is a hard CLI-level boundary — non-Boss users can NEVER get shell access.
  */
 function resolveAllowedTools(isBoss: boolean, toolMode: ToolMode): string {
-  if (isBoss) {
-    return toolMode === 'web' ? 'google_web_search,web_fetch' : 'all';
+  switch (toolMode) {
+    case 'chat':
+      return 'none';
+    case 'web':
+      return 'google_web_search,web_fetch';
+    case 'discord':
+      return isBoss ? DISCORD_BRIDGE_TOOLS : 'none';
+    case 'web_discord':
+      return isBoss ? `google_web_search,web_fetch,${DISCORD_BRIDGE_TOOLS}` : 'google_web_search,web_fetch';
+    case 'full':
+      return isBoss ? 'all' : 'none';
+    default:
+      return 'none';
   }
-  return toolMode === 'web' ? 'google_web_search,web_fetch' : 'none';
 }
 
 /**
  * Build a pool key that incorporates session + tool-access level.
  * This ensures a non-Boss user can never inherit a Boss-level process.
  */
-function buildPoolKey(sessionKey: string, allowedTools: string): string {
-  const tier = allowedTools === 'all' ? 'boss' : allowedTools === 'none' ? 'restricted' : 'web';
-  return `${sessionKey}:${tier}`;
+function buildPoolKey(bindingKey: string, allowedTools: string): string {
+  const tier = allowedTools === 'all'
+    ? 'full'
+    : allowedTools === 'none'
+      ? 'chat'
+      : allowedTools === 'google_web_search,web_fetch'
+        ? 'web'
+        : allowedTools.includes('google_web_search,web_fetch')
+          ? 'web-discord'
+          : 'discord';
+  return `${bindingKey}:${tier}`;
 }
 
 export class CliProcessPool {
@@ -92,13 +129,13 @@ export class CliProcessPool {
    * Spawns a new process if none exists for this session key + tool tier.
    */
   async send(
-    sessionKey: string,
+    bindingKey: string,
     prompt: string,
     callbacks: StreamCallbacks,
     opts: PoolSendOptions,
   ): Promise<string> {
     const allowedTools = resolveAllowedTools(opts.isBoss, opts.toolMode);
-    const poolKey = buildPoolKey(sessionKey, allowedTools);
+    const poolKey = buildPoolKey(bindingKey, allowedTools);
 
     let proc = this.pool.get(poolKey);
 
@@ -187,6 +224,7 @@ export class CliProcessPool {
       let resolved = false;
       let sawAssistantOutput = false;
       let lastOutputAt = Date.now();
+      const hasAttachments = (opts.attachmentPaths?.length ?? 0) > 0;
 
       // Build args for one-shot invocation
       const args = [
@@ -197,21 +235,14 @@ export class CliProcessPool {
       ];
 
       // Add session resume if available
-      if (this.config.useGeminiCliSessions) {
-        args.push('-r', 'latest');
+      if (opts.resumeSessionId) {
+        args.push('-r', opts.resumeSessionId);
       }
 
-      // Build prompt with attachment file references
-      let fullPrompt = prompt;
-      if (opts.attachmentPaths && opts.attachmentPaths.length > 0) {
-        const fileRefs = opts.attachmentPaths.map(p => `@${p}`).join(' ');
-        fullPrompt = `${fileRefs}\n\n${prompt}`;
-      }
-
-      args.push('-p', fullPrompt);
+      args.push('-p', buildGeminiCliPrompt(prompt, opts.attachmentPaths));
 
       const proc = spawn(this.config.geminiPath, args, {
-        cwd: process.cwd(),
+        cwd: opts.cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env },
       });
@@ -221,15 +252,24 @@ export class CliProcessPool {
       const rl = readline.createInterface({ input: proc.stdout! });
       entry.rl = rl;
 
-      // Activity-based timeout: kill only if no output for 120 seconds
-      const ACTIVITY_TIMEOUT_MS = 120_000;
       const MAX_TOTAL_TIMEOUT_MS = this.config.geminiTimeoutMs;
+      const FIRST_OUTPUT_TIMEOUT_MS = hasAttachments
+        ? Math.min(MAX_TOTAL_TIMEOUT_MS, 240_000)
+        : 120_000;
+      const POST_OUTPUT_TIMEOUT_MS = 120_000;
       
       const activityCheck = setInterval(() => {
         const idleMs = Date.now() - lastOutputAt;
         const totalMs = Date.now() - entry.lastActivityAt;
         
-        if (idleMs > ACTIVITY_TIMEOUT_MS) {
+        if (!sawAssistantOutput && idleMs > FIRST_OUTPUT_TIMEOUT_MS) {
+          if (!resolved) {
+            resolved = true;
+            clearInterval(activityCheck);
+            proc.kill('SIGTERM');
+            reject(new Error(`Gemini stalled — no output for ${Math.round(idleMs / 1000)}s`));
+          }
+        } else if (sawAssistantOutput && idleMs > POST_OUTPUT_TIMEOUT_MS) {
           if (!resolved) {
             resolved = true;
             clearInterval(activityCheck);
@@ -267,15 +307,22 @@ export class CliProcessPool {
 
         const type = parsed['type'];
         const role = parsed['role'];
+        const appendAssistantText = (candidate: string) => {
+          const delta = getGeminiTextDelta(fullResponse, candidate);
+          if (!delta) {
+            return;
+          }
+          sawAssistantOutput = true;
+          fullResponse += delta;
+          callbacks.onToken(delta);
+        };
 
-        if (type === 'message' && role === 'assistant') {
+        if (type === 'message' && (role === 'assistant' || role === 'model')) {
           const parts = parsed['parts'] as Array<{ text?: string; thought?: boolean }> | undefined;
           if (parts) {
             for (const part of parts) {
               if (part.text && !part.thought) {
-                sawAssistantOutput = true;
-                fullResponse += part.text;
-                callbacks.onToken(part.text);
+                appendAssistantText(part.text);
               } else if (part.thought) {
                 callbacks.onThought?.();
               }
@@ -288,9 +335,7 @@ export class CliProcessPool {
             if (isThought) {
               callbacks.onThought?.();
             } else {
-              sawAssistantOutput = true;
-              fullResponse += text;
-              callbacks.onToken(text);
+              appendAssistantText(text);
             }
           }
 
@@ -299,15 +344,25 @@ export class CliProcessPool {
             if (isThought) {
               callbacks.onThought?.();
             } else {
-              sawAssistantOutput = true;
-              fullResponse += content;
-              callbacks.onToken(content);
+              appendAssistantText(content);
             }
           }
           return;
         }
 
+        if (type === 'init') {
+          const sessionId = parsed['session_id'];
+          if (typeof sessionId === 'string') {
+            opts.onSessionId?.(sessionId);
+          }
+          return;
+        }
+
         if (type === 'result') {
+          const resultText = extractGeminiResultText(parsed['result']);
+          if (resultText) {
+            appendAssistantText(resultText);
+          }
           if (parsed['error'] && !resolved) {
             resolved = true;
             clearInterval(activityCheck);
@@ -332,6 +387,11 @@ export class CliProcessPool {
 
         if (code !== 0 && !sawAssistantOutput) {
           reject(new Error(`Gemini exited with code ${code}. ${stderr.slice(0, 300)}`));
+          return;
+        }
+
+        if (!sawAssistantOutput) {
+          reject(new Error('Gemini returned no assistant output for this turn.'));
           return;
         }
 
@@ -386,10 +446,10 @@ export class CliProcessPool {
     }
   }
 
-  /** Kill a specific session's process (for /reset, /kill). */
-  kill(sessionKey: string): void {
+  /** Kill a specific binding's process (for /reset, /kill). */
+  kill(bindingKey: string): void {
     for (const [key] of this.pool) {
-      if (key.startsWith(sessionKey + ':')) {
+      if (key.startsWith(bindingKey + ':')) {
         this.evict(key);
       }
     }

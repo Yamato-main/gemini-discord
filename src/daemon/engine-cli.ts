@@ -1,17 +1,17 @@
 /**
- * CLI engine — orchestrates message processing through the CLI process pool.
- * 
- * Stripped of binding workspace overhead. Session identity tracked via
- * ConversationMemory session keys. Attachments handled in-memory or via
- * temp directory (no per-binding disk layout).
+ * CLI engine — orchestrates message processing through Gemini CLI.
+ *
+ * Gemini CLI sessions are project-scoped, so Discord conversations bind each
+ * channel to a stable Gemini project workspace. That keeps session history and
+ * image handling aligned with the direct CLI behavior.
  */
 
-import { type Message, type TextChannel, type DMChannel, type NewsChannel, type AttachmentBuilder } from 'discord.js';
+import { type Message, type TextChannel, type DMChannel, type NewsChannel } from 'discord.js';
 import { type loadConfig } from '../shared/config.js';
 import { chunkMessage } from '../shared/chunker.js';
 import type { ConversationAttachment } from '../shared/types.js';
 import type { AcceptedDiscordMessage } from './bot.js';
-import { type ConversationMemory, buildDiscordPrompt, resolveSessionKey } from './memory.js';
+import { type ConversationMemory, buildDiscordPrompt, buildSessionModePrompt, resolveSessionKey } from './memory.js';
 import { Semaphore } from './semaphore.js';
 import { retrySend } from './retry.js';
 import { LiveEditor } from './editor.js';
@@ -20,24 +20,20 @@ import { type ToolMode } from './tool-mode.js';
 import { processCrossChannelSends } from './channels.js';
 import { sanitizeFullResponse } from './sanitizer.js';
 import { runtimeStore } from './runtime.js';
-import { log } from './log.js';
-
-import * as fs from 'node:fs';
-import * as os from 'node:os';
+import {
+  ensureGeminiBindingWorkspace,
+  loadGeminiBindingState,
+  resolveGeminiBindingKey,
+  saveGeminiBindingState,
+} from './binding.js';
+import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 
 export interface ProcessingContext {
   sessionKey: string;
-}
-
-/** Shared temp directory for attachments (no per-binding dirs). */
-let attachmentsTmpDir: string | null = null;
-
-function getAttachmentsTmpDir(): string {
-  if (!attachmentsTmpDir) {
-    attachmentsTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-att-'));
-  }
-  return attachmentsTmpDir;
+  bindingKey: string;
+  bindingDir: string;
+  attachmentsDir: string;
 }
 
 export async function processViaCli(
@@ -49,12 +45,32 @@ export async function processViaCli(
   geminiSemaphore: Semaphore,
   channel: TextChannel | DMChannel | NewsChannel,
   toolMode: ToolMode,
-): Promise<{ response: string; messageIds: string[]; attachments?: ConversationAttachment[] }> {
-  const attachmentMetadata = getImageAttachmentMetadata(message);
+): Promise<{ response: string; messageIds: string[]; attachments?: ConversationAttachment[]; sessionId?: string }> {
+  let targetMessage = message;
 
-  // Download attachments to temp directory (cleaned up after response)
-  const tmpDir = getAttachmentsTmpDir();
-  const downloadedAttachments = await downloadImageAttachments(message, tmpDir);
+  // If the current message has no attachments, but it's a reply to another message,
+  // we should check the replied-to message for attachments to provide them as context.
+  if (message.attachments.size === 0 && message.reference?.messageId) {
+    try {
+      const repliedTo = await message.channel.messages.fetch(message.reference.messageId);
+      if (repliedTo && repliedTo.attachments.size > 0) {
+        targetMessage = repliedTo;
+      }
+    } catch (e) {
+      // Ignore fetch errors
+    }
+  }
+
+  const attachmentMetadata = getImageAttachmentMetadata(targetMessage);
+  const bindingState = loadGeminiBindingState(processingContext.bindingDir);
+  const resumeSessionId = config.useGeminiCliSessions
+    ? (bindingState.lastSessionId ?? (bindingState.hasSession ? 'latest' : null))
+    : null;
+  const downloadedAttachments = await downloadImageAttachments(
+    targetMessage,
+    processingContext.attachmentsDir,
+    processingContext.bindingDir,
+  );
 
   const incomingPrompt = {
     content: accepted.content,
@@ -73,16 +89,34 @@ export async function processViaCli(
     trigger: accepted.trigger,
   } as const;
 
-  const prompt = buildDiscordPrompt({
-    history: memory.snapshot(processingContext.sessionKey),
-    bossUserId: config.discordBossId,
-    promptHistoryMessageLimit: config.promptHistoryMessageLimit,
-    promptHistoryCharBudget: config.promptHistoryCharBudget,
-    incoming: incomingPrompt,
-  });
+  // Session mode: The CLI IS the agent. Its own session file is the conversation.
+  // Only send runtime context + current message. No history replay, no image URL
+  // re-injection — the CLI session already has everything.
+  //
+  // Non-session mode: Full history replay with image URL grounding (fallback).
+  let prompt: string;
+
+  if (config.useGeminiCliSessions) {
+    prompt = buildSessionModePrompt({
+      incoming: incomingPrompt,
+      bossUserId: config.discordBossId,
+      ownerIds: config.ownerIds,
+    });
+  } else {
+    const historySnapshot = memory.snapshot(processingContext.sessionKey);
+    prompt = buildDiscordPrompt({
+      history: historySnapshot,
+      bossUserId: config.discordBossId,
+      ownerIds: config.ownerIds,
+      promptHistoryMessageLimit: config.promptHistoryMessageLimit,
+      promptHistoryCharBudget: config.promptHistoryCharBudget,
+      incoming: incomingPrompt,
+    });
+  }
 
   let response = '';
   let responseMessageIds: string[] = [];
+  let currentSessionId: string | null = null;
 
   const editor = config.streaming ? new LiveEditor({ placeholderDelayMs: null }) : null;
   if (editor) await editor.init(channel);
@@ -101,16 +135,19 @@ export async function processViaCli(
 
     if (editor) {
       response = await runtimeStore.cliPool.send(
-        processingContext.sessionKey,
+        processingContext.bindingKey,
         prompt,
         {
           onToken: (token) => editor.feed(token),
           onThought: () => editor.feedThought(),
         },
         {
+          cwd: processingContext.bindingDir,
+          resumeSessionId,
           isBoss: accepted.isBoss,
           toolMode,
-          attachmentPaths: downloadedAttachments.map(a => a.relativePath),
+          attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+          onSessionId: (sessionId) => { currentSessionId = sessionId; },
         },
       );
 
@@ -121,7 +158,18 @@ export async function processViaCli(
         rawText: response,
       });
       responseMessageIds.push(...prepared.actionMessageIds);
-      return { response, messageIds: responseMessageIds };
+      if (config.useGeminiCliSessions) {
+        saveGeminiBindingState(processingContext.bindingDir, {
+          hasSession: true,
+          lastSessionId: currentSessionId ?? bindingState.lastSessionId,
+        });
+      }
+      return {
+        response,
+        messageIds: responseMessageIds,
+        attachments: attachmentMetadata,
+        sessionId: currentSessionId ?? bindingState.lastSessionId ?? undefined,
+      };
     } else {
       // Non-streaming fallback
       retrySend(() => channel.sendTyping()).catch(() => {});
@@ -131,16 +179,19 @@ export async function processViaCli(
 
       try {
         response = await runtimeStore.cliPool.send(
-          processingContext.sessionKey,
+          processingContext.bindingKey,
           prompt,
           {
             onToken: () => {},
             onThought: () => {},
           },
           {
+            cwd: processingContext.bindingDir,
+            resumeSessionId,
             isBoss: accepted.isBoss,
             toolMode,
-            attachmentPaths: downloadedAttachments.map(a => a.relativePath),
+            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+            onSessionId: (sessionId) => { currentSessionId = sessionId; },
           },
         );
         clearInterval(typingInterval);
@@ -149,7 +200,18 @@ export async function processViaCli(
         response = prepared.responseText;
         responseMessageIds = await sendPreparedDisplayText(channel, prepared.displayText);
         responseMessageIds.push(...prepared.actionMessageIds);
-        return { response, messageIds: responseMessageIds };
+        if (config.useGeminiCliSessions) {
+          saveGeminiBindingState(processingContext.bindingDir, {
+            hasSession: true,
+            lastSessionId: currentSessionId ?? bindingState.lastSessionId,
+          });
+        }
+        return {
+          response,
+          messageIds: responseMessageIds,
+          attachments: attachmentMetadata,
+          sessionId: currentSessionId ?? bindingState.lastSessionId ?? undefined,
+        };
       } catch (err) {
         clearInterval(typingInterval);
         throw err;
@@ -158,17 +220,22 @@ export async function processViaCli(
   } catch (err) {
     if (editor) await editor.sendError(formatError(err));
     else await retrySend(() => channel.send(formatError(err))).catch(() => {});
-    return { response: '', messageIds: [] };
+    return { response: '', messageIds: [], sessionId: currentSessionId ?? bindingState.lastSessionId ?? undefined };
   } finally {
     geminiSemaphore.release();
     if (feedbackMessageId) {
       channel.messages.delete(feedbackMessageId).catch(() => {});
     }
-    // Clean up downloaded attachments
-    for (const att of downloadedAttachments) {
+    // Clean up downloaded attachments and their directory
+    if (downloadedAttachments.length > 0) {
+      const targetDir = path.dirname(downloadedAttachments[0].localPath);
+      for (const att of downloadedAttachments) {
+        try {
+          await fsp.unlink(att.localPath);
+        } catch {}
+      }
       try {
-        const fullPath = path.isAbsolute(att.relativePath) ? att.relativePath : path.join(tmpDir, att.relativePath);
-        fs.unlinkSync(fullPath);
+        await fsp.rm(targetDir, { recursive: true, force: true });
       } catch {}
     }
   }
@@ -223,9 +290,20 @@ export function resolveProcessingContext(
   config: ReturnType<typeof loadConfig>,
   message: Message,
   accepted: AcceptedDiscordMessage,
+  extensionDir: string,
 ): ProcessingContext {
+  const bindingKey = resolveGeminiBindingKey(config.geminiSessionBindingScope, {
+    guildId: message.guildId ?? null,
+    channelId: message.channelId,
+  });
+
+  const bindingWorkspace = ensureGeminiBindingWorkspace(extensionDir, bindingKey);
+
   return {
     sessionKey: resolveSessionKey(config.memoryScope, message.channelId),
+    bindingKey,
+    bindingDir: bindingWorkspace.bindingDir,
+    attachmentsDir: bindingWorkspace.attachmentsDir,
   };
 }
 

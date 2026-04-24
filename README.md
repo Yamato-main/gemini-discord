@@ -1,123 +1,239 @@
-# gemini-discord ⛩️
+# gemini-discord
 
-**Yamato-samurai's gateway between Gemini CLI and Discord.**
+`gemini-discord` binds a real local [Gemini CLI](https://geminicli.com) agent to Discord.
 
-`gemini-discord` is a Gemini CLI extension inspired by Openclaw's Discord experience, but shaped around Gemini CLI and Yamato's own design language. It runs a persistent Discord daemon plus an MCP bridge so you can:
+The project’s main goal is simple:
 
-- talk to your Gemini agent from Discord channels or DMs,
-- send Discord images straight into Gemini CLI for multimodal replies,
-- bind a persistent Gemini CLI session to a server or DM,
-- keep one persistent memory across the whole configured server,
-- let the agent keep speaker identity straight across channels,
-- safely allow conversations with selected peer agents/bots,
-- send messages back into Discord from Gemini CLI tools.
+> make Discord feel like the Gemini CLI, not like a cheap bot wrapper.
 
-## What Changed
+This extension runs a local daemon, routes Discord messages into Gemini CLI headlessly, and keeps Discord channels bound to stable Gemini workspaces so the agent can carry context the same way it does in the terminal.
 
-- **Daemon auto-start:** the MCP side now brings the Discord daemon up automatically when needed.
-- **Real setup flow:** `npm run setup` now writes `.env`, generates the API token, and can install a macOS `launchd` service.
-- **Global transcript memory:** memory now stores speaker, channel, guild, trigger, and message metadata instead of flattening everything into anonymous "User" lines.
-- **Peer agent routing:** selected Discord bot IDs can talk to Yamato-samurai without opening the door to every bot in the server.
-- **Discord image intake:** image attachments are downloaded to local temp files and injected into the Gemini prompt for multimodal understanding.
-- **Usable history tooling:** `discord_history` now includes request/reply message IDs so `discord_reply` is actually practical.
+## What This Project Is
 
-## Architecture
+- A Discord bridge for Gemini CLI
+- A local daemon + MCP extension pair
+- A way to give the same Gemini CLI agent a persistent presence inside Discord
+- A system that keeps channel conversations mapped to stable Gemini session workspaces
 
-- **Track 1: Discord daemon**
-  Owns the Discord client, queue, persistent memory, Gemini CLI invocation, and localhost control API.
+## What This Project Is Not
 
-- **Track 2: Gemini CLI extension / MCP server**
-  Registers tools like `discord_send`, `discord_reply`, and `discord_history`, and can auto-start the daemon if it is offline.
+- A hosted SaaS bot
+- A generic prompt wrapper around a model API
+- A giant bundled scraper suite
+- A replacement for Gemini CLI itself
 
-## Quick Start
+The CLI agent is the center of the system. Discord is the transport layer around it.
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+## Core Idea
 
-2. Build the extension:
-   ```bash
-   npm run build
-   ```
+Each Discord channel is bound to its own Gemini workspace under:
 
-3. Run setup:
-   ```bash
-   npm run setup
-   ```
+```text
+.gemini-discord/bindings/<binding>
+```
 
-4. Link it into Gemini CLI:
-   ```bash
-   gemini extensions link .
-   ```
+When a Discord message arrives, the daemon invokes Gemini CLI headlessly from that bound workspace and resumes the existing session for that workspace. That is why the session history is project-scoped per binding workspace, not per repo root.
 
-5. If you skipped `launchd`, start the daemon manually:
-   ```bash
-   npm run start:daemon
-   ```
+```text
+Discord message
+  -> local daemon
+  -> bound Gemini workspace
+  -> Gemini CLI headless turn (resume session)
+  -> streamed Discord response
+```
 
-## Configuration Highlights
+## True Project Shape
 
-- `ALLOWED_CHANNEL_IDS`
-  Channels the daemon is allowed to listen to and the tools are allowed to write to.
+```mermaid
+flowchart TD
+  subgraph Core["Core Path"]
+    A["Discord"] --> B["Daemon"]
+    B --> C["Bound Gemini workspace<br/>.gemini-discord/bindings/..."]
+    C --> D["Gemini CLI<br/>headless resume-session turn"]
+    D --> E["Discord reply"]
+  end
 
-- `DISCORD_ALLOWED_USER_IDS`
-  Human speakers allowed to talk to the agent. If blank, it falls back to `DISCORD_OWNER_IDS`.
+  subgraph Optional["Optional Background / Operator Path"]
+    F["Poller or external script"] --> G["Snapshots / timeline / inbox"]
+    G --> H["Trigger engine<br/>signal + cooldown + dedupe"]
+    H --> I["Gemini CLI agent<br/>filter -> refine -> verify"]
+    I --> J["Discord notify"]
+  end
+```
 
-- `DISCORD_ALLOWED_AGENT_IDS`
-  Peer bot IDs allowed to converse with Yamato-samurai.
+The top path is the product.
+The bottom path is optional infrastructure layered around the product.
 
-- `MEMORY_SCOPE`
-  `channel` is the better latency default because it avoids serializing the whole server behind one queue.
-  `global` keeps one persistent memory across the whole configured Discord space.
+## Current Behavior
 
-- `USE_GEMINI_CLI_SESSIONS`
-  Keep this `false` for fast chat-style replies. Turning it `true` reuses Gemini CLI sessions, but it can also make Discord turns slower and more agentic.
+### Gemini CLI Parity
 
-- `GEMINI_SESSION_BINDING_SCOPE`
-  `channel` is the safer default for responsiveness.
-  `server` binds one Gemini session per guild and one per DM user.
-  `global` binds everything into one Gemini session.
+- Discord conversations are bound to stable Gemini workspaces
+- Gemini CLI sessions are resumed from those workspaces
+- Images are passed as CLI-style `@file` references so Discord image handling matches CLI behavior as closely as possible
+- The agent identity comes from your `GEMINI.md`, not from a fake Discord-only persona layer
 
-- `PROMPT_HISTORY_MAX_MESSAGES` / `PROMPT_HISTORY_MAX_CHARS`
-  Limit how much of the stored transcript is replayed into Gemini for each turn.
-  This is the main latency control when you want long-lived memory without replaying an entire server transcript.
+### Fast-By-Default Runtime
 
-- `REQUIRE_MENTION`
-  When `true`, guild messages must mention the bot, use the prefix, or reply to the bot.
+- Ordinary Discord chat turns are treated as plain chat, not full operator runs
+- Web research tools are only enabled when the prompt clearly asks for research/current information
+- Discord action tools are only enabled when the prompt clearly asks to send, reply, schedule, or inspect Discord state
+- Full tool access is reserved for explicit owner/operator requests, not every casual message
+- Optional autonomous work is deprioritized so live Discord chat stays responsive
 
-## Tools
+### Session Model
 
-- `discord_status`
-  Shows daemon health, memory scope, and allowlist/routing state.
+- Default binding scope is per channel
+- One Discord channel should map to one Gemini workspace/session lineage
+- `/new` resets both the Discord-side transcript mirror and the bound Gemini session state for that channel
+- Session listings are workspace-scoped, so checking from the repo root may not show the same sessions as checking from a binding workspace
 
-- `discord_send`
-  Sends a message to an allowed guild channel or enabled DM target.
+## Features
 
-- `discord_reply`
-  Replies to a specific message ID in Discord.
+- Real Gemini CLI agent inside Discord
+- Stable per-channel Gemini session bindings
+- Streaming Discord replies
+- CLI-style image attachment handling
+- Owner/guest tool gating
+- Channel discovery and cross-channel sends
+- Slash commands for session and daemon control
+- Cron reminders
+- Optional autonomous away-mode turns
+- Status surfaces that expose daemon health and bound Gemini session state
 
-- `discord_history`
-  Returns recent exchanges, participant/channel context, and message IDs for follow-up replies.
+## Optional Background Intelligence
 
-- `discord_reset`
-  Clears the active memory session.
+The project now has an optional background path, but it is intentionally secondary to the Discord binding.
 
-- `discord_restart`
-  Restarts the daemon after configuration or runtime issues.
+Current built-in autonomous source:
+
+- 4chan `/a/` watcher with timeline, scoring, cooldown, and dedupe
+
+Important constraints:
+
+- Autonomous turns use a separate Gemini binding
+- They do not write into normal Discord conversation memory
+- They treat collected source text as untrusted
+- They are meant to wake Gemini only when there is enough signal
+
+Long term, the intended direction is not to keep stuffing site-specific collectors into the extension. The cleaner direction is:
+
+- external scripts or pollers gather data
+- the extension stores normalized snapshots or inbox items
+- Gemini CLI is only invoked for filtering, refinement, verification, and final Discord reporting
+
+That keeps the extension lean and keeps the Gemini agent as the intelligence layer instead of turning the repo into a scraper bundle.
+
+## Installation
+
+Requires:
+
+- Node.js 22+
+- Gemini CLI installed and authenticated
+- A Discord bot token
+
+Install as a Gemini CLI extension:
+
+```bash
+gemini extensions install /absolute/path/to/gemini-discord
+```
+
+When you publish the repo later, replace that local path with the Git URL.
+
+Then configure the required environment values.
+
+## Important Configuration
+
+Key settings in `.env`:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DISCORD_BOT_TOKEN` | required | Discord bot token |
+| `DISCORD_CHANNEL_ID` | required | Primary/default Discord channel |
+| `DISCORD_OWNER_IDS` | required | Users with ownership over the bridge |
+| `ALLOWED_CHANNEL_IDS` | required | Channels the bot may operate in |
+| `USE_GEMINI_CLI_SESSIONS` | `true` | Use Gemini CLI session resume behavior |
+| `GEMINI_SESSION_BINDING_SCOPE` | `channel` | Bind sessions by channel, server, or globally |
+| `STREAMING` | `true` | Stream replies into Discord |
+| `REQUIRE_MENTION` | `false` | Require explicit mention in guild channels |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | Active Gemini model |
+| `AUTONOMOUS_TURNS_ENABLED` | `false` | Enable background away-mode turns |
+| `AUTONOMOUS_4CHAN_A_ENABLED` | `false` | Enable the built-in `/a/` watcher |
+
+## Slash Commands
+
+Current slash commands include:
+
+- `/new` — start a fresh session for the current channel
+- `/status` — show daemon health and runtime info
+- `/ping` — latency check
+- `/model` — switch models
+- `/pool` — inspect CLI pool state
+- `/kill` — kill a specific pooled entry
+
+## MCP Tools Exposed To Gemini
+
+| Tool | Purpose |
+| --- | --- |
+| `discord_status` | Inspect daemon health and bindings |
+| `discord_send` | Send a Discord message |
+| `discord_reply` | Reply to a specific Discord message |
+| `discord_history` | Read recent Discord-side conversation history |
+| `discord_reset` | Start a fresh conversation/session |
+| `discord_restart` | Restart the daemon |
+| `discord_find_images` | Find host images for attachment |
+| `discord_channels` | Discover available channels |
+| `schedule_cron_job` | Schedule a message |
+| `list_cron_jobs` | List cron jobs |
+| `delete_cron_job` | Delete a cron job |
 
 ## Development
 
 ```bash
-npm test
+npm install
 npm run typecheck
+npm test
 npm run build
 ```
 
-## Notes
+Useful local commands:
 
-- The daemon uses a single queue when memory is `global`, which prevents cross-channel race conditions from corrupting the shared transcript.
-- For lowest latency, keep `USE_GEMINI_CLI_SESSIONS=false`, `MEMORY_SCOPE=channel`, and `GEMINI_SESSION_BINDING_SCOPE=channel`.
-- Large `CONVERSATION_HISTORY_LENGTH` values are now safer because prompt replay is bounded by `PROMPT_HISTORY_MAX_MESSAGES` and `PROMPT_HISTORY_MAX_CHARS`.
-- macOS users can install the daemon as a background service through the setup wizard.
-- Discord rate limiting is retried automatically, and daemon memory is persisted atomically to `.memory.json`.
+```bash
+npm run dev:daemon
+npm run start:daemon
+npm run start:server
+```
+
+## Debugging Notes
+
+If you want to verify that Discord is still using Gemini CLI sessions:
+
+- check `/status` or `discord_status`
+- inspect `.gemini-discord/bindings/*/.binding-state.json`
+- remember that Gemini session history is scoped to the binding workspace, not necessarily the repo root
+
+If Discord feels slow:
+
+- check whether the prompt is triggering web or Discord action tools
+- check daemon status and binding/session info
+- verify autonomous mode is not enabled unless you want it
+- verify the daemon is running the current build
+
+## Philosophy
+
+The project should stay centered on one job:
+
+> bind Gemini CLI to Discord with high fidelity.
+
+Everything else should support that goal, not bury it.
+
+Background research, cron jobs, pollers, and future agent systems are welcome only if they preserve that core identity:
+
+- the Gemini CLI agent remains the brain
+- Discord remains the interface
+- extra automation stays modular
+- the extension does not become bloated
+
+## License
+
+MIT

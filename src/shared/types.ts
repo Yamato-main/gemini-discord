@@ -5,7 +5,51 @@
 
 export type MemoryScope = 'global' | 'channel';
 export type SpeakerKind = 'human' | 'agent' | 'assistant';
+export type GeminiSessionBindingScope = 'global' | 'server' | 'channel';
 
+export interface AutonomousFourChanConfig {
+  enabled: boolean;
+  board: string;
+  keywords: string[];
+  minSignal: number;
+  cooldownMs: number;
+  signalWindowMs: number;
+  timelineLimit: number;
+}
+
+export interface AutonomousConfig {
+  enabled: boolean;
+  intervalMs: number;
+  targetChannelId: string;
+  targetChannelName: string;
+  assumeMasterAway: boolean;
+  fourChan: AutonomousFourChanConfig;
+}
+
+export interface AutonomousSourceStatus {
+  id: string;
+  lastPollAt: string | null;
+  lastEvaluatedAt: string | null;
+  lastPostedAt: string | null;
+  lastSignalScore: number;
+  lastDecision: string | null;
+  lastError: string | null;
+}
+
+export interface AutonomousStatusSnapshot {
+  enabled: boolean;
+  running: boolean;
+  intervalMs: number;
+  targetChannelId: string;
+  targetChannelName: string;
+  sources: AutonomousSourceStatus[];
+}
+
+export interface GeminiBindingSnapshot {
+  workspace: string;
+  hasSession: boolean;
+  lastSessionId?: string;
+}
 
 export interface ConversationAttachment {
   name: string;
@@ -51,7 +95,9 @@ export interface Config {
   memoryScope: MemoryScope;
   autoStartDaemon: boolean;
   useGeminiCliSessions: boolean;
+  geminiSessionBindingScope: GeminiSessionBindingScope;
   cliIdleTimeoutMs: number;
+  autonomous: AutonomousConfig;
 }
 
 /** A single conversation message stored in persistent memory */
@@ -121,10 +167,15 @@ export interface DaemonStatus {
   ownerIds: string[];
   enableDMs: boolean;
   sessionScope: MemoryScope;
+  geminiSessionBindingScope: GeminiSessionBindingScope;
   useGeminiCliSessions: boolean;
   allowlistedUsers: number;
   allowlistedAgents: number;
   requireMention: boolean;
+  channels?: Array<{ name: string; id: string }>;
+  autonomous?: AutonomousStatusSnapshot;
+  headlessMode?: string;
+  bindings?: GeminiBindingSnapshot[];
 }
 
 /** Daemon history response from GET /history */

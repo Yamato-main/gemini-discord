@@ -13,4 +13,18 @@ describe('resolveToolMode', () => {
     expect(resolveToolMode('please research this and use tools if needed')).toBe('web');
     expect(resolveToolMode('latest One Piece chapter')).toBe('web');
   });
+
+  it('enables discord action mode for channel operations', () => {
+    expect(resolveToolMode('post a reminder to #general in 10 minutes')).toBe('discord');
+    expect(resolveToolMode('reply to that message on Discord')).toBe('discord');
+  });
+
+  it('enables combined web + discord mode for research-and-report tasks', () => {
+    expect(resolveToolMode('research across multiple sites and post the summary to Discord')).toBe('web_discord');
+  });
+
+  it('reserves full mode for explicit shell/code requests', () => {
+    expect(resolveToolMode('use full tools and inspect the repo')).toBe('full');
+    expect(resolveToolMode('edit the code and patch the project')).toBe('full');
+  });
 });

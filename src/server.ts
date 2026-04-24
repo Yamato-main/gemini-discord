@@ -14,6 +14,8 @@ import { registerHistoryTool } from './tools/history.js';
 import { registerResetTool } from './tools/reset.js';
 import { registerRestartTool } from './tools/restart.js';
 import { registerFindImagesTool } from './tools/find-images.js';
+import { registerCronTools } from './tools/cron.js';
+import { registerChannelsTool } from './tools/channels.js';
 import { ensureDaemonRunning } from './shared/daemon-runtime.js';
 
 // Resolve extension directory
@@ -27,7 +29,7 @@ const server = new McpServer({
   version: '0.1.0',
 });
 
-// Register all 7 tools
+// Register all tools
 registerStatusTool(server, config);
 registerSendTool(server, config);
 registerReplyTool(server, config);
@@ -35,6 +37,8 @@ registerHistoryTool(server, config);
 registerResetTool(server, config);
 registerRestartTool(server, config);
 registerFindImagesTool(server);
+registerCronTools(server, config);
+registerChannelsTool(server, config);
 
 // Connect via stdio (Gemini CLI manages the process lifecycle)
 async function main() {

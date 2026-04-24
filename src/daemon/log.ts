@@ -12,4 +12,5 @@ export const log = {
   info: (msg: string, data?: object) => emit('ℹ️ INFO', msg, data),
   warn: (msg: string, data?: object) => emit('⚠️ WARN', msg, data),
   error: (msg: string, data?: object) => emit('❌ ERROR', msg, data),
+  debug: (msg: string, data?: object) => emit('🔍 DEBUG', msg, data),
 };

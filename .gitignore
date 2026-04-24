@@ -4,15 +4,20 @@
 .memory.json
 .memory.json.tmp
 start-daemon.sh
+.daemon.pid
+.cron.json
 node_modules/
 coverage/
 build/
+dist/
 *.db
 *.log
 *.jsonl
 tmp/
 .DS_Store
 .gemini-discord/
+.tmp-attachments/
+.agent/autonomous/
 graphify-out/
 !.env.example
 

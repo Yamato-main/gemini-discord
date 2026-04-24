@@ -17,6 +17,11 @@ import type { ConversationMemory } from './memory.js';
 import { resolveSessionKey } from './memory.js';
 import type { ChannelQueue } from './queue.js';
 import { sendDiscordMessage } from './sender.js';
+import { scheduleJob, listJobs, deleteJob } from './cron.js';
+import { getChannelMapEntries, resolveDiscoveredChannel } from './channels.js';
+import { resetConversationSession } from './session-reset.js';
+import { getAutonomousStatus } from './autonomous.js';
+import { listGeminiBindingStates } from './binding.js';
 
 const MAX_BODY_BYTES = 10240;
 
@@ -36,13 +41,14 @@ export interface ApiDependencies {
   state: DaemonState;
   memory: ConversationMemory;
   queue: ChannelQueue;
+  extensionDir: string;
   client?: import('discord.js').Client | null;
   isShuttingDown: () => boolean;
   shutdown: (signal: string) => Promise<void>;
 }
 
 export function startControlApi(deps: ApiDependencies): http.Server {
-  const { config, state, memory, queue, isShuttingDown, shutdown } = deps;
+  const { config, state, memory, queue, extensionDir, isShuttingDown, shutdown } = deps;
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -88,10 +94,15 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           ownerIds: config.ownerIds,
           enableDMs: config.enableDMs,
           sessionScope: config.memoryScope,
+          geminiSessionBindingScope: config.geminiSessionBindingScope,
           useGeminiCliSessions: config.useGeminiCliSessions,
           allowlistedUsers: config.allowedUserIds.length,
           allowlistedAgents: config.allowedAgentIds.length,
           requireMention: config.requireMention,
+          channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
+          autonomous: getAutonomousStatus(),
+          headlessMode: config.useGeminiCliSessions ? 'gemini-cli headless resume-session' : 'stateless prompt replay',
+          bindings: listGeminiBindingStates(extensionDir),
         };
         respond(res, 200, statusBody);
         return;
@@ -112,6 +123,11 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           channels: memory.channels(sessionKey),
         };
         respond(res, 200, historyBody);
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/cron') {
+        respond(res, 200, { ok: true, jobs: listJobs() });
         return;
       }
 
@@ -138,7 +154,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         }
 
         if (pathname === '/send') {
-          const channelId = String(parsed['channel_id'] ?? config.discordChannelId);
+          const requestedChannelId = parsed['channel_id'] == null ? '' : String(parsed['channel_id']);
+          const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
           const content = String(parsed['content'] ?? '');
           const files = Array.isArray(parsed['files']) ? parsed['files'].map(String) : undefined;
 
@@ -149,6 +166,15 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
           try {
             if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            let channelId = requestedChannelId || config.discordChannelId;
+            if (!requestedChannelId && requestedChannelName) {
+              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client);
+              if (!resolved) {
+                respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
+                return;
+              }
+              channelId = resolved.id;
+            }
             const channel = await fetchTextChannel(deps.client, channelId);
             if (!channel) {
               respond(res, 400, { error: 'Channel is not text-based' });
@@ -168,18 +194,18 @@ export function startControlApi(deps: ApiDependencies): http.Server {
               content: content || '(Sent an attachment)',
               speakerKind: 'assistant',
               authorId: deps.client.user?.id,
-              authorName: deps.client.user?.tag ?? 'Yamato-samurai',
+              authorName: deps.client.user?.tag ?? 'Assistant',
               channelId: channel.id,
-              channelName: channel.name ?? 'dm',
-              guildId: channel.guildId ?? null,
-              guildName: channel.guild?.name ?? null,
+              channelName: (channel as any).name ?? 'dm',
+              guildId: (channel as any).guildId ?? null,
+              guildName: (channel as any).guild?.name ?? null,
               messageId: messageIds[0] ?? undefined,
               trigger: 'tool_send',
               createdAt: new Date().toISOString(),
               attachments
             });
 
-            respond(res, 200, { ok: true, chunks: messageIds.length, messageIds });
+            respond(res, 200, { ok: true, chunks: messageIds.length, messageIds, channel_id: channelId });
           } catch (err) {
             respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
           }
@@ -219,11 +245,11 @@ export function startControlApi(deps: ApiDependencies): http.Server {
               content: content || '(Sent an attachment)',
               speakerKind: 'assistant',
               authorId: deps.client.user?.id,
-              authorName: deps.client.user?.tag ?? 'Yamato-samurai',
+              authorName: deps.client.user?.tag ?? 'Assistant',
               channelId: channel.id,
-              channelName: channel.name ?? 'dm',
-              guildId: channel.guildId ?? null,
-              guildName: channel.guild?.name ?? null,
+              channelName: (channel as any).name ?? 'dm',
+              guildId: (channel as any).guildId ?? null,
+              guildName: (channel as any).guild?.name ?? null,
               messageId: messageIds[0] ?? undefined,
               replyToMessageId: msg.id,
               replyToAuthorId: msg.author.id,
@@ -242,8 +268,59 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
         if (pathname === '/reset') {
           const channelId = String(parsed['channel_id'] ?? config.discordChannelId);
-          memory.reset(resolveSessionKey(config.memoryScope, channelId));
+          const guildId = parsed['guild_id'] == null ? null : String(parsed['guild_id']);
+          resetConversationSession(config, memory, extensionDir, { channelId, guildId });
           respond(res, 200, { ok: true });
+          return;
+        }
+
+        if (pathname === '/cron') {
+          const cronExpression = String(parsed['cron_expression'] ?? '');
+          const legacyInstruction = String(parsed['instruction'] ?? '');
+          const message = String(parsed['message'] ?? legacyInstruction);
+          const requestedChannelId = parsed['channel_id'] == null ? '' : String(parsed['channel_id']);
+          const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
+          const authorId = String(parsed['author_id'] ?? config.discordBossId);
+          const runOnce = parsed['run_once'] === undefined ? true : parsed['run_once'] === true;
+
+          if (!cronExpression || !message) {
+            respond(res, 400, { error: 'cron_expression and message are required' });
+            return;
+          }
+
+          try {
+            let channelId = requestedChannelId || config.discordChannelId;
+            if (!requestedChannelId && requestedChannelName && deps.client) {
+              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client);
+              if (!resolved) {
+                respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
+                return;
+              }
+              channelId = resolved.id;
+            }
+
+            const jobId = scheduleJob({
+              cronExpression,
+              message,
+              channelId,
+              authorId,
+              runOnce,
+            });
+            respond(res, 200, { ok: true, job_id: jobId });
+          } catch (err) {
+            respond(res, 400, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/cron/delete') {
+          const jobId = String(parsed['job_id'] ?? '');
+          if (!jobId) {
+            respond(res, 400, { error: 'job_id is required' });
+            return;
+          }
+          const ok = deleteJob(jobId);
+          respond(res, 200, { ok });
           return;
         }
       }

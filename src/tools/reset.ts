@@ -9,7 +9,7 @@ import { daemonRequest, isDaemonOnline } from './client.js';
 export function registerResetTool(server: McpServer, config: Config): void {
   server.tool(
     'discord_reset',
-    'Clear the Discord conversation memory buffer to start fresh. This removes all prior context from future responses.',
+    'Start a fresh Discord conversation by clearing both the saved Discord memory buffer and the bound Gemini CLI session for the current channel.',
     {},
     async () => {
       if (!(await isDaemonOnline(config))) {
@@ -27,7 +27,7 @@ export function registerResetTool(server: McpServer, config: Config): void {
         return text(`❌ Reset failed: ${res.data['error'] ?? 'unknown error'}`);
       }
 
-      return text('✅ Conversation cleared. Next message will start fresh with no prior context.');
+      return text('✅ Started a fresh conversation. The saved Discord memory and Gemini CLI session were cleared for the current channel.');
     },
   );
 }

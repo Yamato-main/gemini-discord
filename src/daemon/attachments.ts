@@ -26,6 +26,7 @@ export function getImageAttachmentMetadata(message: Message): ConversationAttach
 export async function downloadImageAttachments(
   message: Message,
   attachmentsRootDir: string,
+  geminiProjectDir: string = attachmentsRootDir,
 ): Promise<DownloadedImageAttachment[]> {
   const attachments = getImageAttachments(message);
   if (attachments.length === 0) {
@@ -46,9 +47,7 @@ export async function downloadImageAttachments(
       const safeName = sanitizeFilename(attachment.name || `image-${index + 1}.bin`);
       const localPath = path.join(targetDir, `${index + 1}-${safeName}`);
       await fs.writeFile(localPath, buffer);
-      // relativePath is from bindingDir (Gemini CLI CWD), not attachmentsRootDir
-      const bindingDir = path.dirname(attachmentsRootDir);
-      const relativePath = path.relative(bindingDir, localPath);
+      const relativePath = path.relative(geminiProjectDir, localPath);
 
       return {
         localPath,
@@ -116,5 +115,3 @@ function toConversationAttachment(attachment: DiscordImageAttachment): Conversat
 function sanitizeFilename(filename: string): string {
   return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
-
-

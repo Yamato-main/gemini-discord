@@ -16,10 +16,12 @@ export function registerFindImagesTool(server: McpServer) {
     },
     async ({ query, limit = 15 }) => {
       try {
-        const entries = await readdir('/Users/yamato', { withFileTypes: true });
+        const os = await import('node:os');
+        const homedir = os.homedir();
+        const entries = await readdir(homedir, { withFileTypes: true });
         const searchDirs = entries
           .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'Library')
-          .map(e => `-onlyin "/Users/yamato/${e.name}"`)
+          .map(e => `-onlyin "${homedir}/${e.name}"`)
           .join(' ');
 
         const cmd = `mdfind "kMDItemContentTypeTree == 'public.image' && kMDItemDisplayName == '*${query}*'cd" ${searchDirs}`;

@@ -3,12 +3,28 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Always-on Discord gateway for Gemini CLI. Bidirectional chat, conversation memory, streaming responses.",
+  "files": [
+    "dist",
+    "gemini-extension.json",
+    "GEMINI.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "gemini",
+    "discord",
+    "bot",
+    "mcp",
+    "ai",
+    "cli"
+  ],
+  "author": "Author",
   "scripts": {
     "build": "node esbuild.config.mjs",
     "dev:daemon": "npx tsx watch --ignore 'daemon.log' --ignore '*.sqlite*' --ignore '.env' src/daemon.ts",
     "start:daemon": "node dist/daemon.cjs",
     "start:server": "node dist/server.cjs",
-    "setup": "node dist/setup.cjs",
+    "install-service": "node dist/install-service.cjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -16,6 +32,7 @@
   "dependencies": {
     "@google/genai": "^1.50.1",
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "cron-parser": "^5.5.0",
     "discord.js": "^14.18.0",
     "zod": "^3.24.0"
   },

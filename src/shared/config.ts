@@ -5,9 +5,10 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Config, MemoryScope } from './types.js';
+import * as crypto from 'node:crypto';
+import type { Config, GeminiSessionBindingScope, MemoryScope } from './types.js';
 
-const DEFAULT_BOSS_ID = '853141321774006282';
+
 
 /**
  * Parse a .env file into a key-value map.
@@ -57,6 +58,13 @@ export function splitIds(value: string): string[] {
     .filter(Boolean);
 }
 
+function splitList(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === '') return fallback;
   return value.toLowerCase() === 'true';
@@ -66,16 +74,23 @@ function parseMemoryScope(value: string | undefined): MemoryScope {
   return value === 'channel' ? 'channel' : 'global';
 }
 
+function parseGeminiSessionBindingScope(value: string | undefined): GeminiSessionBindingScope {
+  switch (value) {
+    case 'global':
+    case 'server':
+    case 'channel':
+      return value;
+    default:
+      return 'channel';
+  }
+}
+
 
 
 function resolveBossId(explicitBossId: string | undefined, ownerIds: string[]): string {
   const explicit = explicitBossId?.trim();
   if (explicit) {
     return explicit;
-  }
-
-  if (ownerIds.includes(DEFAULT_BOSS_ID)) {
-    return DEFAULT_BOSS_ID;
   }
 
   if (ownerIds.length === 1) {
@@ -94,8 +109,14 @@ export function loadConfig(extensionDir: string): Config {
   const envPath = path.join(extensionDir, '.env');
   const fileVars = parseEnvFile(envPath);
 
-  const get = (key: string, fallback = ''): string =>
-    process.env[key] ?? fileVars[key] ?? fallback;
+  const get = (key: string, fallback = ''): string => {
+    if (Object.prototype.hasOwnProperty.call(fileVars, key)) {
+      return fileVars[key];
+    }
+
+    const envValue = process.env[key];
+    return envValue === undefined ? fallback : envValue;
+  };
 
   const ownerIds = splitIds(get('DISCORD_OWNER_IDS'));
   const allowedUserIds = splitIds(get('DISCORD_ALLOWED_USER_IDS'));
@@ -110,7 +131,22 @@ export function loadConfig(extensionDir: string): Config {
     allowedUserIds: allowedUserIds.length > 0 ? allowedUserIds : ownerIds,
     allowedAgentIds: splitIds(get('DISCORD_ALLOWED_AGENT_IDS')),
 
-    daemonApiToken: get('DAEMON_API_TOKEN'),
+    daemonApiToken: (() => {
+      let token = get('DAEMON_API_TOKEN');
+      if (token) return token;
+      
+      const tokenPath = path.join(extensionDir, '.daemon-token');
+      if (fs.existsSync(tokenPath)) {
+        return fs.readFileSync(tokenPath, 'utf-8').trim();
+      }
+      token = crypto.randomBytes(32).toString('hex');
+      try {
+        fs.writeFileSync(tokenPath, token, { mode: 0o600 });
+      } catch (e) {
+        // Ignore if we can't write, we'll just use the token in memory
+      }
+      return token;
+    })(),
 
     peerAgentId: get('DISCORD_PEER_AGENT_ID', '1485836823170121880'),
     reportingChannelId: get('DISCORD_REPORTING_CHANNEL_ID', '1493481295051886697'),
@@ -132,8 +168,25 @@ export function loadConfig(extensionDir: string): Config {
     respondToReplies: parseBoolean(get('RESPOND_TO_REPLIES', 'true'), true),
     memoryScope: parseMemoryScope(get('MEMORY_SCOPE', 'channel')),
     autoStartDaemon: parseBoolean(get('AUTO_START_DAEMON', 'true'), true),
-    useGeminiCliSessions: parseBoolean(get('USE_GEMINI_CLI_SESSIONS', 'false'), false),
+    useGeminiCliSessions: parseBoolean(get('USE_GEMINI_CLI_SESSIONS', 'true'), true),
+    geminiSessionBindingScope: parseGeminiSessionBindingScope(get('GEMINI_SESSION_BINDING_SCOPE', 'channel')),
     cliIdleTimeoutMs: parseInt(get('CLI_IDLE_TIMEOUT_MS', '300000'), 10),
+    autonomous: {
+      enabled: parseBoolean(get('AUTONOMOUS_TURNS_ENABLED', 'false'), false),
+      intervalMs: parseInt(get('AUTONOMOUS_INTERVAL_MS', '300000'), 10),
+      targetChannelId: get('AUTONOMOUS_TARGET_CHANNEL_ID', get('DISCORD_REPORTING_CHANNEL_ID', '1493481295051886697')),
+      targetChannelName: get('AUTONOMOUS_TARGET_CHANNEL_NAME'),
+      assumeMasterAway: parseBoolean(get('AUTONOMOUS_ASSUME_MASTER_AWAY', 'true'), true),
+      fourChan: {
+        enabled: parseBoolean(get('AUTONOMOUS_4CHAN_A_ENABLED', 'false'), false),
+        board: get('AUTONOMOUS_4CHAN_A_BOARD', 'a'),
+        keywords: splitList(get('AUTONOMOUS_4CHAN_A_KEYWORDS', 'one piece,onepiece')),
+        minSignal: parseInt(get('AUTONOMOUS_4CHAN_A_MIN_SIGNAL', '3'), 10),
+        cooldownMs: parseInt(get('AUTONOMOUS_4CHAN_A_COOLDOWN_MS', '3600000'), 10),
+        signalWindowMs: parseInt(get('AUTONOMOUS_4CHAN_A_SIGNAL_WINDOW_MS', '1800000'), 10),
+        timelineLimit: parseInt(get('AUTONOMOUS_4CHAN_A_TIMELINE_LIMIT', '200'), 10),
+      },
+    },
   };
 
   return config;
@@ -189,4 +242,3 @@ export async function updateEnvModel(extensionDir: string, model: string): Promi
 
   fs.writeFileSync(envPath, newLines.join('\n'));
 }
-

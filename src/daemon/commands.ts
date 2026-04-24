@@ -11,18 +11,19 @@ import { log } from './log.js';
 import type { Config } from '../shared/types.js';
 import type { DaemonState } from './api.js';
 import type { ConversationMemory } from './memory.js';
-import { resolveSessionKey } from './memory.js';
 import { spawn } from 'node:child_process';
 import { updateEnvModel } from '../shared/config.js';
 import { runtimeStore } from './runtime.js';
+import { resetConversationSession } from './session-reset.js';
+import { getAutonomousStatus } from './autonomous.js';
 
 /**
  * Slash command definitions.
  */
 const COMMANDS = [
   new SlashCommandBuilder()
-    .setName('reset')
-    .setDescription('Clear the conversation memory for this channel.')
+    .setName('new')
+    .setDescription('Start a fresh Gemini conversation for this channel.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   new SlashCommandBuilder()
@@ -55,7 +56,7 @@ const COMMANDS = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(option => 
       option.setName('session')
-        .setDescription('Session key to kill')
+        .setDescription('Pool key to kill')
         .setRequired(true)
     ),
 ];
@@ -70,7 +71,7 @@ const AVAILABLE_MODELS = [
 
 /**
  * Register slash commands for the primary guild.
- * We use guild-scoped commands for instant propagation (instant feedback loop for Yamato).
+ * We use guild-scoped commands for instant propagation.
  */
 export async function registerSlashCommands(config: Config, botUserId: string): Promise<void> {
   if (!config.discordBotToken || !config.discordChannelId) return;
@@ -81,7 +82,7 @@ export async function registerSlashCommands(config: Config, botUserId: string): 
     log.info('Refreshing guild slash commands...');
     
     // We fetch the guild ID from the primary channel's parent guild
-    // Since we only care about Yamato's server, we can just use the guild of the primary channel.
+    // Since we only care about the primary server, we can just use the guild of the primary channel.
     // However, to keep it simple, we'll try to register for ALL guilds the bot is in (usually just one).
     // Or we can just use a common guild ID if we had one. 
     // For now, we'll register globally but explain the 1h delay, OR try to find guilds.
@@ -143,20 +144,25 @@ export function setupInteractionHandler(
 
     if (!interaction.isChatInputCommand()) return;
 
-    // Authorization check: Only Yamato (owner) or allowed users can use commands
+    // Authorization check: Only the owner or allowed users can use commands
     const isOwner = config.ownerIds.includes(interaction.user.id);
     const isAllowed = config.allowedUserIds.includes(interaction.user.id);
     if (!isOwner && !isAllowed) {
-      await interaction.reply({ content: 'You are not authorized to use this blade.', ephemeral: true });
+      await interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
       return;
     }
 
     const { commandName } = interaction;
 
-    if (commandName === 'reset') {
-      const sessionKey = resolveSessionKey(config.memoryScope, interaction.channelId);
-      memory.reset(sessionKey);
-      await interaction.reply({ content: '**Memory cleared.** Conversation state has been reset for this channel.', ephemeral: false });
+    if (commandName === 'new') {
+      resetConversationSession(config, memory, extensionDir, {
+        channelId: interaction.channelId,
+        guildId: interaction.guildId ?? null,
+      });
+      await interaction.reply({
+        content: '🧹 **Started a new session.** Prior Discord memory and the bound Gemini CLI session were cleared for this channel.',
+        ephemeral: false,
+      });
       return;
     }
 
@@ -175,6 +181,11 @@ export function setupInteractionHandler(
         poolInfo = `Active: ${pStatus.busy} | Idle: ${pStatus.idle} | Max: ${pStatus.maxSize}`;
       }
 
+      const autonomousStatus = getAutonomousStatus();
+      const autonomousSummary = autonomousStatus.enabled
+        ? `${autonomousStatus.running ? 'running' : 'armed'} / ${autonomousStatus.sources.length} source(s)`
+        : 'disabled';
+
       const statusMsg = `**Daemon Status**
 - **Status:** \`${state.status}\`
 - **Model:** \`${config.geminiModel}\`
@@ -183,14 +194,15 @@ export function setupInteractionHandler(
 - **Gemini Reachable:** \`${state.geminiReachable ? 'Yes' : 'No'}\`
 - **Latency:** \`${Math.round(client.ws.ping)}ms\`
 - **Streaming:** \`${config.streaming ? 'Enabled' : 'Disabled'}\`
-- **CLI Pool:** \`${poolInfo}\``;
+- **CLI Pool:** \`${poolInfo}\`
+- **Autonomous:** \`${autonomousSummary}\``;
       await interaction.reply({ content: statusMsg, ephemeral: true });
       return;
     }
 
     if (commandName === 'pool') {
       if (!isOwner) {
-        await interaction.reply({ content: 'Only the master **Yamato** can view pool status.', ephemeral: true });
+        await interaction.reply({ content: 'Only the **Owner** can view pool status.', ephemeral: true });
         return;
       }
       if (!runtimeStore.cliPool) {
@@ -218,24 +230,24 @@ export function setupInteractionHandler(
 
     if (commandName === 'kill') {
       if (!isOwner) {
-        await interaction.reply({ content: 'Only the master **Yamato** can kill processes.', ephemeral: true });
+        await interaction.reply({ content: 'Only the **Owner** can kill processes.', ephemeral: true });
         return;
       }
 
-      const sessionKey = interaction.options.getString('session', true);
+      const poolKey = interaction.options.getString('session', true);
       if (!runtimeStore.cliPool) {
         await interaction.reply({ content: 'CLI pool is not initialized.', ephemeral: true });
         return;
       }
 
-      await interaction.reply({ content: `**Process killed:** \`${sessionKey}\``, ephemeral: true });
-      runtimeStore.cliPool.kill(sessionKey);
+      await interaction.reply({ content: `**Process killed:** \`${poolKey}\``, ephemeral: true });
+      runtimeStore.cliPool.kill(poolKey);
       return;
     }
 
     if (commandName === 'model') {
       if (!isOwner) {
-        await interaction.reply({ content: 'Only the master **Yamato** can switch models.', ephemeral: true });
+        await interaction.reply({ content: 'Only the **Owner** can switch models.', ephemeral: true });
         return;
       }
 

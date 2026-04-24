@@ -14,6 +14,8 @@ import { sleep } from './daemon/retry.js';
 import { CliProcessPool } from './daemon/cli-pool.js';
 import { runtimeStore } from './daemon/runtime.js';
 import { probeDiscordGateway } from './daemon/probe.js';
+import { shutdownCron } from './daemon/cron.js';
+import { shutdownAutonomous } from './daemon/autonomous.js';
 
 let tmpDir = process.cwd();
 try { tmpDir = __dirname; } catch {}
@@ -83,6 +85,9 @@ async function main(): Promise<void> {
     if (runtimeStore.client) {
       runtimeStore.client.destroy();
     }
+
+    shutdownCron();
+    shutdownAutonomous();
     
     if (apiServer) {
       apiServer.close(() => {
@@ -105,6 +110,7 @@ async function main(): Promise<void> {
     state,
     memory,
     queue,
+    extensionDir,
     get client() { return runtimeStore.client; },
     isShuttingDown: () => shuttingDown,
     shutdown,

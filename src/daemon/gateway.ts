@@ -1,7 +1,7 @@
 import { type Message, type TextChannel, type DMChannel, type NewsChannel } from 'discord.js';
 import { createClient, setupReconnectHandlers, setupMessageHandler, type AcceptedDiscordMessage } from './bot.js';
 import { type DaemonState } from './api.js';
-import { type ConversationMemory } from './memory.js';
+import { type ConversationMemory, resolveSessionKey } from './memory.js';
 import { type ChannelQueue } from './queue.js';
 import { log } from './log.js';
 import { registerGuildCommands, setupInteractionHandler } from './commands.js';
@@ -14,6 +14,9 @@ import { type loadConfig } from '../shared/config.js';
 import { runtimeStore } from './runtime.js';
 import { type Semaphore } from './semaphore.js';
 import type { ExchangeLog } from '../shared/types.js';
+import { initCron } from './cron.js';
+import { resetConversationSession } from './session-reset.js';
+import { initAutonomous } from './autonomous.js';
 
 const MAX_AGENT_EXCHANGES = 6;
 
@@ -34,7 +37,7 @@ export async function initGateway(
     state.status = status;
   });
 
-  client.once('ready', async () => {
+  client.once('clientReady', async () => {
     log.info('Discord bot connected', { tag: client.user?.tag });
 
     try {
@@ -59,16 +62,23 @@ export async function initGateway(
     }
     log.info('Daemon ready', { status: state.status });
 
+    initCron(config, client, extensionDir);
+    initAutonomous(config, extensionDir);
+
     await registerGuildCommands(client, config);
   });
 
   setupMessageHandler(client, config, {
     onMessage: (message: Message, accepted: AcceptedDiscordMessage) => {
-      const processingContext = resolveProcessingContext(config, message, accepted);
+      runtimeStore.lastInteractiveMessageAt = Date.now();
+      const processingContext = resolveProcessingContext(config, message, accepted, extensionDir);
       const chan = message.channel as TextChannel | DMChannel | NewsChannel;
 
       if (isResetCommand(message.content, accepted.content, config.discordResetCmd, config.discordPrefix)) {
-        memory.reset(processingContext.sessionKey);
+        resetConversationSession(config, memory, extensionDir, {
+          channelId: message.channelId,
+          guildId: message.guildId ?? null,
+        });
         retrySend(() => chan.send('🧹 Conversation cleared.')).catch(() => {});
         return;
       }
@@ -89,10 +99,54 @@ export async function initGateway(
         runtimeStore.agentExchangeCount.set(message.channelId, 0);
       }
 
-      processMessage(message, accepted, config, memory, state, processingContext, runtimeStore.geminiSemaphore!, extensionDir).catch(err => {
-        log.error('Unhandled error in concurrent message processing', { 
-          error: err instanceof Error ? err.message : String(err) 
-        });
+      const queueKeys = [
+        `binding:${processingContext.bindingKey}`,
+        `memory:${processingContext.sessionKey}`,
+      ];
+      const enqueued = runtimeStore.queue?.enqueue(queueKeys, async () => {
+        await processMessage(
+          message,
+          accepted,
+          config,
+          memory,
+          state,
+          processingContext,
+          runtimeStore.geminiSemaphore!,
+        );
+      }) ?? false;
+
+      if (!enqueued) {
+        retrySend(() => chan.send('⏳ Too many pending messages for this conversation. Please wait a moment and retry.'))
+          .catch(() => {});
+      }
+    },
+    onIgnoredMessage: (message: Message, trackOnlyContext) => {
+      const sessionKey = resolveSessionKey(config.memoryScope, message.channelId);
+      const attachmentMetadata = getImageAttachmentMetadata(message);
+      
+      memory.add(sessionKey, {
+        role: 'user',
+        content: trackOnlyContext.content,
+        attachments: attachmentMetadata,
+        speakerKind: trackOnlyContext.speakerKind,
+        authorId: message.author.id,
+        authorName: message.author.tag,
+        channelId: message.channelId,
+        channelName: trackOnlyContext.channelName,
+        guildId: message.guildId ?? null,
+        guildName: trackOnlyContext.guildName,
+        messageId: message.id,
+        replyToMessageId: trackOnlyContext.replyToMessageId,
+        replyToAuthorId: trackOnlyContext.replyToAuthorId,
+        replyToAuthorName: trackOnlyContext.replyToAuthorName,
+        trigger: 'tracked',
+        createdAt: new Date().toISOString(),
+      });
+      
+      log.debug('Tracked ignored message for context', {
+        author: message.author.tag,
+        channelId: message.channelId,
+        sessionKey,
       });
     },
   }, () => runtimeStore.isShuttingDown);
@@ -127,15 +181,16 @@ async function processMessage(
   state: DaemonState,
   processingContext: ProcessingContext,
   geminiSemaphore: Semaphore,
-  extensionDir: string
 ): Promise<void> {
   const channel = message.channel as TextChannel | DMChannel | NewsChannel;
   const startTime = Date.now();
-  const toolMode = resolveToolMode(accepted.content);
+  const toolMode = accepted.trigger === 'cron' ? 'discord' : resolveToolMode(accepted.content);
   const attachmentMetadata = getImageAttachmentMetadata(message);
+  let effectiveAttachmentMetadata = attachmentMetadata;
 
   let response = '';
   let responseMessageIds: string[] = [];
+  let geminiSessionId: string | undefined;
 
   try {
     if (!accepted.content.trim() && message.attachments.size > 0 && attachmentMetadata.length === 0) {
@@ -150,6 +205,8 @@ async function processMessage(
     );
     response = result.response;
     responseMessageIds = result.messageIds;
+    effectiveAttachmentMetadata = result.attachments ?? attachmentMetadata;
+    geminiSessionId = result.sessionId;
 
     await persistExchange();
 
@@ -175,7 +232,7 @@ async function processMessage(
     memory.add(processingContext.sessionKey, {
       role: 'user',
       content: accepted.content,
-      attachments: attachmentMetadata,
+      attachments: effectiveAttachmentMetadata,
       speakerKind: accepted.speakerKind,
       authorId: message.author.id,
       authorName: message.author.tag,
@@ -196,7 +253,7 @@ async function processMessage(
       content: response,
       speakerKind: 'assistant',
       authorId: message.client.user?.id,
-      authorName: message.client.user?.tag ?? 'Yamato-samurai',
+      authorName: message.client.user?.tag ?? 'Assistant',
       channelId: message.channelId,
       channelName: accepted.channelName,
       guildId: message.guildId ?? null,
@@ -224,9 +281,9 @@ async function processMessage(
       guildName: accepted.guildName,
       requestMessageId: message.id,
       responseMessageIds,
-      attachmentCount: attachmentMetadata.length,
+      attachmentCount: effectiveAttachmentMetadata.length,
       trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
-      prompt: (accepted.content || (attachmentMetadata.length > 0 ? '[image-only message]' : '')).slice(0, 500),
+      prompt: (accepted.content || (effectiveAttachmentMetadata.length > 0 ? '[image-only message]' : '')).slice(0, 500),
       response: response.slice(0, 500),
       elapsedMs: elapsed,
     };
@@ -244,6 +301,7 @@ async function processMessage(
       responseMessages: responseMessageIds.length,
       attachmentCount: attachmentMetadata.length,
       toolMode,
+      geminiSessionId,
     });
   }
 }

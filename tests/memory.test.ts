@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { ConversationMemory, buildDiscordPrompt, resolveSessionKey } from '../src/daemon/memory.js';
+import { ConversationMemory, buildDiscordPrompt, buildSessionModePrompt, resolveSessionKey, extractHistoryImageUrls } from '../src/daemon/memory.js';
 
 let tmpDir: string;
 
@@ -20,9 +20,9 @@ function userMessage(content: string, overrides: Record<string, unknown> = {}) {
     content,
     speakerKind: 'human' as const,
     authorId: 'u1',
-    authorName: 'Yamato#0001',
+    authorName: 'User#0001',
     channelId: 'ch1',
-    channelName: 'yamato-samurai',
+    channelName: 'bot-channel',
     guildId: 'g1',
     guildName: 'Sanctum',
     messageId: 'm1',
@@ -37,9 +37,9 @@ function assistantMessage(content: string, overrides: Record<string, unknown> = 
     content,
     speakerKind: 'assistant' as const,
     authorId: 'bot',
-    authorName: 'Yamato-samurai#0001',
+    authorName: 'Assistant#0001',
     channelId: 'ch1',
-    channelName: 'yamato-samurai',
+    channelName: 'bot-channel',
     guildId: 'g1',
     guildName: 'Sanctum',
     messageId: 'r1',
@@ -56,7 +56,7 @@ describe('ConversationMemory', () => {
 
     const snap = mem.snapshot('global');
     expect(snap).toHaveLength(2);
-    expect(snap[0].authorName).toBe('Yamato#0001');
+    expect(snap[0].authorName).toBe('User#0001');
     expect(snap[1].role).toBe('assistant');
   });
 
@@ -106,14 +106,14 @@ describe('ConversationMemory', () => {
       guildName: 'Sanctum',
       messageId: 'm3',
       replyToMessageId: 'r1',
-      replyToAuthorName: 'Yamato-samurai#0001',
+      replyToAuthorName: 'Assistant#0001',
       trigger: 'reply',
     });
 
-    expect(prompt).toContain('Format responses in Discord-compatible Markdown.');
-    expect(prompt).toContain('User: Yamato#0001');
-    expect(prompt).toContain('User: OtherAgent#9999');
-    expect(prompt).toContain('ReplyTo: Yamato-samurai#0001');
+    expect(prompt).toContain('Respond with Discord Markdown.');
+    expect(prompt).toContain('User#0001');
+    expect(prompt).toContain('OtherAgent#9999');
+    expect(prompt).toContain('Reply to Assistant#0001');
   });
 
   it('caps prompt history without dropping stored memory', () => {
@@ -127,9 +127,9 @@ describe('ConversationMemory', () => {
       content: 'latest question',
       speakerKind: 'human',
       authorId: 'u1',
-      authorName: 'Yamato#0001',
+      authorName: 'User#0001',
       channelId: 'ch1',
-      channelName: 'yamato-samurai',
+      channelName: 'bot-channel',
       guildId: 'g1',
       guildName: 'Sanctum',
       messageId: 'm-latest',
@@ -150,16 +150,17 @@ describe('ConversationMemory', () => {
       attachments: [{ name: 'whiteboard.png', contentType: 'image/png', sizeBytes: 10240 }],
       speakerKind: 'human',
       authorId: 'u1',
-      authorName: 'Yamato#0001',
+      authorName: 'User#0001',
       channelId: 'ch1',
-      channelName: 'yamato-samurai',
+      channelName: 'bot-channel',
       guildId: 'g1',
       guildName: 'Sanctum',
       messageId: 'm-image',
       trigger: 'channel',
     });
 
-    expect(prompt).toContain('(no text provided)');
+    // When content is empty but attachments exist, no placeholder text is shown
+    expect(prompt).not.toContain('(no text provided)');
     expect(prompt).toContain('whiteboard.png');
     expect(prompt).toContain('image/png');
   });
@@ -178,12 +179,12 @@ describe('ConversationMemory', () => {
     }));
 
     expect(mem.participants('global')).toEqual([
-      { id: 'u1', name: 'Yamato#0001', kind: 'human' },
-      { id: 'bot', name: 'Yamato-samurai#0001', kind: 'assistant' },
+      { id: 'u1', name: 'User#0001', kind: 'human' },
+      { id: 'bot', name: 'Assistant#0001', kind: 'assistant' },
       { id: 'agent-2', name: 'OtherAgent#9999', kind: 'agent' },
     ]);
     expect(mem.channels('global')).toEqual([
-      { id: 'ch1', name: 'yamato-samurai' },
+      { id: 'ch1', name: 'bot-channel' },
       { id: 'ch2', name: 'multi-agent-lab' },
     ]);
   });
@@ -256,16 +257,15 @@ describe('resolveSessionKey', () => {
 });
 
 describe('buildDiscordPrompt', () => {
-  it('forbids tools in normal chat mode', () => {
+  it('generates a well-structured prompt with runtime header', () => {
     const prompt = buildDiscordPrompt({
-      toolMode: 'chat',
       incoming: {
         content: 'hey',
         speakerKind: 'human',
         authorId: 'u1',
-        authorName: 'Yamato#0001',
+        authorName: 'User#0001',
         channelId: 'ch1',
-        channelName: 'yamato-samurai',
+        channelName: 'bot-channel',
         guildId: 'g1',
         guildName: 'Sanctum',
         messageId: 'm1',
@@ -273,28 +273,177 @@ describe('buildDiscordPrompt', () => {
       },
     });
 
-    expect(prompt).toContain('[Runtime Context]');
-    expect(prompt).toContain('Format responses in Discord-compatible Markdown.');
+    expect(prompt).toContain('[Runtime: Discord group]');
+    expect(prompt).toContain('Respond with Discord Markdown.');
+    expect(prompt).toContain('[Message]');
+    expect(prompt).toContain('hey');
   });
 
-  it('allows read-only web tools in explicit web mode', () => {
+  it('generates DM prompt for non-guild context', () => {
     const prompt = buildDiscordPrompt({
-      toolMode: 'web',
       incoming: {
         content: 'search the web for the latest Gemini CLI changes',
         speakerKind: 'human',
         authorId: 'u1',
-        authorName: 'Yamato#0001',
+        authorName: 'User#0001',
         channelId: 'ch1',
-        channelName: 'yamato-samurai',
+        channelName: 'bot-channel',
+        guildId: null,
+        guildName: null,
+        messageId: 'm2',
+        trigger: 'dm',
+      },
+    });
+
+    expect(prompt).toContain('[Runtime: Discord direct]');
+    expect(prompt).toContain('Respond with Discord Markdown.');
+    expect(prompt).toContain('[Message]');
+  });
+});
+
+describe('extractHistoryImageUrls', () => {
+  it('extracts image URLs from history messages', () => {
+    const history = [
+      userMessage('who is this?', {
+        attachments: [
+          { name: 'scarlet.png', contentType: 'image/png', sizeBytes: 10240, url: 'https://cdn.discordapp.com/attachments/1/2/scarlet.png' },
+        ],
+      }),
+      assistantMessage('That is Scarlet from FF7'),
+      userMessage('who is this?', {
+        attachments: [
+          { name: 'marcille.jpg', contentType: 'image/jpeg', sizeBytes: 20480, url: 'https://cdn.discordapp.com/attachments/1/3/marcille.jpg' },
+        ],
+      }),
+    ];
+
+    const urls = extractHistoryImageUrls(history);
+    expect(urls).toEqual([
+      'https://cdn.discordapp.com/attachments/1/2/scarlet.png',
+      'https://cdn.discordapp.com/attachments/1/3/marcille.jpg',
+    ]);
+  });
+
+  it('returns empty array for messages without attachments', () => {
+    const history = [
+      userMessage('hello'),
+      assistantMessage('hi'),
+    ];
+
+    expect(extractHistoryImageUrls(history)).toEqual([]);
+  });
+
+  it('skips non-image attachments', () => {
+    const history = [
+      userMessage('here is my code', {
+        attachments: [
+          { name: 'code.ts', contentType: 'text/typescript', sizeBytes: 1024, url: 'https://cdn.discordapp.com/attachments/1/4/code.ts' },
+        ],
+      }),
+    ];
+
+    expect(extractHistoryImageUrls(history)).toEqual([]);
+  });
+
+  it('includes attachments with missing contentType (assumed image)', () => {
+    const history = [
+      userMessage('look at this', {
+        attachments: [
+          { name: 'unknown.bin', url: 'https://cdn.discordapp.com/attachments/1/5/unknown.bin' },
+        ],
+      }),
+    ];
+
+    expect(extractHistoryImageUrls(history)).toEqual([
+      'https://cdn.discordapp.com/attachments/1/5/unknown.bin',
+    ]);
+  });
+});
+
+describe('image URLs in transcript history', () => {
+  it('includes image URLs in history transcript entries', () => {
+    const mem = new ConversationMemory(tmpDir, 10);
+    mem.add('global', userMessage('who is this?', {
+      attachments: [
+        { name: 'scarlet.png', contentType: 'image/png', sizeBytes: 10240, url: 'https://cdn.discordapp.com/attachments/1/2/scarlet.png' },
+      ],
+    }));
+    mem.add('global', assistantMessage('That is Scarlet from FF7'));
+
+    const prompt = mem.buildPrompt('global', {
+      content: 'who is this now?',
+      attachments: [{ name: 'marcille.jpg', contentType: 'image/jpeg', sizeBytes: 20480, url: 'https://cdn.discordapp.com/attachments/1/3/marcille.jpg' }],
+      speakerKind: 'human',
+      authorId: 'u1',
+      authorName: 'User#0001',
+      channelId: 'ch1',
+      channelName: 'bot-channel',
+      guildId: 'g1',
+      guildName: 'Sanctum',
+      messageId: 'm3',
+      trigger: 'channel',
+    });
+
+    // The history section should contain the URL of the PREVIOUS image
+    expect(prompt).toContain('https://cdn.discordapp.com/attachments/1/2/scarlet.png');
+    // The assistant response should be in history
+    expect(prompt).toContain('That is Scarlet from FF7');
+    // The current message should have the new attachment
+    expect(prompt).toContain('marcille.jpg');
+  });
+});
+
+describe('buildSessionModePrompt', () => {
+  it('includes runtime header and current message only', () => {
+    const prompt = buildSessionModePrompt({
+      incoming: {
+        content: 'who is this?',
+        attachments: [{ name: 'tifa.png', contentType: 'image/png', sizeBytes: 10240 }],
+        speakerKind: 'human',
+        authorId: 'u1',
+        authorName: 'User#0001',
+        channelId: 'ch1',
+        channelName: 'bot-channel',
         guildId: 'g1',
         guildName: 'Sanctum',
-        messageId: 'm2',
+        messageId: 'm1',
         trigger: 'channel',
       },
     });
 
-    expect(prompt).toContain('[Runtime Context]');
-    expect(prompt).toContain('Format responses in Discord-compatible Markdown.');
+    // Has runtime header
+    expect(prompt).toContain('[Runtime: Discord group]');
+    expect(prompt).toContain('Respond with Discord Markdown.');
+    // Has current message
+    expect(prompt).toContain('[Message]');
+    expect(prompt).toContain('who is this?');
+    expect(prompt).toContain('tifa.png');
+    // Does NOT have history replay sections (CLI session handles these)
+    expect(prompt).not.toContain('[History]');
+    expect(prompt).not.toContain('[Participants]');
+  });
+
+  it('omits history even when history exists in memory', () => {
+    // In session mode, the CLI session file IS the context.
+    // buildSessionModePrompt should never include history.
+    const prompt = buildSessionModePrompt({
+      incoming: {
+        content: 'latest question',
+        speakerKind: 'human',
+        authorId: 'u1',
+        authorName: 'User#0001',
+        channelId: 'ch1',
+        channelName: 'bot-channel',
+        guildId: null,
+        guildName: null,
+        messageId: 'm2',
+        trigger: 'dm',
+      },
+    });
+
+    expect(prompt).toContain('[Runtime: Discord direct]');
+    expect(prompt).toContain('latest question');
+    expect(prompt).not.toContain('[History]');
+    expect(prompt).not.toContain('[Participants]');
   });
 });

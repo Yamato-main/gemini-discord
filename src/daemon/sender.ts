@@ -15,19 +15,25 @@ export async function sendDiscordMessage(
   const messageIds: string[] = [];
   const attachments: AttachmentBuilder[] = [];
 
-  // Read files into attachments
+  // Read files into attachments in parallel
   if (options.files && options.files.length > 0) {
-    for (const filePath of options.files) {
+    const filePromises = options.files.map(async (filePath) => {
       try {
         const buffer = await fs.promises.readFile(filePath);
         const fileName = path.basename(filePath);
-        attachments.push(new AttachmentBuilder(buffer, { name: fileName }));
+        return new AttachmentBuilder(buffer, { name: fileName });
       } catch (err) {
         log.warn('Failed to read file for discord attachment', {
           path: filePath,
           error: err instanceof Error ? err.message : String(err),
         });
+        return null;
       }
+    });
+
+    const results = await Promise.all(filePromises);
+    for (const attachment of results) {
+      if (attachment) attachments.push(attachment);
     }
   }
 

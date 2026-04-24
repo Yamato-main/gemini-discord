@@ -14,7 +14,7 @@ export function registerReplyTool(server: McpServer, config: Config): void {
     {
       channel_id: z.string().describe('The channel ID containing the message'),
       message_id: z.string().describe('The message ID to reply to (get from discord_history)'),
-      content: z.string().optional().describe('Optional reply content. You SHOULD put your conversational response here alongside any files, and leave your final response empty.'),
+      content: z.string().optional().describe('Optional text to accompany attached files. DO NOT use this for your normal conversational response, as your standard text output is automatically streamed to Discord.'),
       files: z.array(z.string()).optional().describe('Optional array of absolute file paths to attach'),
     },
     async ({ channel_id, message_id, content = '', files }) => {
@@ -33,7 +33,7 @@ export function registerReplyTool(server: McpServer, config: Config): void {
         return text(`❌ Reply failed: ${res.data['error'] ?? 'unknown error'}`);
       }
 
-      return text('✅ Reply sent. (Please leave your final conversational response empty to avoid double-posting.)');
+      return text('✅ Reply sent with the attached content/files.');
     },
   );
 }
