@@ -11,7 +11,7 @@ import {
 } from 'discord.js';
 import type { Config } from '../shared/types.js';
 import { log } from './log.js';
-import { shouldAcceptMessage } from './routing.js';
+import { isDirectMessageAuthorAllowed, shouldAcceptMessage } from './routing.js';
 
 export interface AcceptedDiscordMessage {
   content: string;
@@ -125,9 +125,12 @@ export function setupMessageHandler(
         log.warn('DM received but ENABLE_DMS is false', { author: message.author.tag });
         return;
       }
-      // Security: ONLY the configured Boss may DM the bot.
-      if (message.author.id !== config.discordBossId) {
-        log.info('DM rejected: Not Boss', { author: message.author.tag, id: message.author.id, bossId: config.discordBossId });
+      if (!isDirectMessageAuthorAllowed(message.author.id, config)) {
+        log.info('DM rejected: Author not allowlisted', {
+          author: message.author.tag,
+          id: message.author.id,
+          bossId: config.discordBossId,
+        });
         return;
       }
     } else {

@@ -30,8 +30,9 @@ describe('resolveGeminiBindingKey', () => {
     expect(resolveGeminiBindingKey('server', { guildId: 'g1', channelId: 'c1' })).toBe('guild:g1');
   });
 
-  it('falls back to the DM channel id outside guilds', () => {
-    expect(resolveGeminiBindingKey('server', { guildId: null, channelId: 'dm-1' })).toBe('channel:dm-1');
+  it('binds DMs by paired user id outside guilds', () => {
+    expect(resolveGeminiBindingKey('server', { guildId: null, channelId: 'dm-1', dmUserId: 'u1' })).toBe('dm:u1');
+    expect(resolveGeminiBindingKey('channel', { guildId: null, channelId: 'dm-1', dmUserId: 'u1' })).toBe('dm:u1');
   });
 });
 

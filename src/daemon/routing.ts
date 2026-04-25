@@ -25,6 +25,12 @@ export interface RoutingDecision {
   trigger?: string;
 }
 
+export function isDirectMessageAuthorAllowed(authorId: string, config: Config): boolean {
+  return authorId === config.discordBossId
+    || config.ownerIds.includes(authorId)
+    || config.allowedUserIds.includes(authorId);
+}
+
 export function shouldAcceptMessage(input: RoutingInput, config: Config): RoutingDecision {
   if (input.authorId === input.botUserId && !input.content.startsWith('[CRON]')) {
     return reject();
@@ -32,8 +38,7 @@ export function shouldAcceptMessage(input: RoutingInput, config: Config): Routin
 
   if (input.isDM) {
     if (!config.enableDMs) return reject();
-    // Security: Only the configured Boss may DM the bot directly.
-    if (input.authorId !== config.discordBossId) return reject();
+    if (!isDirectMessageAuthorAllowed(input.authorId, config)) return reject();
     return finalizeRoute(input, config, 'dm');
   }
 
@@ -41,16 +46,10 @@ export function shouldAcceptMessage(input: RoutingInput, config: Config): Routin
     return reject();
   }
 
-  const isBoss = input.authorId === config.discordBossId;
   const isSelf = input.authorId === input.botUserId;
 
   // Humans must be in the allowlist
   if (!input.isBot && !config.allowedUserIds.includes(input.authorId)) {
-    return reject();
-  }
-
-  // For DMs, we are strict. For servers, we allow all humans to trigger.
-  if (input.isDM && !isBoss) {
     return reject();
   }
 

@@ -98,16 +98,18 @@ The bottom path is optional infrastructure layered around the product.
 - Channel discovery and cross-channel sends
 - Slash commands for session and daemon control
 - Cron reminders
+- Scheduled background watch jobs that collect first and wake Gemini at report time
 - Optional autonomous away-mode turns
-- Status surfaces that expose daemon health and bound Gemini session state
+- Status surfaces that expose daemon health, watch jobs, and bound Gemini session state
 
 ## Optional Background Intelligence
 
 The project now has an optional background path, but it is intentionally secondary to the Discord binding.
 
-Current built-in autonomous source:
+Current built-in background sources:
 
-- 4chan `/a/` watcher with timeline, scoring, cooldown, and dedupe
+- Scheduled 4chan `/a/` watch jobs that poll, diff, timeline, then wake Gemini at the requested report time
+- Optional always-armed 4chan `/a/` autonomous watcher with timeline, scoring, cooldown, and dedupe
 
 Important constraints:
 
@@ -132,15 +134,15 @@ Requires:
 - Gemini CLI installed and authenticated
 - A Discord bot token (from [Discord Developer Portal](https://discord.com/developers/applications))
 
-The installation process is frictionless. You don't need to manually configure `.env` files or start the daemon.
+Use a local path while the repo is still private:
 
 ```bash
-gemini extensions install Yamato-atk/gemini-discord
+gemini extensions install /absolute/path/to/gemini-discord
 ```
 
-During installation, the Gemini CLI will interactively prompt you for the required configuration variables (like your Discord Bot Token and Channel IDs) and save them securely to your system keychain. 
+If you publish the repo later, replace the local path with your Git URL.
 
-On the first run, the extension will automatically install dependencies, build itself, and spawn the daemon in the background.
+During installation, Gemini CLI will prompt for the required configuration variables and store them for the extension. On the first tool call or Discord interaction, the extension will build if needed and wake the daemon automatically.
 
 ## Important Configuration
 
@@ -186,6 +188,9 @@ Current slash commands include:
 | `schedule_cron_job` | Schedule a message |
 | `list_cron_jobs` | List cron jobs |
 | `delete_cron_job` | Delete a cron job |
+| `schedule_watch_job` | Schedule a background watch that collects first and wakes Gemini later |
+| `list_watch_jobs` | List active background watch jobs |
+| `delete_watch_job` | Delete a background watch job |
 
 ## Development
 
@@ -202,7 +207,16 @@ Useful local commands:
 npm run dev:daemon
 npm run start:daemon
 npm run start:server
+npm run install-service
 ```
+
+## Daemon Lifecycle
+
+The daemon is local and detached, not hosted. After a host reboot it will not be running until something wakes it again. That means:
+
+- the first Discord interaction after a reboot may pay a short wake-up delay
+- scheduled background watch jobs only run while the daemon is alive
+- if you want true 24/7 uptime on macOS, install the launchd service with `npm run install-service`
 
 ## Debugging Notes
 

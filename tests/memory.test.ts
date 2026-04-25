@@ -275,8 +275,30 @@ describe('buildDiscordPrompt', () => {
 
     expect(prompt).toContain('[Runtime: Discord group]');
     expect(prompt).toContain('Respond with Discord Markdown.');
+    expect(prompt).toContain('Do not use theatrical, ceremonial, roleplay, or servant-like phrasing.');
     expect(prompt).toContain('[Message]');
     expect(prompt).toContain('hey');
+  });
+
+  it('includes background operations context when provided', () => {
+    const prompt = buildDiscordPrompt({
+      incoming: {
+        content: 'what is running?',
+        speakerKind: 'human',
+        authorId: 'u1',
+        authorName: 'User#0001',
+        channelId: 'ch1',
+        channelName: 'bot-channel',
+        guildId: 'g1',
+        guildName: 'Sanctum',
+        messageId: 'm-bg',
+        trigger: 'channel',
+      },
+      backgroundContext: '[Background Operations]\n- Active watch/research jobs: 1.',
+    });
+
+    expect(prompt).toContain('[Background Operations]');
+    expect(prompt).toContain('Active watch/research jobs: 1.');
   });
 
   it('generates DM prompt for non-guild context', () => {
@@ -297,6 +319,7 @@ describe('buildDiscordPrompt', () => {
 
     expect(prompt).toContain('[Runtime: Discord direct]');
     expect(prompt).toContain('Respond with Discord Markdown.');
+    expect(prompt).toContain('Do not narrate tool calls, MCP server names, job IDs, directives, or internal mechanics unless the user explicitly asked for them.');
     expect(prompt).toContain('[Message]');
   });
 });
@@ -419,6 +442,30 @@ describe('buildSessionModePrompt', () => {
     expect(prompt).toContain('who is this?');
     expect(prompt).toContain('tifa.png');
     // Does NOT have history replay sections (CLI session handles these)
+    expect(prompt).not.toContain('[History]');
+    expect(prompt).not.toContain('[Participants]');
+  });
+
+  it('includes live background operations context without replaying history', () => {
+    const prompt = buildSessionModePrompt({
+      incoming: {
+        content: 'what background jobs are active?',
+        speakerKind: 'human',
+        authorId: 'u1',
+        authorName: 'User#0001',
+        channelId: 'ch1',
+        channelName: 'bot-channel',
+        guildId: 'g1',
+        guildName: 'Sanctum',
+        messageId: 'm-bg-session',
+        trigger: 'channel',
+      },
+      backgroundContext: '[Background Operations]\n- Active cron jobs: 2.\n- Active watch/research jobs: 1.',
+    });
+
+    expect(prompt).toContain('[Background Operations]');
+    expect(prompt).toContain('Active cron jobs: 2.');
+    expect(prompt).toContain('Active watch/research jobs: 1.');
     expect(prompt).not.toContain('[History]');
     expect(prompt).not.toContain('[Participants]');
   });

@@ -22,6 +22,8 @@ import { getChannelMapEntries, resolveDiscoveredChannel } from './channels.js';
 import { resetConversationSession } from './session-reset.js';
 import { getAutonomousStatus } from './autonomous.js';
 import { listGeminiBindingStates } from './binding.js';
+import { listDmPairings } from './dm-pairing.js';
+import { scheduleWatchJob, listWatchJobs, deleteWatchJob } from './watch-jobs.js';
 
 const MAX_BODY_BYTES = 10240;
 
@@ -101,8 +103,11 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           requireMention: config.requireMention,
           channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
           autonomous: getAutonomousStatus(),
-          headlessMode: config.useGeminiCliSessions ? 'gemini-cli headless resume-session' : 'stateless prompt replay',
+          cronJobs: listJobs(),
+          watchJobs: listWatchJobs(),
+          headlessMode: config.useGeminiCliSessions ? 'gemini-cli ACP persistent sessions (discord-only extension load)' : 'stateless prompt replay',
           bindings: listGeminiBindingStates(extensionDir),
+          dmPairings: listDmPairings(extensionDir),
         };
         respond(res, 200, statusBody);
         return;
@@ -128,6 +133,11 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
       if (req.method === 'GET' && pathname === '/cron') {
         respond(res, 200, { ok: true, jobs: listJobs() });
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/watch') {
+        respond(res, 200, { ok: true, jobs: listWatchJobs() });
         return;
       }
 
@@ -313,17 +323,96 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           return;
         }
 
-        if (pathname === '/cron/delete') {
-          const jobId = String(parsed['job_id'] ?? '');
-          if (!jobId) {
-            respond(res, 400, { error: 'job_id is required' });
-            return;
-          }
-          const ok = deleteJob(jobId);
-          respond(res, 200, { ok });
+
+  if (pathname === '/cron/delete') {
+    const jobId = String(parsed['job_id'] ?? '');
+    if (!jobId) {
+      respond(res, 400, { error: 'job_id is required' });
+      return;
+    }
+    const ok = deleteJob(jobId);
+    respond(res, 200, { ok });
+    return;
+  }
+
+  if (pathname === '/watch') {
+    const source = String(parsed['source'] ?? '4chan_a_watch');
+    const topic = String(parsed['topic'] ?? '').trim();
+    const board = String(parsed['board'] ?? 'a');
+    const keywords = Array.isArray(parsed['keywords'])
+      ? parsed['keywords'].map(String)
+      : [];
+    const requestedChannelId = parsed['channel_id'] == null ? '' : String(parsed['channel_id']);
+    const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
+    const authorId = String(parsed['author_id'] ?? config.discordBossId);
+    const reportInMinutes = parsed['report_in_minutes'] == null ? undefined : Number(parsed['report_in_minutes']);
+    const pollEveryMinutes = parsed['poll_every_minutes'] == null ? undefined : Number(parsed['poll_every_minutes']);
+    const minSignal = parsed['min_signal'] == null ? undefined : Number(parsed['min_signal']);
+
+    if (source !== '4chan_a_watch') {
+      respond(res, 400, { error: `Unsupported watch source: ${source}` });
+      return;
+    }
+
+    if (!topic || keywords.length === 0) {
+      respond(res, 400, { error: 'topic and at least one keyword are required' });
+      return;
+    }
+
+    try {
+      let channelId = requestedChannelId || config.discordChannelId;
+      let channelName = requestedChannelName;
+      if (!requestedChannelId && requestedChannelName && deps.client) {
+        const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client);
+        if (!resolved) {
+          respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
+          return;
+        }
+        channelId = resolved.id;
+        channelName = resolved.name;
+      }
+
+      if (deps.client) {
+        const channel = await fetchTextChannel(deps.client, channelId);
+        if (!channel) {
+          respond(res, 400, { error: 'Channel is not text-based' });
+          return;
+        }
+        if (!isWritableTarget(channelId, channel, config)) {
+          respond(res, 403, { error: `Channel ${channelId} is not allowed for watch reports` });
           return;
         }
       }
+
+      const job = scheduleWatchJob({
+        topic,
+        board,
+        keywords,
+        channelId,
+        channelName,
+        authorId,
+        reportInMinutes,
+        pollEveryMinutes,
+        minSignal,
+      });
+      respond(res, 200, { ok: true, job });
+    } catch (err) {
+      respond(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
+
+  if (pathname === '/watch/delete') {
+    const jobId = String(parsed['job_id'] ?? '');
+    if (!jobId) {
+      respond(res, 400, { error: 'job_id is required' });
+      return;
+    }
+    const ok = deleteWatchJob(jobId);
+    respond(res, 200, { ok });
+    return;
+  }
+}
 
       respond(res, 404, { error: 'Not found' });
     } catch (err) {

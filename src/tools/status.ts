@@ -66,6 +66,27 @@ export function registerStatusTool(server: McpServer, config: Config): void {
         }
       }
 
+      if (s.cronJobs && s.cronJobs.length > 0) {
+        lines.push('', '### Cron Jobs');
+        for (const job of s.cronJobs) {
+          lines.push(`- **${job.id}:** ${job.runOnce ? 'one-time' : 'recurring'} | next ${new Date(job.nextRun).toISOString()} | <#${job.channelId}> | ${job.message}`);
+        }
+      }
+
+      if (s.watchJobs && s.watchJobs.length > 0) {
+        lines.push('', '### Watch Jobs');
+        for (const job of s.watchJobs) {
+          lines.push(`- **${job.id}:** ${job.status} | ${job.topic} | /${job.board}/ | due ${job.dueAt} | signal ${job.lastSignalScore}`);
+        }
+      }
+
+      if (s.dmPairings && s.dmPairings.length > 0) {
+        lines.push('', '### DM Pairings');
+        for (const pairing of s.dmPairings) {
+          lines.push(`- **${pairing.userId}:** channel ${pairing.channelId} | last seen ${pairing.lastSeenAt}`);
+        }
+      }
+
       if (s.bindings && s.bindings.length > 0) {
         lines.push('', '### Gemini Bindings');
         for (const binding of s.bindings) {

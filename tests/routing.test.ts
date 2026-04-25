@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Config } from '../src/shared/types.js';
-import { shouldAcceptMessage } from '../src/daemon/routing.js';
+import { isDirectMessageAuthorAllowed, shouldAcceptMessage } from '../src/daemon/routing.js';
 
 const baseConfig: Config = {
   discordBotToken: 'token',
@@ -128,6 +128,46 @@ describe('shouldAcceptMessage', () => {
       trigger: 'dm',
       content: 'private hello',
     });
+  });
+
+  it('allows DMs from configured owners even when they are not the explicit boss id', () => {
+    const config: Config = {
+      ...baseConfig,
+      discordBossId: 'owner2',
+      ownerIds: ['owner1', 'owner2'],
+      allowedUserIds: ['owner1', 'owner2'],
+    };
+
+    expect(route({
+      isDM: true,
+      guildId: null,
+      guildName: null,
+      channelId: 'dm1',
+      channelName: 'dm-user',
+      content: 'private hello',
+    }, config)).toMatchObject({
+      accept: true,
+      trigger: 'dm',
+      content: 'private hello',
+    });
+  });
+
+  it('rejects DMs from non-allowlisted users', () => {
+    expect(route({
+      authorId: 'stranger',
+      isDM: true,
+      guildId: null,
+      guildName: null,
+      channelId: 'dm1',
+      channelName: 'dm-user',
+      content: 'private hello',
+    })).toMatchObject({ accept: false });
+  });
+
+  it('matches the shared DM allowlist helper', () => {
+    expect(isDirectMessageAuthorAllowed('owner1', baseConfig)).toBe(true);
+    expect(isDirectMessageAuthorAllowed('user2', baseConfig)).toBe(true);
+    expect(isDirectMessageAuthorAllowed('stranger', baseConfig)).toBe(false);
   });
 
   it('accepts image-only messages', () => {

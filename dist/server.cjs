@@ -4224,7 +4224,7 @@ var require_core = __commonJS({
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
         if (!errors || errors.length === 0)
           return "No errors";
-        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text7, msg) => text7 + separator + msg);
+        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text8, msg) => text8 + separator + msg);
       }
       $dataMetaSchema(metaSchema, keywordsJsonPointers) {
         const rules = this.RULES.all;
@@ -21456,6 +21456,24 @@ function registerStatusTool(server2, config3) {
           lines.push(`- **${source.id}:** ${source.lastDecision ?? "idle"} | signal ${source.lastSignalScore} | last post ${source.lastPostedAt ?? "never"}`);
         }
       }
+      if (s.cronJobs && s.cronJobs.length > 0) {
+        lines.push("", "### Cron Jobs");
+        for (const job of s.cronJobs) {
+          lines.push(`- **${job.id}:** ${job.runOnce ? "one-time" : "recurring"} | next ${new Date(job.nextRun).toISOString()} | <#${job.channelId}> | ${job.message}`);
+        }
+      }
+      if (s.watchJobs && s.watchJobs.length > 0) {
+        lines.push("", "### Watch Jobs");
+        for (const job of s.watchJobs) {
+          lines.push(`- **${job.id}:** ${job.status} | ${job.topic} | /${job.board}/ | due ${job.dueAt} | signal ${job.lastSignalScore}`);
+        }
+      }
+      if (s.dmPairings && s.dmPairings.length > 0) {
+        lines.push("", "### DM Pairings");
+        for (const pairing of s.dmPairings) {
+          lines.push(`- **${pairing.userId}:** channel ${pairing.channelId} | last seen ${pairing.lastSeenAt}`);
+        }
+      }
       if (s.bindings && s.bindings.length > 0) {
         lines.push("", "### Gemini Bindings");
         for (const binding of s.bindings) {
@@ -21621,9 +21639,9 @@ function registerHistoryTool(server2, config3) {
     }
   );
 }
-function truncate(text7, max) {
-  if (text7.length <= max) return text7;
-  return text7.slice(0, max) + "...";
+function truncate(text8, max) {
+  if (text8.length <= max) return text8;
+  return text8.slice(0, max) + "...";
 }
 function text4(content) {
   return { content: [{ type: "text", text: content }] };
@@ -21870,6 +21888,93 @@ function text6(content) {
   return { content: [{ type: "text", text: content }] };
 }
 
+// src/tools/watch.ts
+function registerWatchTools(server2, config3) {
+  server2.tool(
+    "schedule_watch_job",
+    {
+      source: external_exports.enum(["4chan_a_watch"]).optional().describe("Background watch source. Currently only 4chan /a/ watch is supported."),
+      topic: external_exports.string().describe('What Yamato wants monitored. Example: "One Piece spoiler thread".'),
+      board: external_exports.string().optional().describe('4chan board to monitor. Defaults to "a".'),
+      keywords: external_exports.array(external_exports.string()).min(1).describe("Keywords the background collector should use to find relevant threads."),
+      report_in_minutes: external_exports.number().optional().describe("How long to collect before waking Gemini to report back. Defaults to 30."),
+      poll_every_minutes: external_exports.number().optional().describe("How often the collector should poll for changes while waiting. Defaults to 5."),
+      channel_id: external_exports.string().optional().describe("Optional target Discord channel ID for the final report."),
+      channel_name: external_exports.string().optional().describe('Optional target Discord channel name such as "boardroom" or "#boardroom".'),
+      min_signal: external_exports.number().optional().describe("Minimum signal target used for status/scoring while collecting. Defaults to 3.")
+    },
+    async ({ source = "4chan_a_watch", topic, board, keywords, report_in_minutes, poll_every_minutes, channel_id, channel_name, min_signal }) => {
+      const res = await daemonRequest({
+        method: "POST",
+        path: "/watch",
+        config: config3,
+        body: {
+          source,
+          topic,
+          board,
+          keywords,
+          report_in_minutes,
+          poll_every_minutes,
+          channel_id,
+          channel_name,
+          min_signal
+        }
+      });
+      if (!res.ok) {
+        return text7(`\u274C Failed to schedule watch job: ${res.data["error"] ?? "unknown error"}`, true);
+      }
+      const job = res.data["job"] ?? {};
+      const dueAt = typeof job.dueAt === "string" ? job.dueAt : "unknown time";
+      const pollEveryMs = typeof job.pollEveryMs === "number" ? job.pollEveryMs : 0;
+      const pollEveryMinutes = pollEveryMs > 0 ? Math.round(pollEveryMs / 6e4) : 0;
+      const target = job.channelName || job.channelId || channel_name || channel_id || config3.discordChannelId;
+      return text7(
+        `Watcher armed: ${job.id ?? "(unknown id)"} | topic: ${job.topic ?? topic} | source: /${job.board ?? (board ?? "a")}/ | collector every ${pollEveryMinutes || 5}m | Gemini wake-up near ${dueAt} | target ${target}.`
+      );
+    }
+  );
+  server2.tool(
+    "list_watch_jobs",
+    {},
+    async () => {
+      const res = await daemonRequest({ method: "GET", path: "/watch", config: config3 });
+      if (!res.ok) {
+        return text7(`\u274C Failed to fetch watch jobs: ${res.data["error"] ?? "unknown error"}`, true);
+      }
+      const jobs = Array.isArray(res.data["jobs"]) ? res.data["jobs"] : [];
+      if (jobs.length === 0) {
+        return text7("No background watch jobs are currently scheduled.");
+      }
+      const lines = jobs.map((job) => `- ${job.id} | ${job.status} | ${job.topic} | /${job.board}/ | due ${job.dueAt} | target ${job.channelName || job.channelId}`);
+      return text7(lines.join("\n"));
+    }
+  );
+  server2.tool(
+    "delete_watch_job",
+    {
+      job_id: external_exports.string().describe("The watch job ID to delete.")
+    },
+    async ({ job_id }) => {
+      const res = await daemonRequest({
+        method: "POST",
+        path: "/watch/delete",
+        config: config3,
+        body: { job_id }
+      });
+      if (!res.ok) {
+        return text7(`\u274C Failed to delete watch job: ${res.data["error"] ?? "unknown error"}`, true);
+      }
+      return text7(Boolean(res.data["ok"]) ? "Watch job deleted successfully." : "Watch job not found.");
+    }
+  );
+}
+function text7(content, isError = false) {
+  return {
+    content: [{ type: "text", text: content }],
+    ...isError ? { isError: true } : {}
+  };
+}
+
 // src/server.ts
 var tmpDir = process.cwd();
 try {
@@ -21891,6 +21996,7 @@ registerRestartTool(server, config2);
 registerFindImagesTool(server);
 registerCronTools(server, config2);
 registerChannelsTool(server, config2);
+registerWatchTools(server, config2);
 async function main() {
   if (config2.autoStartDaemon) {
     try {

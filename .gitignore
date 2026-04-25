@@ -6,6 +6,7 @@
 start-daemon.sh
 .daemon.pid
 .cron.json
+.watch-jobs.json
 node_modules/
 coverage/
 build/
@@ -17,6 +18,7 @@ tmp/
 .gemini-discord/
 .tmp-attachments/
 .agent/autonomous/
+.agent/watch-jobs/
 graphify-out/
 !.env.example
 
@@ -34,3 +36,6 @@ graphify-out/
 # Beads / Dolt files (added by bd init)
 .dolt/
 .beads-credential-key
+.claude/
+.gemini-extension-install.json
+coverage_output.txt

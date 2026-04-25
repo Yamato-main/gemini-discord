@@ -21,6 +21,7 @@ describe('resolveToolMode', () => {
 
   it('enables combined web + discord mode for research-and-report tasks', () => {
     expect(resolveToolMode('research across multiple sites and post the summary to Discord')).toBe('web_discord');
+    expect(resolveToolMode('monitor the One Piece thread on /a/ and report back in 30 minutes')).toBe('web_discord');
   });
 
   it('reserves full mode for explicit shell/code requests', () => {

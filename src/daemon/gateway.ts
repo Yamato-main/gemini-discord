@@ -17,6 +17,8 @@ import type { ExchangeLog } from '../shared/types.js';
 import { initCron } from './cron.js';
 import { resetConversationSession } from './session-reset.js';
 import { initAutonomous } from './autonomous.js';
+import { initWatchJobs } from './watch-jobs.js';
+import { ensureOwnerDmPairings, touchDmPairing } from './dm-pairing.js';
 
 const MAX_AGENT_EXCHANGES = 6;
 
@@ -64,6 +66,8 @@ export async function initGateway(
 
     initCron(config, client, extensionDir);
     initAutonomous(config, extensionDir);
+    initWatchJobs(config, extensionDir);
+    await ensureOwnerDmPairings(client, config, extensionDir);
 
     await registerGuildCommands(client, config);
   });
@@ -71,6 +75,9 @@ export async function initGateway(
   setupMessageHandler(client, config, {
     onMessage: (message: Message, accepted: AcceptedDiscordMessage) => {
       runtimeStore.lastInteractiveMessageAt = Date.now();
+      if (!message.guildId) {
+        touchDmPairing(extensionDir, message.author.id, message.channelId);
+      }
       const processingContext = resolveProcessingContext(config, message, accepted, extensionDir);
       const chan = message.channel as TextChannel | DMChannel | NewsChannel;
 
@@ -78,6 +85,7 @@ export async function initGateway(
         resetConversationSession(config, memory, extensionDir, {
           channelId: message.channelId,
           guildId: message.guildId ?? null,
+          authorId: message.guildId ? null : message.author.id,
         });
         retrySend(() => chan.send('🧹 Conversation cleared.')).catch(() => {});
         return;
@@ -121,7 +129,7 @@ export async function initGateway(
       }
     },
     onIgnoredMessage: (message: Message, trackOnlyContext) => {
-      const sessionKey = resolveSessionKey(config.memoryScope, message.channelId);
+      const sessionKey = resolveSessionKey(config.memoryScope, message.channelId, message.guildId ? null : message.author.id);
       const attachmentMetadata = getImageAttachmentMetadata(message);
       
       memory.add(sessionKey, {

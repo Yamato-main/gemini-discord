@@ -1,10 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { GeminiSessionBindingScope } from '../shared/types.js';
+import { resolveDmPairingKey } from './dm-pairing.js';
 
 export interface GeminiBindingContext {
   guildId: string | null;
   channelId: string;
+  dmUserId?: string | null;
 }
 
 export interface GeminiBindingWorkspace {
@@ -32,9 +34,15 @@ export function resolveGeminiBindingKey(
     case 'global':
       return 'global';
     case 'server':
+      if (!context.guildId && context.dmUserId) {
+        return resolveDmPairingKey(context.dmUserId);
+      }
       return context.guildId ? `guild:${context.guildId}` : `channel:${context.channelId}`;
     case 'channel':
     default:
+      if (!context.guildId && context.dmUserId) {
+        return resolveDmPairingKey(context.dmUserId);
+      }
       return `channel:${context.channelId}`;
   }
 }

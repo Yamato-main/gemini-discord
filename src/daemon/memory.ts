@@ -71,6 +71,7 @@ export interface BuildDiscordPromptOptions {
   ownerIds?: string[];
   promptHistoryMessageLimit?: number;
   promptHistoryCharBudget?: number;
+  backgroundContext?: string;
 }
 
 export class ConversationMemory {
@@ -327,8 +328,16 @@ export class ConversationMemory {
   }
 }
 
-export function resolveSessionKey(memoryScope: MemoryScope, channelId: string): string {
-  return memoryScope === 'channel' ? `channel:${channelId}` : 'global';
+export function resolveSessionKey(memoryScope: MemoryScope, channelId: string, dmUserId?: string | null): string {
+  if (memoryScope !== 'channel') {
+    return 'global';
+  }
+
+  if (dmUserId) {
+    return `dm:${dmUserId}`;
+  }
+
+  return `channel:${channelId}`;
 }
 
 export function buildDiscordPrompt(options: BuildDiscordPromptOptions): string {
@@ -344,7 +353,7 @@ export function buildDiscordPrompt(options: BuildDiscordPromptOptions): string {
     ? `(${omittedCount} earlier messages omitted)\n${transcript}`
     : transcript;
 
-  return `${buildDiscordAdapterInstruction(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}
+  return `${buildDiscordAdapterInstruction(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds, backgroundContext: options.backgroundContext })}
 
 [Participants]
 ${buildActiveParticipantRoster(history, options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}
@@ -374,8 +383,9 @@ export function buildSessionModePrompt(options: {
   incoming: PromptInput;
   bossUserId?: string;
   ownerIds?: string[];
+  backgroundContext?: string;
 }): string {
-  return `${buildDiscordAdapterInstruction(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}
+  return `${buildDiscordAdapterInstruction(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds, backgroundContext: options.backgroundContext })}
 
 [Message]
 ${formatIncomingDiscordMessage(options.incoming, { bossUserId: options.bossUserId, ownerIds: options.ownerIds })}`;
@@ -383,14 +393,25 @@ ${formatIncomingDiscordMessage(options.incoming, { bossUserId: options.bossUserI
 
 export function buildDiscordAdapterInstruction(
   incoming: PromptInput | undefined,
-  options: { bossUserId?: string; ownerIds?: string[] } = {}
+  options: { bossUserId?: string; ownerIds?: string[]; backgroundContext?: string } = {}
 ): string {
   const chatType = incoming && !incoming.guildId ? 'direct' : 'group';
   const bossLine = options.bossUserId ? ` (Owner: ${options.bossUserId})` : '';
 
-  return `[Runtime: Discord ${chatType}${bossLine}]
-- Respond with Discord Markdown.
-${getChannelMapContext()}`;
+  const backgroundContext = options.backgroundContext ? `\n${options.backgroundContext}` : '';
+  const runtimeInstructions = [
+    '- Respond with Discord Markdown.',
+    '- Sound like a capable human teammate speaking naturally in chat.',
+    '- Be direct and concise by default. Answer the current message first.',
+    '- Do not use theatrical, ceremonial, roleplay, or servant-like phrasing.',
+    '- Do not greet unless the user greeted you first, and do not imitate older over-formal replies from session history.',
+    '- Do not narrate tool calls, MCP server names, job IDs, directives, or internal mechanics unless the user explicitly asked for them.',
+    '- For short follow-ups, corrections, or acknowledgements, respond narrowly instead of restating the whole topic.',
+    '- When scheduling a watch, cron, or reminder, reply with one short confirmation of what will happen and when.',
+    '- Separate verified facts from rumors, spoilers, or guesses. Do not present unverified leaks as settled fact.',
+  ].join('\n');
+
+  return `[Runtime: Discord ${chatType}${bossLine}]\n${runtimeInstructions}\n${getChannelMapContext()}${backgroundContext}`;
 }
 
 export function formatIncomingDiscordMessage(

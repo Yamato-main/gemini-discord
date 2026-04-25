@@ -10,6 +10,7 @@ import type { Config } from '../shared/types.js';
 import { log } from './log.js';
 import type { ToolMode } from './tool-mode.js';
 import { buildGeminiCliPrompt } from './gemini-input.js';
+import { extractGeminiResultText, getGeminiTextDelta } from './gemini-output.js';
 
 const DISCORD_BRIDGE_TOOLS = [
   'discord_status',
@@ -23,11 +24,19 @@ const DISCORD_BRIDGE_TOOLS = [
   'schedule_cron_job',
   'list_cron_jobs',
   'delete_cron_job',
+  'schedule_watch_job',
+  'list_watch_jobs',
+  'delete_watch_job',
 ].join(',');
 
 interface StreamingCallbacks {
   onToken: (token: string) => void;
   onThought?: () => void;
+}
+
+function appendHeadlessIsolationArgs(args: string[]): void {
+  args.push('--extensions', 'gemini-discord');
+  args.push('--allowed-mcp-server-names', 'discord-bridge');
 }
 
 export interface GeminiInvocationOptions {
@@ -145,6 +154,17 @@ export async function callGeminiStreaming(
             resolved = true;
             clearTimeout(timer);
             reject(new Error(String(parsed['error'])));
+          }
+          return;
+        }
+
+        const finalText = extractGeminiResultText(parsed);
+        if (finalText) {
+          const delta = getGeminiTextDelta(fullResponse, finalText);
+          if (delta) {
+            sawAssistantOutput = true;
+            fullResponse += delta;
+            callbacks.onToken(delta);
           }
         }
         return;
@@ -283,6 +303,7 @@ function buildGeminiArgs(
   // so 'default' mode would hang waiting for confirmation. Security boundary
   // is now strictly enforced by the --allowed-tools filter above.
   args.push('--approval-mode', 'yolo');
+  appendHeadlessIsolationArgs(args);
 
   if (options.useResume) {
     args.push('-r', 'latest');

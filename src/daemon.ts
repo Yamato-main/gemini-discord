@@ -16,6 +16,7 @@ import { runtimeStore } from './daemon/runtime.js';
 import { probeDiscordGateway } from './daemon/probe.js';
 import { shutdownCron } from './daemon/cron.js';
 import { shutdownAutonomous } from './daemon/autonomous.js';
+import { shutdownWatchJobs } from './daemon/watch-jobs.js';
 
 let tmpDir = process.cwd();
 try { tmpDir = __dirname; } catch {}
@@ -88,6 +89,7 @@ async function main(): Promise<void> {
 
     shutdownCron();
     shutdownAutonomous();
+    shutdownWatchJobs();
     
     if (apiServer) {
       apiServer.close(() => {

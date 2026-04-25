@@ -158,6 +158,7 @@ export function setupInteractionHandler(
       resetConversationSession(config, memory, extensionDir, {
         channelId: interaction.channelId,
         guildId: interaction.guildId ?? null,
+        authorId: interaction.guildId ? null : interaction.user.id,
       });
       await interaction.reply({
         content: '🧹 **Started a new session.** Prior Discord memory and the bound Gemini CLI session were cleared for this channel.',

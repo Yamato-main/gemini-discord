@@ -45,10 +45,48 @@ export interface AutonomousStatusSnapshot {
   sources: AutonomousSourceStatus[];
 }
 
+export type WatchJobSource = '4chan_a_watch';
+export type WatchJobState = 'scheduled' | 'collecting' | 'reporting' | 'completed' | 'failed';
+
+export interface CronJobSnapshot {
+  id: string;
+  cronExpression: string;
+  message: string;
+  channelId: string;
+  authorId: string;
+  nextRun: number;
+  runOnce: boolean;
+}
+
+export interface WatchJobStatus {
+  id: string;
+  source: WatchJobSource;
+  topic: string;
+  board: string;
+  keywords: string[];
+  channelId: string;
+  channelName: string;
+  dueAt: string;
+  pollEveryMs: number;
+  status: WatchJobState;
+  lastPollAt: string | null;
+  lastPostedAt: string | null;
+  lastSignalScore: number;
+  lastDecision: string | null;
+  lastError: string | null;
+}
+
 export interface GeminiBindingSnapshot {
   workspace: string;
   hasSession: boolean;
   lastSessionId?: string;
+}
+
+export interface DmPairingSnapshot {
+  userId: string;
+  channelId: string;
+  pairedAt: string;
+  lastSeenAt: string;
 }
 
 export interface ConversationAttachment {
@@ -174,8 +212,11 @@ export interface DaemonStatus {
   requireMention: boolean;
   channels?: Array<{ name: string; id: string }>;
   autonomous?: AutonomousStatusSnapshot;
+  cronJobs?: CronJobSnapshot[];
+  watchJobs?: WatchJobStatus[];
   headlessMode?: string;
   bindings?: GeminiBindingSnapshot[];
+  dmPairings?: DmPairingSnapshot[];
 }
 
 /** Daemon history response from GET /history */

@@ -17,8 +17,10 @@ import { retrySend } from './retry.js';
 import { LiveEditor } from './editor.js';
 import { downloadImageAttachments, getImageAttachmentMetadata } from './attachments.js';
 import { type ToolMode } from './tool-mode.js';
+import { callGeminiFull, callGeminiStreaming } from './gemini.js';
 import { processCrossChannelSends } from './channels.js';
 import { sanitizeFullResponse } from './sanitizer.js';
+import { getBackgroundOperationsContext } from './background-context.js';
 import { runtimeStore } from './runtime.js';
 import {
   ensureGeminiBindingWorkspace,
@@ -95,12 +97,17 @@ export async function processViaCli(
   //
   // Non-session mode: Full history replay with image URL grounding (fallback).
   let prompt: string;
+  const backgroundContext = getBackgroundOperationsContext({
+    channelId: message.channelId,
+    channelName: accepted.channelName,
+  });
 
   if (config.useGeminiCliSessions) {
     prompt = buildSessionModePrompt({
       incoming: incomingPrompt,
       bossUserId: config.discordBossId,
       ownerIds: config.ownerIds,
+      backgroundContext,
     });
   } else {
     const historySnapshot = memory.snapshot(processingContext.sessionKey);
@@ -111,12 +118,16 @@ export async function processViaCli(
       promptHistoryMessageLimit: config.promptHistoryMessageLimit,
       promptHistoryCharBudget: config.promptHistoryCharBudget,
       incoming: incomingPrompt,
+      backgroundContext,
     });
   }
 
   let response = '';
   let responseMessageIds: string[] = [];
   let currentSessionId: string | null = null;
+  const hasDownloadedAttachments = downloadedAttachments.length > 0;
+  const shouldUseDirectMediaPath = hasDownloadedAttachments;
+  const useResume = config.useGeminiCliSessions && (bindingState.hasSession || Boolean(bindingState.lastSessionId));
 
   const editor = config.streaming ? new LiveEditor({ placeholderDelayMs: null }) : null;
   if (editor) await editor.init(channel);
@@ -129,27 +140,45 @@ export async function processViaCli(
   });
 
   try {
-    if (!runtimeStore.cliPool) {
+    const cliPool = runtimeStore.cliPool;
+    if (!shouldUseDirectMediaPath && !cliPool) {
       throw new Error('CLI pool not initialized');
     }
 
     if (editor) {
-      response = await runtimeStore.cliPool.send(
-        processingContext.bindingKey,
-        prompt,
-        {
-          onToken: (token) => editor.feed(token),
-          onThought: () => editor.feedThought(),
-        },
-        {
-          cwd: processingContext.bindingDir,
-          resumeSessionId,
-          isBoss: accepted.isBoss,
-          toolMode,
-          attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-          onSessionId: (sessionId) => { currentSessionId = sessionId; },
-        },
-      );
+      response = shouldUseDirectMediaPath
+        ? await callGeminiStreaming(
+          prompt,
+          config,
+          {
+            onToken: (token) => editor.feed(token),
+            onThought: () => editor.feedThought(),
+          },
+          {
+            cwd: processingContext.bindingDir,
+            useResume,
+            isBoss: accepted.isBoss,
+            toolMode,
+            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+            onSessionId: (sessionId) => { currentSessionId = sessionId; },
+          },
+        )
+        : await cliPool!.send(
+          processingContext.bindingKey,
+          prompt,
+          {
+            onToken: (token) => editor.feed(token),
+            onThought: () => editor.feedThought(),
+          },
+          {
+            cwd: processingContext.bindingDir,
+            resumeSessionId,
+            isBoss: accepted.isBoss,
+            toolMode,
+            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+            onSessionId: (sessionId) => { currentSessionId = sessionId; },
+          },
+        );
 
       const prepared = await finalizeAssistantResponse(response, message, accepted.isBoss);
       response = prepared.responseText;
@@ -178,22 +207,35 @@ export async function processViaCli(
       }, 9000);
 
       try {
-        response = await runtimeStore.cliPool.send(
-          processingContext.bindingKey,
-          prompt,
-          {
-            onToken: () => {},
-            onThought: () => {},
-          },
-          {
-            cwd: processingContext.bindingDir,
-            resumeSessionId,
-            isBoss: accepted.isBoss,
-            toolMode,
-            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-            onSessionId: (sessionId) => { currentSessionId = sessionId; },
-          },
-        );
+        response = shouldUseDirectMediaPath
+          ? await callGeminiFull(
+            prompt,
+            config,
+            {
+              cwd: processingContext.bindingDir,
+              useResume,
+              isBoss: accepted.isBoss,
+              toolMode,
+              attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+              onSessionId: (sessionId) => { currentSessionId = sessionId; },
+            },
+          )
+          : await cliPool!.send(
+            processingContext.bindingKey,
+            prompt,
+            {
+              onToken: () => {},
+              onThought: () => {},
+            },
+            {
+              cwd: processingContext.bindingDir,
+              resumeSessionId,
+              isBoss: accepted.isBoss,
+              toolMode,
+              attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+              onSessionId: (sessionId) => { currentSessionId = sessionId; },
+            },
+          );
         clearInterval(typingInterval);
 
         const prepared = await finalizeAssistantResponse(response, message, accepted.isBoss);
@@ -295,12 +337,13 @@ export function resolveProcessingContext(
   const bindingKey = resolveGeminiBindingKey(config.geminiSessionBindingScope, {
     guildId: message.guildId ?? null,
     channelId: message.channelId,
+    dmUserId: message.guildId ? null : message.author.id,
   });
 
   const bindingWorkspace = ensureGeminiBindingWorkspace(extensionDir, bindingKey);
 
   return {
-    sessionKey: resolveSessionKey(config.memoryScope, message.channelId),
+    sessionKey: resolveSessionKey(config.memoryScope, message.channelId, message.guildId ? null : message.author.id),
     bindingKey,
     bindingDir: bindingWorkspace.bindingDir,
     attachmentsDir: bindingWorkspace.attachmentsDir,

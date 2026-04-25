@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { resetConversationSession } from '../src/daemon/session-reset.js';
 import { runtimeStore } from '../src/daemon/runtime.js';
 import { loadGeminiBindingState } from '../src/daemon/binding.js';
+import { resolveDmPairingKey } from '../src/daemon/dm-pairing.js';
 import type { Config } from '../src/shared/types.js';
 
 let tmpDir: string;
@@ -20,6 +21,25 @@ describe('resetConversationSession', () => {
   afterEach(() => {
     runtimeStore.cliPool = null;
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+
+  it('clears memory and resets the paired DM Gemini session for the user', () => {
+    const memory = {
+      reset: vi.fn(),
+    } as any;
+
+    const config = createConfig();
+    const result = resetConversationSession(config, memory, tmpDir, {
+      channelId: 'dm-channel-1',
+      guildId: null,
+      authorId: 'owner-1',
+    });
+
+    expect(result.sessionKey).toBe('dm:owner-1');
+    expect(result.bindingKey).toBe(resolveDmPairingKey('owner-1'));
+    expect(memory.reset).toHaveBeenCalledWith('dm:owner-1');
+    expect((runtimeStore.cliPool as any).kill).toHaveBeenCalledWith(resolveDmPairingKey('owner-1'));
   });
 
   it('clears memory and resets the bound Gemini session for the channel', () => {
