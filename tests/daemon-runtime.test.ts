@@ -14,9 +14,13 @@ vi.mock('node:child_process', () => ({
   spawn: spawnMock,
 }));
 
-vi.mock('node:fs', () => ({
-  openSync: openSyncMock,
-}));
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    openSync: openSyncMock,
+  };
+});
 
 import { restartDaemon } from '../src/shared/daemon-runtime.js';
 
@@ -130,16 +134,14 @@ describe('restartDaemon', () => {
 
 function createConfig(): Config {
   return {
-    discordBotToken: 'discord-token',
+    discordBotToken: 'test-token',
     discordChannelId: 'channel-1',
     ownerIds: ['owner-1'],
-    discordBossId: 'owner-1',
+    discordAdminId: 'owner-1',
     allowedChannelIds: ['channel-1'],
     allowedUserIds: ['owner-1'],
     allowedAgentIds: [],
     daemonApiToken: 'daemon-token',
-    peerAgentId: 'peer-agent',
-    reportingChannelId: 'reporting-channel',
     discordPrefix: '!',
     discordResetCmd: '!reset',
     daemonPort: 18790,
@@ -160,22 +162,6 @@ function createConfig(): Config {
     useGeminiCliSessions: true,
     geminiSessionBindingScope: 'server',
     cliIdleTimeoutMs: 300000,
-    autonomous: {
-      enabled: false,
-      intervalMs: 300000,
-      targetChannelId: '',
-      targetChannelName: '',
-      assumeMasterAway: true,
-      fourChan: {
-        enabled: false,
-        board: 'a',
-        keywords: [],
-        minSignal: 3,
-        cooldownMs: 3600000,
-        signalWindowMs: 1800000,
-        timelineLimit: 200,
-      },
-    },
   };
 }
 

@@ -5,14 +5,12 @@ import { isDirectMessageAuthorAllowed, shouldAcceptMessage } from '../src/daemon
 const baseConfig: Config = {
   discordBotToken: 'token',
   discordChannelId: 'ch1',
-  ownerIds: ['owner1'],
-  discordBossId: 'owner1',
+  ownerIds: ['owner-1'],
+  discordAdminId: 'owner-1',
   allowedChannelIds: ['ch1', 'ch2'],
-  allowedUserIds: ['owner1', 'user2'],
+  allowedUserIds: ['owner-1', 'user2'],
   allowedAgentIds: ['agent1'],
   daemonApiToken: 'x'.repeat(64),
-  peerAgentId: 'peer-agent',
-  reportingChannelId: 'reporting-channel',
   discordPrefix: '!',
   discordResetCmd: '!reset',
   daemonPort: 18790,
@@ -33,36 +31,20 @@ const baseConfig: Config = {
   useGeminiCliSessions: true,
   geminiSessionBindingScope: 'server',
   cliIdleTimeoutMs: 300000,
-  autonomous: {
-    enabled: false,
-    intervalMs: 300000,
-    targetChannelId: '',
-    targetChannelName: '',
-    assumeMasterAway: true,
-    fourChan: {
-      enabled: false,
-      board: 'a',
-      keywords: [],
-      minSignal: 3,
-      cooldownMs: 3600000,
-      signalWindowMs: 1800000,
-      timelineLimit: 200,
-    },
-  },
 };
 
 function route(overrides: Partial<Parameters<typeof shouldAcceptMessage>[0]> = {}, config: Config = baseConfig) {
   return shouldAcceptMessage({
-    authorId: 'owner1',
+    authorId: 'owner-1',
     authorTag: 'User#0001',
     isBot: false,
     botUserId: 'bot1',
     content: 'hello',
     attachmentCount: 0,
     channelId: 'ch1',
-    channelName: 'bot-channel',
+    channelName: 'bridge-channel',
     guildId: 'g1',
-    guildName: 'Sanctum',
+    guildName: 'Test Guild',
     isDM: false,
     mentionedBot: false,
     repliedToBot: false,
@@ -133,9 +115,9 @@ describe('shouldAcceptMessage', () => {
   it('allows DMs from configured owners even when they are not the explicit boss id', () => {
     const config: Config = {
       ...baseConfig,
-      discordBossId: 'owner2',
-      ownerIds: ['owner1', 'owner2'],
-      allowedUserIds: ['owner1', 'owner2'],
+      discordAdminId: 'owner2',
+      ownerIds: ['owner-1', 'owner2'],
+      allowedUserIds: ['owner-1', 'owner2'],
     };
 
     expect(route({
@@ -165,7 +147,7 @@ describe('shouldAcceptMessage', () => {
   });
 
   it('matches the shared DM allowlist helper', () => {
-    expect(isDirectMessageAuthorAllowed('owner1', baseConfig)).toBe(true);
+    expect(isDirectMessageAuthorAllowed('owner-1', baseConfig)).toBe(true);
     expect(isDirectMessageAuthorAllowed('user2', baseConfig)).toBe(true);
     expect(isDirectMessageAuthorAllowed('stranger', baseConfig)).toBe(false);
   });

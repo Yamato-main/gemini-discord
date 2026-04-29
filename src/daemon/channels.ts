@@ -147,7 +147,7 @@ export async function processCrossChannelSends(
   const messageIds: string[] = [];
 
   if (!allowPrivileged) {
-    notices.push('*(Blocked privileged send: only the Boss may send messages to other channels.)*');
+    notices.push('*(Blocked privileged send: only the primary operator may send messages to other channels.)*');
     return {
       cleanedResponse: appendNotices(cleanedResponse, notices),
       messageIds,

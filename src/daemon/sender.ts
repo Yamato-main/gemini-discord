@@ -1,4 +1,3 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AttachmentBuilder, type Message, type TextChannel, type DMChannel, type NewsChannel } from 'discord.js';
 import { log } from './log.js';
@@ -19,9 +18,8 @@ export async function sendDiscordMessage(
   if (options.files && options.files.length > 0) {
     const filePromises = options.files.map(async (filePath) => {
       try {
-        const buffer = await fs.promises.readFile(filePath);
         const fileName = path.basename(filePath);
-        return new AttachmentBuilder(buffer, { name: fileName });
+        return new AttachmentBuilder(filePath, { name: fileName });
       } catch (err) {
         log.warn('Failed to read file for discord attachment', {
           path: filePath,

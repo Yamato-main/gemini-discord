@@ -22,13 +22,13 @@ describe('cron jobs', () => {
   it('stores the final reminder message instead of a meta instruction and defaults to run-once', () => {
     scheduleJob({
       cronExpression: '0 9 * * *',
-      message: 'Hey, Yamato, drink water.',
+      message: 'Update: drink water.',
       channelId: '123',
       authorId: 'owner',
     });
 
     const [job] = listJobs();
-    expect(job.message).toBe('Hey, Yamato, drink water.');
+    expect(job.message).toBe('Update: drink water.');
     expect(job.runOnce).toBe(true);
   });
 });
@@ -38,13 +38,11 @@ function createConfig(): Config {
     discordBotToken: '',
     discordChannelId: '123',
     ownerIds: [],
-    discordBossId: 'owner',
+    discordAdminId: 'owner',
     allowedChannelIds: ['123'],
     allowedUserIds: [],
     allowedAgentIds: [],
     daemonApiToken: '',
-    peerAgentId: '',
-    reportingChannelId: '',
     discordPrefix: '!',
     discordResetCmd: '!reset',
     daemonPort: 0,
@@ -65,21 +63,5 @@ function createConfig(): Config {
     useGeminiCliSessions: true,
     geminiSessionBindingScope: 'channel',
     cliIdleTimeoutMs: 1,
-    autonomous: {
-      enabled: false,
-      intervalMs: 300000,
-      targetChannelId: '',
-      targetChannelName: '',
-      assumeMasterAway: true,
-      fourChan: {
-        enabled: false,
-        board: 'a',
-        keywords: [],
-        minSignal: 3,
-        cooldownMs: 3600000,
-        signalWindowMs: 1800000,
-        timelineLimit: 200,
-      },
-    },
   };
 }

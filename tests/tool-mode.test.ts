@@ -11,7 +11,7 @@ describe('resolveToolMode', () => {
     expect(resolveToolMode('search the web for the latest OpenAI API changes')).toBe('web');
     expect(resolveToolMode('look up today’s bitcoin price')).toBe('web');
     expect(resolveToolMode('please research this and use tools if needed')).toBe('web');
-    expect(resolveToolMode('latest One Piece chapter')).toBe('web');
+    expect(resolveToolMode('latest TypeScript release')).toBe('web');
   });
 
   it('enables discord action mode for channel operations', () => {
@@ -21,7 +21,7 @@ describe('resolveToolMode', () => {
 
   it('enables combined web + discord mode for research-and-report tasks', () => {
     expect(resolveToolMode('research across multiple sites and post the summary to Discord')).toBe('web_discord');
-    expect(resolveToolMode('monitor the One Piece thread on /a/ and report back in 30 minutes')).toBe('web_discord');
+    expect(resolveToolMode('look up the latest TypeScript release notes and report back in 30 minutes')).toBe('web_discord');
   });
 
   it('reserves full mode for explicit shell/code requests', () => {

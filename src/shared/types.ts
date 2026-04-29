@@ -7,47 +7,6 @@ export type MemoryScope = 'global' | 'channel';
 export type SpeakerKind = 'human' | 'agent' | 'assistant';
 export type GeminiSessionBindingScope = 'global' | 'server' | 'channel';
 
-export interface AutonomousFourChanConfig {
-  enabled: boolean;
-  board: string;
-  keywords: string[];
-  minSignal: number;
-  cooldownMs: number;
-  signalWindowMs: number;
-  timelineLimit: number;
-}
-
-export interface AutonomousConfig {
-  enabled: boolean;
-  intervalMs: number;
-  targetChannelId: string;
-  targetChannelName: string;
-  assumeMasterAway: boolean;
-  fourChan: AutonomousFourChanConfig;
-}
-
-export interface AutonomousSourceStatus {
-  id: string;
-  lastPollAt: string | null;
-  lastEvaluatedAt: string | null;
-  lastPostedAt: string | null;
-  lastSignalScore: number;
-  lastDecision: string | null;
-  lastError: string | null;
-}
-
-export interface AutonomousStatusSnapshot {
-  enabled: boolean;
-  running: boolean;
-  intervalMs: number;
-  targetChannelId: string;
-  targetChannelName: string;
-  sources: AutonomousSourceStatus[];
-}
-
-export type WatchJobSource = '4chan_a_watch';
-export type WatchJobState = 'scheduled' | 'collecting' | 'reporting' | 'completed' | 'failed';
-
 export interface CronJobSnapshot {
   id: string;
   cronExpression: string;
@@ -58,28 +17,12 @@ export interface CronJobSnapshot {
   runOnce: boolean;
 }
 
-export interface WatchJobStatus {
-  id: string;
-  source: WatchJobSource;
-  topic: string;
-  board: string;
-  keywords: string[];
-  channelId: string;
-  channelName: string;
-  dueAt: string;
-  pollEveryMs: number;
-  status: WatchJobState;
-  lastPollAt: string | null;
-  lastPostedAt: string | null;
-  lastSignalScore: number;
-  lastDecision: string | null;
-  lastError: string | null;
-}
-
 export interface GeminiBindingSnapshot {
   workspace: string;
   hasSession: boolean;
   lastSessionId?: string;
+  archivedSessions: number;
+  lastResetAt?: string;
 }
 
 export interface DmPairingSnapshot {
@@ -102,7 +45,7 @@ export interface Config {
   discordBotToken: string;
   discordChannelId: string;
   ownerIds: string[];
-  discordBossId: string;
+  discordAdminId: string;
   allowedChannelIds: string[];
 
   // Routing / identity
@@ -113,8 +56,6 @@ export interface Config {
   daemonApiToken: string;
 
   // Optional with defaults
-  peerAgentId: string;
-  reportingChannelId: string;
   discordPrefix: string;
   discordResetCmd: string;
   daemonPort: number;
@@ -135,7 +76,6 @@ export interface Config {
   useGeminiCliSessions: boolean;
   geminiSessionBindingScope: GeminiSessionBindingScope;
   cliIdleTimeoutMs: number;
-  autonomous: AutonomousConfig;
 }
 
 /** A single conversation message stored in persistent memory */
@@ -211,12 +151,17 @@ export interface DaemonStatus {
   allowlistedAgents: number;
   requireMention: boolean;
   channels?: Array<{ name: string; id: string }>;
-  autonomous?: AutonomousStatusSnapshot;
   cronJobs?: CronJobSnapshot[];
-  watchJobs?: WatchJobStatus[];
   headlessMode?: string;
   bindings?: GeminiBindingSnapshot[];
   dmPairings?: DmPairingSnapshot[];
+}
+
+export interface ConversationArchive {
+  archivedAt: string;
+  bindingKey?: string;
+  lastSessionId?: string;
+  messages: ConversationMessage[];
 }
 
 /** Daemon history response from GET /history */
@@ -224,6 +169,7 @@ export interface DaemonHistory {
   sessionKey: string;
   messages: ExchangeLog[];
   conversation: ConversationMessage[];
+  archives?: ConversationArchive[];
   participants: HistoryParticipant[];
   channels: HistoryChannel[];
 }

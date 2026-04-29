@@ -16,7 +16,7 @@ export function registerStatusTool(server: McpServer, config: Config): void {
       const res = await daemonRequest({ method: 'GET', path: '/status', config });
 
       if (res.data['error'] === 'daemon_offline') {
-        return text('❌ Daemon is offline. Start it: node dist/setup.cjs');
+        return text('❌ Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.');
       }
 
       if (res.data['error'] === 'daemon_timeout') {
@@ -55,28 +55,10 @@ export function registerStatusTool(server: McpServer, config: Config): void {
         });
       }
 
-      if (s.autonomous) {
-        lines.push('', '### Autonomous');
-        lines.push(`- **Enabled:** ${s.autonomous.enabled ? 'yes' : 'no'}`);
-        lines.push(`- **Running:** ${s.autonomous.running ? 'yes' : 'no'}`);
-        lines.push(`- **Interval:** ${s.autonomous.intervalMs}ms`);
-        lines.push(`- **Target Channel:** ${s.autonomous.targetChannelName || s.autonomous.targetChannelId || '(default)'}`);
-        for (const source of s.autonomous.sources) {
-          lines.push(`- **${source.id}:** ${source.lastDecision ?? 'idle'} | signal ${source.lastSignalScore} | last post ${source.lastPostedAt ?? 'never'}`);
-        }
-      }
-
       if (s.cronJobs && s.cronJobs.length > 0) {
         lines.push('', '### Cron Jobs');
         for (const job of s.cronJobs) {
           lines.push(`- **${job.id}:** ${job.runOnce ? 'one-time' : 'recurring'} | next ${new Date(job.nextRun).toISOString()} | <#${job.channelId}> | ${job.message}`);
-        }
-      }
-
-      if (s.watchJobs && s.watchJobs.length > 0) {
-        lines.push('', '### Watch Jobs');
-        for (const job of s.watchJobs) {
-          lines.push(`- **${job.id}:** ${job.status} | ${job.topic} | /${job.board}/ | due ${job.dueAt} | signal ${job.lastSignalScore}`);
         }
       }
 
@@ -90,7 +72,10 @@ export function registerStatusTool(server: McpServer, config: Config): void {
       if (s.bindings && s.bindings.length > 0) {
         lines.push('', '### Gemini Bindings');
         for (const binding of s.bindings) {
-          lines.push(`- **${binding.workspace}:** ${binding.hasSession ? `session ${binding.lastSessionId ?? '(unknown id)'}` : 'no session yet'}`);
+          const sessionSummary = binding.hasSession
+            ? `session ${binding.lastSessionId ?? '(unknown id)'}`
+            : 'no active session';
+          lines.push(`- **${binding.workspace}:** ${sessionSummary} | archived ${binding.archivedSessions} | last reset ${binding.lastResetAt ?? 'never'}`);
         }
       }
 

@@ -16,7 +16,6 @@ import { registerRestartTool } from './tools/restart.js';
 import { registerFindImagesTool } from './tools/find-images.js';
 import { registerCronTools } from './tools/cron.js';
 import { registerChannelsTool } from './tools/channels.js';
-import { registerWatchTools } from './tools/watch.js';
 import { ensureDaemonRunning } from './shared/daemon-runtime.js';
 
 // Resolve extension directory
@@ -40,7 +39,6 @@ registerRestartTool(server, config);
 registerFindImagesTool(server);
 registerCronTools(server, config);
 registerChannelsTool(server, config);
-registerWatchTools(server, config);
 
 // Connect via stdio (Gemini CLI manages the process lifecycle)
 async function main() {

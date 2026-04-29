@@ -16,8 +16,6 @@ import { type Semaphore } from './semaphore.js';
 import type { ExchangeLog } from '../shared/types.js';
 import { initCron } from './cron.js';
 import { resetConversationSession } from './session-reset.js';
-import { initAutonomous } from './autonomous.js';
-import { initWatchJobs } from './watch-jobs.js';
 import { ensureOwnerDmPairings, touchDmPairing } from './dm-pairing.js';
 
 const MAX_AGENT_EXCHANGES = 6;
@@ -65,8 +63,6 @@ export async function initGateway(
     log.info('Daemon ready', { status: state.status });
 
     initCron(config, client, extensionDir);
-    initAutonomous(config, extensionDir);
-    initWatchJobs(config, extensionDir);
     await ensureOwnerDmPairings(client, config, extensionDir);
 
     await registerGuildCommands(client, config);
@@ -250,8 +246,8 @@ async function processMessage(
       guildName: accepted.guildName,
       messageId: message.id,
       replyToMessageId: accepted.replyToMessageId,
-      replyToAuthorId: message.author.id,
-      replyToAuthorName: message.author.tag,
+      replyToAuthorId: accepted.replyToAuthorId,
+      replyToAuthorName: accepted.replyToAuthorName,
       trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
       createdAt: now,
     });

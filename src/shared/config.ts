@@ -7,7 +7,51 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { Config, GeminiSessionBindingScope, MemoryScope } from './types.js';
+import { ensureRuntimePaths, resolveRuntimePaths } from './runtime-paths.js';
 
+const CONFIG_SNAPSHOT_VERSION = 1;
+const CONFIG_ENV_KEYS = [
+  'DISCORD_BOT_TOKEN',
+  'DISCORD_CHANNEL_ID',
+  'DISCORD_OWNER_IDS',
+  'DISCORD_ADMIN_ID',
+  'DISCORD_ALLOWED_CHANNEL_IDS',
+  'DISCORD_ALLOWED_USER_IDS',
+  'DISCORD_ALLOWED_AGENT_IDS',
+  'DAEMON_API_TOKEN',
+  'DISCORD_PREFIX',
+  'DISCORD_RESET_CMD',
+  'DAEMON_PORT',
+  'GEMINI_PATH',
+  'GEMINI_MODEL',
+  'GEMINI_TIMEOUT_MS',
+  'GEMINI_MAX_CONCURRENT',
+  'CONVERSATION_HISTORY_LENGTH',
+  'PROMPT_HISTORY_MAX_MESSAGES',
+  'PROMPT_HISTORY_MAX_CHARS',
+  'STREAMING',
+  'QUEUE_MAX_DEPTH',
+  'ENABLE_DMS',
+  'REQUIRE_MENTION',
+  'RESPOND_TO_REPLIES',
+  'MEMORY_SCOPE',
+  'AUTO_START_DAEMON',
+  'USE_GEMINI_CLI_SESSIONS',
+  'GEMINI_SESSION_BINDING_SCOPE',
+  'CLI_IDLE_TIMEOUT_MS',
+] as const;
+
+const LEGACY_ENV_ALIASES: Partial<Record<ConfigEnvKey, string[]>> = {
+  DISCORD_ADMIN_ID: ['DISCORD_BOSS_ID'],
+  DISCORD_ALLOWED_CHANNEL_IDS: ['ALLOWED_CHANNEL_IDS'],
+};
+
+type ConfigEnvKey = (typeof CONFIG_ENV_KEYS)[number];
+
+interface ConfigSnapshotFile {
+  version: 1;
+  values: Partial<Record<ConfigEnvKey, string>>;
+}
 
 
 /**
@@ -58,13 +102,6 @@ export function splitIds(value: string): string[] {
     .filter(Boolean);
 }
 
-function splitList(value: string): string[] {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === '') return fallback;
   return value.toLowerCase() === 'true';
@@ -85,10 +122,8 @@ function parseGeminiSessionBindingScope(value: string | undefined): GeminiSessio
   }
 }
 
-
-
-function resolveBossId(explicitBossId: string | undefined, ownerIds: string[]): string {
-  const explicit = explicitBossId?.trim();
+function resolveAdminId(explicitAdminId: string | undefined, ownerIds: string[]): string {
+  const explicit = explicitAdminId?.trim();
   if (explicit) {
     return explicit;
   }
@@ -100,33 +135,128 @@ function resolveBossId(explicitBossId: string | undefined, ownerIds: string[]): 
   return ownerIds[0] ?? '';
 }
 
+function readSnapshot(filePath: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Partial<ConfigSnapshotFile>;
+    if (parsed.version !== CONFIG_SNAPSHOT_VERSION || typeof parsed.values !== 'object' || parsed.values === null) {
+      return {};
+    }
+
+    const rawValues: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed.values)) {
+      if (typeof value === 'string') {
+        rawValues[key] = value;
+      }
+    }
+
+    return normalizeConfigMap(rawValues);
+  } catch {
+    return {};
+  }
+}
+
+function normalizeConfigMap(input: Record<string, string>): Record<string, string> {
+  const normalized: Record<string, string> = {};
+
+  for (const key of CONFIG_ENV_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      normalized[key] = input[key];
+      continue;
+    }
+
+    const aliases = LEGACY_ENV_ALIASES[key] ?? [];
+    for (const alias of aliases) {
+      if (Object.prototype.hasOwnProperty.call(input, alias)) {
+        normalized[key] = input[alias];
+        break;
+      }
+    }
+  }
+
+  return normalized;
+}
+
+function collectProcessEnv(): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const key of CONFIG_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      result[key] = value;
+    }
+    const aliases = LEGACY_ENV_ALIASES[key] ?? [];
+    for (const alias of aliases) {
+      const aliasValue = process.env[alias];
+      if (aliasValue !== undefined && result[key] === undefined) {
+        result[key] = aliasValue;
+      }
+    }
+  }
+  return result;
+}
+
+function writeSnapshot(filePath: string, values: Record<string, string>): void {
+  const payload: ConfigSnapshotFile = {
+    version: CONFIG_SNAPSHOT_VERSION,
+    values: {},
+  };
+
+  for (const key of CONFIG_ENV_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(values, key)) {
+      payload.values[key] = values[key];
+    }
+  }
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 0o600 });
+}
+
+export function resolveConfigEnvMap(extensionDir: string): Record<string, string> {
+  const runtimePaths = ensureRuntimePaths(extensionDir);
+  const snapshotVars = readSnapshot(runtimePaths.configSnapshotFile);
+  const processVars = collectProcessEnv();
+  const fileVars = parseEnvFile(path.join(extensionDir, '.env'));
+  const resolved = normalizeConfigMap({
+    ...snapshotVars,
+    ...processVars,
+    ...fileVars,
+  });
+
+  try {
+    writeSnapshot(runtimePaths.configSnapshotFile, resolved);
+  } catch {
+    // Best-effort persistence only.
+  }
+
+  return resolved;
+}
+
 /**
  * Load config from a .env file at the given directory.
- * Also merges any existing process.env values (Gemini CLI can inject settings).
+ * Also merges persisted runtime settings and any existing process.env values.
  * Returns a frozen Config object.
  */
 export function loadConfig(extensionDir: string): Config {
-  const envPath = path.join(extensionDir, '.env');
-  const fileVars = parseEnvFile(envPath);
+  const envVars = resolveConfigEnvMap(extensionDir);
+  const runtimePaths = ensureRuntimePaths(extensionDir);
 
   const get = (key: string, fallback = ''): string => {
-    if (Object.prototype.hasOwnProperty.call(fileVars, key)) {
-      return fileVars[key];
-    }
-
-    const envValue = process.env[key];
+    const envValue = envVars[key];
     return envValue === undefined ? fallback : envValue;
   };
 
   const ownerIds = splitIds(get('DISCORD_OWNER_IDS'));
+  const primaryChannelId = get('DISCORD_CHANNEL_ID');
+  const configuredAllowedChannelIds = splitIds(get('DISCORD_ALLOWED_CHANNEL_IDS'));
   const allowedUserIds = splitIds(get('DISCORD_ALLOWED_USER_IDS'));
 
   const config: Config = {
     discordBotToken: get('DISCORD_BOT_TOKEN'),
-    discordChannelId: get('DISCORD_CHANNEL_ID'),
+    discordChannelId: primaryChannelId,
     ownerIds,
-    discordBossId: resolveBossId(get('DISCORD_BOSS_ID'), ownerIds),
-    allowedChannelIds: splitIds(get('ALLOWED_CHANNEL_IDS')),
+    discordAdminId: resolveAdminId(get('DISCORD_ADMIN_ID'), ownerIds),
+    allowedChannelIds: configuredAllowedChannelIds.length > 0
+      ? configuredAllowedChannelIds
+      : (primaryChannelId ? [primaryChannelId] : []),
 
     allowedUserIds: allowedUserIds.length > 0 ? allowedUserIds : ownerIds,
     allowedAgentIds: splitIds(get('DISCORD_ALLOWED_AGENT_IDS')),
@@ -134,8 +264,8 @@ export function loadConfig(extensionDir: string): Config {
     daemonApiToken: (() => {
       let token = get('DAEMON_API_TOKEN');
       if (token) return token;
-      
-      const tokenPath = path.join(extensionDir, '.daemon-token');
+
+      const tokenPath = runtimePaths.daemonTokenFile;
       if (fs.existsSync(tokenPath)) {
         return fs.readFileSync(tokenPath, 'utf-8').trim();
       }
@@ -147,9 +277,6 @@ export function loadConfig(extensionDir: string): Config {
       }
       return token;
     })(),
-
-    peerAgentId: get('DISCORD_PEER_AGENT_ID', '1485836823170121880'),
-    reportingChannelId: get('DISCORD_REPORTING_CHANNEL_ID', '1493481295051886697'),
 
     discordPrefix: get('DISCORD_PREFIX'),
     discordResetCmd: get('DISCORD_RESET_CMD', '!reset'),
@@ -166,27 +293,11 @@ export function loadConfig(extensionDir: string): Config {
     enableDMs: parseBoolean(get('ENABLE_DMS', 'true'), true),
     requireMention: parseBoolean(get('REQUIRE_MENTION', 'true'), true),
     respondToReplies: parseBoolean(get('RESPOND_TO_REPLIES', 'true'), true),
-    memoryScope: parseMemoryScope(get('MEMORY_SCOPE', 'channel')),
+    memoryScope: parseMemoryScope(get('MEMORY_SCOPE', 'global')),
     autoStartDaemon: parseBoolean(get('AUTO_START_DAEMON', 'true'), true),
     useGeminiCliSessions: parseBoolean(get('USE_GEMINI_CLI_SESSIONS', 'true'), true),
-    geminiSessionBindingScope: parseGeminiSessionBindingScope(get('GEMINI_SESSION_BINDING_SCOPE', 'channel')),
+    geminiSessionBindingScope: parseGeminiSessionBindingScope(get('GEMINI_SESSION_BINDING_SCOPE', 'global')),
     cliIdleTimeoutMs: parseInt(get('CLI_IDLE_TIMEOUT_MS', '300000'), 10),
-    autonomous: {
-      enabled: parseBoolean(get('AUTONOMOUS_TURNS_ENABLED', 'false'), false),
-      intervalMs: parseInt(get('AUTONOMOUS_INTERVAL_MS', '300000'), 10),
-      targetChannelId: get('AUTONOMOUS_TARGET_CHANNEL_ID', get('DISCORD_REPORTING_CHANNEL_ID', '1493481295051886697')),
-      targetChannelName: get('AUTONOMOUS_TARGET_CHANNEL_NAME'),
-      assumeMasterAway: parseBoolean(get('AUTONOMOUS_ASSUME_MASTER_AWAY', 'true'), true),
-      fourChan: {
-        enabled: parseBoolean(get('AUTONOMOUS_4CHAN_A_ENABLED', 'false'), false),
-        board: get('AUTONOMOUS_4CHAN_A_BOARD', 'a'),
-        keywords: splitList(get('AUTONOMOUS_4CHAN_A_KEYWORDS', 'one piece,onepiece')),
-        minSignal: parseInt(get('AUTONOMOUS_4CHAN_A_MIN_SIGNAL', '3'), 10),
-        cooldownMs: parseInt(get('AUTONOMOUS_4CHAN_A_COOLDOWN_MS', '3600000'), 10),
-        signalWindowMs: parseInt(get('AUTONOMOUS_4CHAN_A_SIGNAL_WINDOW_MS', '1800000'), 10),
-        timelineLimit: parseInt(get('AUTONOMOUS_4CHAN_A_TIMELINE_LIMIT', '200'), 10),
-      },
-    },
   };
 
   return config;
@@ -222,7 +333,13 @@ export function resolveExtensionDir(fromDir: string): string {
  */
 export async function updateEnvModel(extensionDir: string, model: string): Promise<void> {
   const envPath = path.join(extensionDir, '.env');
-  if (!fs.existsSync(envPath)) return;
+  if (!fs.existsSync(envPath)) {
+    const runtimePaths = resolveRuntimePaths(extensionDir);
+    const current = resolveConfigEnvMap(extensionDir);
+    current.GEMINI_MODEL = model;
+    writeSnapshot(runtimePaths.configSnapshotFile, current);
+    return;
+  }
 
   const content = fs.readFileSync(envPath, 'utf-8');
   const lines = content.split('\n');

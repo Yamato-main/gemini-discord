@@ -20,10 +20,8 @@ import { sendDiscordMessage } from './sender.js';
 import { scheduleJob, listJobs, deleteJob } from './cron.js';
 import { getChannelMapEntries, resolveDiscoveredChannel } from './channels.js';
 import { resetConversationSession } from './session-reset.js';
-import { getAutonomousStatus } from './autonomous.js';
 import { listGeminiBindingStates } from './binding.js';
-import { listDmPairings } from './dm-pairing.js';
-import { scheduleWatchJob, listWatchJobs, deleteWatchJob } from './watch-jobs.js';
+import { listDmPairings, resolveDmUserIdForChannel } from './dm-pairing.js';
 
 const MAX_BODY_BYTES = 10240;
 
@@ -102,9 +100,7 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           allowlistedAgents: config.allowedAgentIds.length,
           requireMention: config.requireMention,
           channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
-          autonomous: getAutonomousStatus(),
           cronJobs: listJobs(),
-          watchJobs: listWatchJobs(),
           headlessMode: config.useGeminiCliSessions ? 'gemini-cli ACP persistent sessions (discord-only extension load)' : 'stateless prompt replay',
           bindings: listGeminiBindingStates(extensionDir),
           dmPairings: listDmPairings(extensionDir),
@@ -115,7 +111,9 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
       if (req.method === 'GET' && pathname === '/history') {
         const channelId = url.searchParams.get('channel_id');
-        const sessionKey = resolveSessionKey(config.memoryScope, channelId ?? config.discordChannelId);
+        const scope = url.searchParams.get('scope') ?? 'current';
+        const resolvedChannelId = channelId ?? config.discordChannelId;
+        const sessionKey = resolveConversationSessionKey(config, extensionDir, resolvedChannelId, null);
         const filteredMessages = channelId
           ? state.exchangeLog.filter((entry) => entry.channelId === channelId).slice(-30)
           : state.exchangeLog.slice(-30);
@@ -123,7 +121,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         const historyBody: DaemonHistory = {
           sessionKey,
           messages: filteredMessages,
-          conversation: memory.snapshot(sessionKey),
+          conversation: scope === 'archived' ? [] : memory.snapshot(sessionKey),
+          archives: scope === 'current' ? [] : memory.archivedSessions(sessionKey),
           participants: memory.participants(sessionKey),
           channels: memory.channels(sessionKey),
         };
@@ -133,11 +132,6 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
       if (req.method === 'GET' && pathname === '/cron') {
         respond(res, 200, { ok: true, jobs: listJobs() });
-        return;
-      }
-
-      if (req.method === 'GET' && pathname === '/watch') {
-        respond(res, 200, { ok: true, jobs: listWatchJobs() });
         return;
       }
 
@@ -197,7 +191,12 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
             const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { files });
 
-            const sessionKey = resolveSessionKey(config.memoryScope, channelId);
+            const sessionKey = resolveConversationSessionKey(
+              config,
+              extensionDir,
+              channelId,
+              (channel as any).guildId ?? null,
+            );
             const attachments = files?.map(f => ({ name: f.split('/').pop() || 'unknown_file' })) || [];
             memory.add(sessionKey, {
               role: 'assistant',
@@ -248,7 +247,12 @@ export function startControlApi(deps: ApiDependencies): http.Server {
             const msg = await channel.messages.fetch(messageId);
             const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { replyTo: msg, files });
 
-            const sessionKey = resolveSessionKey(config.memoryScope, channelId);
+            const sessionKey = resolveConversationSessionKey(
+              config,
+              extensionDir,
+              channelId,
+              (channel as any).guildId ?? null,
+            );
             const attachments = files?.map(f => ({ name: f.split('/').pop() || 'unknown_file' })) || [];
             memory.add(sessionKey, {
               role: 'assistant',
@@ -279,7 +283,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         if (pathname === '/reset') {
           const channelId = String(parsed['channel_id'] ?? config.discordChannelId);
           const guildId = parsed['guild_id'] == null ? null : String(parsed['guild_id']);
-          resetConversationSession(config, memory, extensionDir, { channelId, guildId });
+          const authorId = guildId ? null : resolveDmUserIdForChannel(extensionDir, channelId);
+          resetConversationSession(config, memory, extensionDir, { channelId, guildId, authorId });
           respond(res, 200, { ok: true });
           return;
         }
@@ -290,7 +295,7 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           const message = String(parsed['message'] ?? legacyInstruction);
           const requestedChannelId = parsed['channel_id'] == null ? '' : String(parsed['channel_id']);
           const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
-          const authorId = String(parsed['author_id'] ?? config.discordBossId);
+          const authorId = String(parsed['author_id'] ?? config.discordAdminId);
           const runOnce = parsed['run_once'] === undefined ? true : parsed['run_once'] === true;
 
           if (!cronExpression || !message) {
@@ -335,83 +340,6 @@ export function startControlApi(deps: ApiDependencies): http.Server {
     return;
   }
 
-  if (pathname === '/watch') {
-    const source = String(parsed['source'] ?? '4chan_a_watch');
-    const topic = String(parsed['topic'] ?? '').trim();
-    const board = String(parsed['board'] ?? 'a');
-    const keywords = Array.isArray(parsed['keywords'])
-      ? parsed['keywords'].map(String)
-      : [];
-    const requestedChannelId = parsed['channel_id'] == null ? '' : String(parsed['channel_id']);
-    const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
-    const authorId = String(parsed['author_id'] ?? config.discordBossId);
-    const reportInMinutes = parsed['report_in_minutes'] == null ? undefined : Number(parsed['report_in_minutes']);
-    const pollEveryMinutes = parsed['poll_every_minutes'] == null ? undefined : Number(parsed['poll_every_minutes']);
-    const minSignal = parsed['min_signal'] == null ? undefined : Number(parsed['min_signal']);
-
-    if (source !== '4chan_a_watch') {
-      respond(res, 400, { error: `Unsupported watch source: ${source}` });
-      return;
-    }
-
-    if (!topic || keywords.length === 0) {
-      respond(res, 400, { error: 'topic and at least one keyword are required' });
-      return;
-    }
-
-    try {
-      let channelId = requestedChannelId || config.discordChannelId;
-      let channelName = requestedChannelName;
-      if (!requestedChannelId && requestedChannelName && deps.client) {
-        const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client);
-        if (!resolved) {
-          respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
-          return;
-        }
-        channelId = resolved.id;
-        channelName = resolved.name;
-      }
-
-      if (deps.client) {
-        const channel = await fetchTextChannel(deps.client, channelId);
-        if (!channel) {
-          respond(res, 400, { error: 'Channel is not text-based' });
-          return;
-        }
-        if (!isWritableTarget(channelId, channel, config)) {
-          respond(res, 403, { error: `Channel ${channelId} is not allowed for watch reports` });
-          return;
-        }
-      }
-
-      const job = scheduleWatchJob({
-        topic,
-        board,
-        keywords,
-        channelId,
-        channelName,
-        authorId,
-        reportInMinutes,
-        pollEveryMinutes,
-        minSignal,
-      });
-      respond(res, 200, { ok: true, job });
-    } catch (err) {
-      respond(res, 400, { error: err instanceof Error ? err.message : String(err) });
-    }
-    return;
-  }
-
-  if (pathname === '/watch/delete') {
-    const jobId = String(parsed['job_id'] ?? '');
-    if (!jobId) {
-      respond(res, 400, { error: 'job_id is required' });
-      return;
-    }
-    const ok = deleteWatchJob(jobId);
-    respond(res, 200, { ok });
-    return;
-  }
 }
 
       respond(res, 404, { error: 'Not found' });
@@ -438,6 +366,27 @@ function requireAuth(req: http.IncomingMessage, config: Config): boolean {
   if (!header) return false;
   const [scheme, token] = header.split(' ');
   return scheme === 'Bearer' && token === config.daemonApiToken;
+}
+
+function resolveConversationSessionKey(
+  config: Config,
+  extensionDir: string,
+  channelId: string,
+  guildId: string | null,
+): string {
+  if (config.memoryScope !== 'channel') {
+    return 'global';
+  }
+
+  if (guildId) {
+    return resolveSessionKey(config.memoryScope, channelId, null);
+  }
+
+  return resolveSessionKey(
+    config.memoryScope,
+    channelId,
+    resolveDmUserIdForChannel(extensionDir, channelId),
+  );
 }
 
 async function readBody(req: http.IncomingMessage): Promise<string> {

@@ -3,6 +3,7 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { Config } from './types.js';
+import { resolveRuntimePaths } from './runtime-paths.js';
 
 let startupPromise: Promise<void> | null = null;
 const HEALTH_POLL_MS = 500;
@@ -117,7 +118,7 @@ export async function isDaemonHealthy(port: number): Promise<boolean> {
 
 async function startDaemonProcess(config: Config, extensionDir: string): Promise<void> {
   const daemonEntry = path.join(extensionDir, 'dist', 'daemon.cjs');
-  const logPath = path.join(extensionDir, 'daemon.log');
+  const logPath = resolveRuntimePaths(extensionDir).daemonLogFile;
 
   const outFd = fs.openSync(logPath, 'a');
   const errFd = fs.openSync(logPath, 'a');

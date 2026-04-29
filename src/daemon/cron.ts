@@ -6,6 +6,7 @@ import { log } from './log.js';
 import type { Config } from '../shared/types.js';
 import { chunkMessage } from '../shared/chunker.js';
 import { sendDiscordMessage, type SendableChannel } from './sender.js';
+import { resolveRuntimePaths } from '../shared/runtime-paths.js';
 
 export interface CronJob {
   id: string;
@@ -31,7 +32,7 @@ let discordClient: Client | null = null;
 let poller: NodeJS.Timeout | null = null;
 
 export function initCron(config: Config, client: Client, extensionDir: string) {
-  storePath = path.join(extensionDir, '.cron.json');
+  storePath = resolveRuntimePaths(extensionDir).cronFile;
   discordClient = client;
   loadJobs();
 
@@ -70,6 +71,7 @@ function loadJobs() {
 function saveJobs() {
   try {
     const data = Array.from(jobs.values());
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
     fs.writeFileSync(storePath, JSON.stringify(data, null, 2), { mode: 0o600 });
   } catch (err) {
     log.error('Failed to save cron jobs', { error: err });

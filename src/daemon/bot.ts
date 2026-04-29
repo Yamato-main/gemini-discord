@@ -31,7 +31,7 @@ export interface BotCallbacks {
 }
 
 export function createClient(config: Config): Client {
-  log.info('Client creating', { enableDMs: config.enableDMs, bossId: config.discordBossId });
+  log.info('Client creating', { enableDMs: config.enableDMs, adminId: config.discordAdminId });
   const intents = [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -129,7 +129,7 @@ export function setupMessageHandler(
         log.info('DM rejected: Author not allowlisted', {
           author: message.author.tag,
           id: message.author.id,
-          bossId: config.discordBossId,
+          adminId: config.discordAdminId,
         });
         return;
       }
@@ -193,7 +193,7 @@ export function setupMessageHandler(
       guildId: message.guildId ?? null,
     });
 
-    const isBoss = message.author.id === config.discordBossId || decision.trigger === 'cron';
+    const isBoss = message.author.id === config.discordAdminId || decision.trigger === 'cron';
     if (callbacks.onMessage) {
         callbacks.onMessage(message, {
           content: decision.content,

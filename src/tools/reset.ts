@@ -9,11 +9,11 @@ import { daemonRequest, isDaemonOnline } from './client.js';
 export function registerResetTool(server: McpServer, config: Config): void {
   server.tool(
     'discord_reset',
-    'Start a fresh Discord conversation by clearing both the saved Discord memory buffer and the bound Gemini CLI session for the current channel.',
+    'Start a fresh Discord conversation by archiving the active Discord transcript and starting a brand new Gemini CLI session for the current channel.',
     {},
     async () => {
       if (!(await isDaemonOnline(config))) {
-        return text('❌ Daemon is offline. Start it: node dist/setup.cjs');
+        return text('❌ Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.');
       }
 
       const res = await daemonRequest({
@@ -27,7 +27,7 @@ export function registerResetTool(server: McpServer, config: Config): void {
         return text(`❌ Reset failed: ${res.data['error'] ?? 'unknown error'}`);
       }
 
-      return text('✅ Started a fresh conversation. The saved Discord memory and Gemini CLI session were cleared for the current channel.');
+      return text('✅ Started a fresh conversation. The active Discord transcript was archived and the bound Gemini CLI session was restarted for the current channel.');
     },
   );
 }

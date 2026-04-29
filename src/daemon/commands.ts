@@ -15,7 +15,6 @@ import { spawn } from 'node:child_process';
 import { updateEnvModel } from '../shared/config.js';
 import { runtimeStore } from './runtime.js';
 import { resetConversationSession } from './session-reset.js';
-import { getAutonomousStatus } from './autonomous.js';
 
 /**
  * Slash command definitions.
@@ -161,7 +160,7 @@ export function setupInteractionHandler(
         authorId: interaction.guildId ? null : interaction.user.id,
       });
       await interaction.reply({
-        content: '🧹 **Started a new session.** Prior Discord memory and the bound Gemini CLI session were cleared for this channel.',
+        content: '🧹 **Started a new session.** The active Discord transcript and Gemini CLI session were archived and cleared for this channel.',
         ephemeral: false,
       });
       return;
@@ -182,11 +181,6 @@ export function setupInteractionHandler(
         poolInfo = `Active: ${pStatus.busy} | Idle: ${pStatus.idle} | Max: ${pStatus.maxSize}`;
       }
 
-      const autonomousStatus = getAutonomousStatus();
-      const autonomousSummary = autonomousStatus.enabled
-        ? `${autonomousStatus.running ? 'running' : 'armed'} / ${autonomousStatus.sources.length} source(s)`
-        : 'disabled';
-
       const statusMsg = `**Daemon Status**
 - **Status:** \`${state.status}\`
 - **Model:** \`${config.geminiModel}\`
@@ -195,8 +189,7 @@ export function setupInteractionHandler(
 - **Gemini Reachable:** \`${state.geminiReachable ? 'Yes' : 'No'}\`
 - **Latency:** \`${Math.round(client.ws.ping)}ms\`
 - **Streaming:** \`${config.streaming ? 'Enabled' : 'Disabled'}\`
-- **CLI Pool:** \`${poolInfo}\`
-- **Autonomous:** \`${autonomousSummary}\``;
+- **CLI Pool:** \`${poolInfo}\``;
       await interaction.reply({ content: statusMsg, ephemeral: true });
       return;
     }

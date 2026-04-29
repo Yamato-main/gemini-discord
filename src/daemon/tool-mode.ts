@@ -13,11 +13,6 @@ const EXPLICIT_WEB_TOOL_PATTERNS = [
   /\bverify online\b/i,
   /\buse tools?\b/i,
   /\buse search\b/i,
-  // High-velocity/structured sites that require DCP web fetching
-  /(?:https?:\/\/)?(?:www\.)?4chan\.org/i,
-  /(?:https?:\/\/)?(?:www\.)?4cdn\.org/i,
-  /(?:^|\s)\/[a-z0-9]{1,4}\/(?:$|\s)/i,
-  /\b4chan\b/i,
   /(?:https?:\/\/)?(?:www\.)?reddit\.com/i,
   /(?:https?:\/\/)?(?:www\.)?github\.com/i,
   /(?:https?:\/\/)?(?:www\.)?stackoverflow\.com/i,
@@ -26,7 +21,7 @@ const EXPLICIT_WEB_TOOL_PATTERNS = [
 const DISCORD_ACTION_PATTERNS = [
   /\bsend (?:a )?(?:message|reply)\b/i,
   /\bpost (?:a )?(?:message|reply|reminder|update)\b/i,
-  /\bremind(?: me| yamato)?\b/i,
+  /\bremind(?: me)?\b/i,
   /\breminder\b/i,
   /\bcron\b/i,
   /\bschedule\b/i,
@@ -34,7 +29,6 @@ const DISCORD_ACTION_PATTERNS = [
   /\breport back\b/i,
   /\bfollow up\b/i,
   /\bcheck back\b/i,
-  /\bset (?:up )?(?:a )?watch(?:er)?\b/i,
   /\bchannel\b/i,
   /\bdiscord\b/i,
   /\breply to\b/i,

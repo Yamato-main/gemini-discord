@@ -1,4 +1,5 @@
 .env
+.gemini-discord/
 .memory.json
 .memory.json.tmp
 node_modules/

@@ -17,7 +17,7 @@ import { sanitizeStreamChunk } from './sanitizer.js';
 
 const STREAM_EDIT_INTERVAL = 1100; // Safe edit pacing (1 edit every 1.1s) avoiding Discord's 5 edits / 5s rate limit
 const DISPLAY_CAP = 1900;
-const FIRST_MESSAGE_THRESHOLD = 45; // Must be large enough to completely buffer `<@1485836823170121880>` before first API send
+const FIRST_MESSAGE_THRESHOLD = 24; // Large enough to avoid half-rendered mentions/code fences while reducing first-token latency
 
 export interface LiveEditorOptions {
   placeholderDelayMs?: number | null;
@@ -283,4 +283,3 @@ export class LiveEditor {
     this.clearTypingInterval();
   }
 }
-

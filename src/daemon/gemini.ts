@@ -24,9 +24,6 @@ const DISCORD_BRIDGE_TOOLS = [
   'schedule_cron_job',
   'list_cron_jobs',
   'delete_cron_job',
-  'schedule_watch_job',
-  'list_watch_jobs',
-  'delete_watch_job',
 ].join(',');
 
 interface StreamingCallbacks {
@@ -42,6 +39,7 @@ function appendHeadlessIsolationArgs(args: string[]): void {
 export interface GeminiInvocationOptions {
   cwd: string;
   useResume: boolean;
+  resumeSessionId?: string | null;
   isBoss: boolean;
   attachmentPaths?: string[];
   onSessionId?: (sessionId: string) => void;
@@ -305,8 +303,9 @@ function buildGeminiArgs(
   args.push('--approval-mode', 'yolo');
   appendHeadlessIsolationArgs(args);
 
-  if (options.useResume) {
-    args.push('-r', 'latest');
+  const resumeSessionId = options.resumeSessionId?.trim();
+  if (options.useResume && resumeSessionId) {
+    args.push('-r', resumeSessionId);
   }
 
   args.push('-p', buildGeminiCliPrompt(prompt, options.attachmentPaths));

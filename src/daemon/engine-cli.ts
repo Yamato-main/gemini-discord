@@ -1,9 +1,8 @@
 /**
  * CLI engine — orchestrates message processing through Gemini CLI.
  *
- * Gemini CLI sessions are project-scoped, so Discord conversations bind each
- * channel to a stable Gemini project workspace. That keeps session history and
- * image handling aligned with the direct CLI behavior.
+ * Gemini CLI sessions are owned by the user's normal Gemini project context.
+ * Discord bindings only keep session ids, metadata, and transient attachments.
  */
 
 import { type Message, type TextChannel, type DMChannel, type NewsChannel } from 'discord.js';
@@ -17,7 +16,6 @@ import { retrySend } from './retry.js';
 import { LiveEditor } from './editor.js';
 import { downloadImageAttachments, getImageAttachmentMetadata } from './attachments.js';
 import { type ToolMode } from './tool-mode.js';
-import { callGeminiFull, callGeminiStreaming } from './gemini.js';
 import { processCrossChannelSends } from './channels.js';
 import { sanitizeFullResponse } from './sanitizer.js';
 import { getBackgroundOperationsContext } from './background-context.js';
@@ -25,9 +23,13 @@ import { runtimeStore } from './runtime.js';
 import {
   ensureGeminiBindingWorkspace,
   loadGeminiBindingState,
+  recordGeminiBindingSession,
   resolveGeminiBindingKey,
-  saveGeminiBindingState,
 } from './binding.js';
+import {
+  resolveBindingResumeSessionId,
+  resolveGeminiProjectDir,
+} from './gemini-project.js';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -36,6 +38,7 @@ export interface ProcessingContext {
   bindingKey: string;
   bindingDir: string;
   attachmentsDir: string;
+  geminiProjectDir: string;
 }
 
 export async function processViaCli(
@@ -66,12 +69,12 @@ export async function processViaCli(
   const attachmentMetadata = getImageAttachmentMetadata(targetMessage);
   const bindingState = loadGeminiBindingState(processingContext.bindingDir);
   const resumeSessionId = config.useGeminiCliSessions
-    ? (bindingState.lastSessionId ?? (bindingState.hasSession ? 'latest' : null))
+    ? resolveBindingResumeSessionId(bindingState)
     : null;
   const downloadedAttachments = await downloadImageAttachments(
     targetMessage,
     processingContext.attachmentsDir,
-    processingContext.bindingDir,
+    processingContext.geminiProjectDir,
   );
 
   const incomingPrompt = {
@@ -105,7 +108,7 @@ export async function processViaCli(
   if (config.useGeminiCliSessions) {
     prompt = buildSessionModePrompt({
       incoming: incomingPrompt,
-      bossUserId: config.discordBossId,
+      bossUserId: config.discordAdminId,
       ownerIds: config.ownerIds,
       backgroundContext,
     });
@@ -113,7 +116,7 @@ export async function processViaCli(
     const historySnapshot = memory.snapshot(processingContext.sessionKey);
     prompt = buildDiscordPrompt({
       history: historySnapshot,
-      bossUserId: config.discordBossId,
+      bossUserId: config.discordAdminId,
       ownerIds: config.ownerIds,
       promptHistoryMessageLimit: config.promptHistoryMessageLimit,
       promptHistoryCharBudget: config.promptHistoryCharBudget,
@@ -125,9 +128,6 @@ export async function processViaCli(
   let response = '';
   let responseMessageIds: string[] = [];
   let currentSessionId: string | null = null;
-  const hasDownloadedAttachments = downloadedAttachments.length > 0;
-  const shouldUseDirectMediaPath = hasDownloadedAttachments;
-  const useResume = config.useGeminiCliSessions && (bindingState.hasSession || Boolean(bindingState.lastSessionId));
 
   const editor = config.streaming ? new LiveEditor({ placeholderDelayMs: null }) : null;
   if (editor) await editor.init(channel);
@@ -141,44 +141,27 @@ export async function processViaCli(
 
   try {
     const cliPool = runtimeStore.cliPool;
-    if (!shouldUseDirectMediaPath && !cliPool) {
+    if (!cliPool) {
       throw new Error('CLI pool not initialized');
     }
 
     if (editor) {
-      response = shouldUseDirectMediaPath
-        ? await callGeminiStreaming(
-          prompt,
-          config,
-          {
-            onToken: (token) => editor.feed(token),
-            onThought: () => editor.feedThought(),
-          },
-          {
-            cwd: processingContext.bindingDir,
-            useResume,
-            isBoss: accepted.isBoss,
-            toolMode,
-            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-            onSessionId: (sessionId) => { currentSessionId = sessionId; },
-          },
-        )
-        : await cliPool!.send(
-          processingContext.bindingKey,
-          prompt,
-          {
-            onToken: (token) => editor.feed(token),
-            onThought: () => editor.feedThought(),
-          },
-          {
-            cwd: processingContext.bindingDir,
-            resumeSessionId,
-            isBoss: accepted.isBoss,
-            toolMode,
-            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-            onSessionId: (sessionId) => { currentSessionId = sessionId; },
-          },
-        );
+      response = await cliPool.send(
+        processingContext.bindingKey,
+        prompt,
+        {
+          onToken: (token) => editor.feed(token),
+          onThought: () => editor.feedThought(),
+        },
+        {
+          cwd: processingContext.geminiProjectDir,
+          resumeSessionId,
+          isBoss: accepted.isBoss,
+          toolMode,
+          attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+          onSessionId: (sessionId) => { currentSessionId = sessionId; },
+        },
+      );
 
       const prepared = await finalizeAssistantResponse(response, message, accepted.isBoss);
       response = prepared.responseText;
@@ -188,10 +171,7 @@ export async function processViaCli(
       });
       responseMessageIds.push(...prepared.actionMessageIds);
       if (config.useGeminiCliSessions) {
-        saveGeminiBindingState(processingContext.bindingDir, {
-          hasSession: true,
-          lastSessionId: currentSessionId ?? bindingState.lastSessionId,
-        });
+        recordGeminiBindingSession(processingContext.bindingDir, currentSessionId ?? bindingState.lastSessionId);
       }
       return {
         response,
@@ -207,35 +187,22 @@ export async function processViaCli(
       }, 9000);
 
       try {
-        response = shouldUseDirectMediaPath
-          ? await callGeminiFull(
-            prompt,
-            config,
-            {
-              cwd: processingContext.bindingDir,
-              useResume,
-              isBoss: accepted.isBoss,
-              toolMode,
-              attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-              onSessionId: (sessionId) => { currentSessionId = sessionId; },
-            },
-          )
-          : await cliPool!.send(
-            processingContext.bindingKey,
-            prompt,
-            {
-              onToken: () => {},
-              onThought: () => {},
-            },
-            {
-              cwd: processingContext.bindingDir,
-              resumeSessionId,
-              isBoss: accepted.isBoss,
-              toolMode,
-              attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-              onSessionId: (sessionId) => { currentSessionId = sessionId; },
-            },
-          );
+        response = await cliPool.send(
+          processingContext.bindingKey,
+          prompt,
+          {
+            onToken: () => {},
+            onThought: () => {},
+          },
+          {
+            cwd: processingContext.geminiProjectDir,
+            resumeSessionId,
+            isBoss: accepted.isBoss,
+            toolMode,
+            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+            onSessionId: (sessionId) => { currentSessionId = sessionId; },
+          },
+        );
         clearInterval(typingInterval);
 
         const prepared = await finalizeAssistantResponse(response, message, accepted.isBoss);
@@ -243,10 +210,7 @@ export async function processViaCli(
         responseMessageIds = await sendPreparedDisplayText(channel, prepared.displayText);
         responseMessageIds.push(...prepared.actionMessageIds);
         if (config.useGeminiCliSessions) {
-          saveGeminiBindingState(processingContext.bindingDir, {
-            hasSession: true,
-            lastSessionId: currentSessionId ?? bindingState.lastSessionId,
-          });
+          recordGeminiBindingSession(processingContext.bindingDir, currentSessionId ?? bindingState.lastSessionId);
         }
         return {
           response,
@@ -341,12 +305,14 @@ export function resolveProcessingContext(
   });
 
   const bindingWorkspace = ensureGeminiBindingWorkspace(extensionDir, bindingKey);
+  const geminiProjectDir = resolveGeminiProjectDir(extensionDir);
 
   return {
     sessionKey: resolveSessionKey(config.memoryScope, message.channelId, message.guildId ? null : message.author.id),
     bindingKey,
     bindingDir: bindingWorkspace.bindingDir,
     attachmentsDir: bindingWorkspace.attachmentsDir,
+    geminiProjectDir,
   };
 }
 

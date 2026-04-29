@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   ensureGeminiBindingWorkspace,
+  cleanupLegacyBindingContextFiles,
   loadGeminiBindingState,
   resolveGeminiBindingKey,
   saveGeminiBindingState,
@@ -13,7 +14,6 @@ let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-binding-'));
-  fs.writeFileSync(path.join(tmpDir, 'GEMINI.md'), '# Persona', 'utf-8');
   fs.writeFileSync(path.join(tmpDir, '.geminiignore'), 'discord-attachments/', 'utf-8');
 });
 
@@ -42,8 +42,35 @@ describe('binding workspace state', () => {
 
     expect(fs.existsSync(workspace.bindingDir)).toBe(true);
     expect(fs.existsSync(workspace.attachmentsDir)).toBe(true);
-    expect(fs.existsSync(path.join(workspace.bindingDir, 'GEMINI.md'))).toBe(true);
+    expect(fs.existsSync(path.join(workspace.bindingDir, 'GEMINI.md'))).toBe(false);
     expect(fs.existsSync(path.join(workspace.bindingDir, '.geminiignore'))).toBe(true);
+  });
+
+  it('removes legacy per-binding Gemini context files', () => {
+    const legacyDir = path.join(tmpDir, '.gemini-discord', 'bindings', 'channel-c1');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'GEMINI.md'), '# old context', 'utf-8');
+    fs.writeFileSync(path.join(legacyDir, 'Gemini.md'), '# old context', 'utf-8');
+    fs.writeFileSync(path.join(legacyDir, 'gemini.md'), '# old context', 'utf-8');
+
+    const workspace = ensureGeminiBindingWorkspace(tmpDir, 'channel:c1');
+
+    expect(fs.existsSync(path.join(workspace.bindingDir, 'GEMINI.md'))).toBe(false);
+    expect(fs.existsSync(path.join(workspace.bindingDir, 'Gemini.md'))).toBe(false);
+    expect(fs.existsSync(path.join(workspace.bindingDir, 'gemini.md'))).toBe(false);
+  });
+
+  it('cleans legacy context files across existing binding folders', () => {
+    const first = path.join(tmpDir, '.gemini-discord', 'bindings', 'channel-c1');
+    const second = path.join(tmpDir, '.gemini-discord', 'bindings', 'dm-u1');
+    fs.mkdirSync(first, { recursive: true });
+    fs.mkdirSync(second, { recursive: true });
+    fs.writeFileSync(path.join(first, 'GEMINI.md'), '# old context', 'utf-8');
+    fs.writeFileSync(path.join(second, 'Gemini.md'), '# old context', 'utf-8');
+
+    expect(cleanupLegacyBindingContextFiles(tmpDir)).toBe(2);
+    expect(fs.existsSync(path.join(first, 'GEMINI.md'))).toBe(false);
+    expect(fs.existsSync(path.join(second, 'Gemini.md'))).toBe(false);
   });
 
   it('migrates legacy binding folders without losing existing sessions', () => {
@@ -58,7 +85,7 @@ describe('binding workspace state', () => {
 
     expect(path.basename(workspace.bindingDir)).toBe('channel-c1');
     expect(fs.existsSync(workspace.bindingDir)).toBe(true);
-    expect(loadGeminiBindingState(workspace.bindingDir)).toEqual({
+    expect(loadGeminiBindingState(workspace.bindingDir)).toMatchObject({
       hasSession: true,
       lastSessionId: 'session-123',
     });
@@ -72,7 +99,7 @@ describe('binding workspace state', () => {
       lastSessionId: 'session-123',
     });
 
-    expect(loadGeminiBindingState(workspace.bindingDir)).toEqual({
+    expect(loadGeminiBindingState(workspace.bindingDir)).toMatchObject({
       hasSession: true,
       lastSessionId: 'session-123',
     });

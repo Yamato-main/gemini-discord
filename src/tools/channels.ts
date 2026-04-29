@@ -13,7 +13,7 @@ export function registerChannelsTool(server: McpServer, config: Config): void {
       const res = await daemonRequest({ method: 'GET', path: '/status', config });
 
       if (res.data['error'] === 'daemon_offline') {
-        return text('❌ Daemon is offline. Start it: node dist/setup.cjs');
+        return text('❌ Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.');
       }
 
       if (!res.ok) {

@@ -22,9 +22,9 @@ function userMessage(content: string, overrides: Record<string, unknown> = {}) {
     authorId: 'u1',
     authorName: 'User#0001',
     channelId: 'ch1',
-    channelName: 'bot-channel',
+    channelName: 'bridge-channel',
     guildId: 'g1',
-    guildName: 'Sanctum',
+    guildName: 'Test Guild',
     messageId: 'm1',
     createdAt: '2026-04-14T00:00:00.000Z',
     ...overrides,
@@ -39,9 +39,9 @@ function assistantMessage(content: string, overrides: Record<string, unknown> = 
     authorId: 'bot',
     authorName: 'Assistant#0001',
     channelId: 'ch1',
-    channelName: 'bot-channel',
+    channelName: 'bridge-channel',
     guildId: 'g1',
-    guildName: 'Sanctum',
+    guildName: 'Test Guild',
     messageId: 'r1',
     createdAt: '2026-04-14T00:00:01.000Z',
     ...overrides,
@@ -101,16 +101,16 @@ describe('ConversationMemory', () => {
       authorId: 'agent-2',
       authorName: 'OtherAgent#9999',
       channelId: 'ch2',
-      channelName: 'multi-agent-lab',
+      channelName: 'agent-lab',
       guildId: 'g1',
-      guildName: 'Sanctum',
+      guildName: 'Test Guild',
       messageId: 'm3',
       replyToMessageId: 'r1',
       replyToAuthorName: 'Assistant#0001',
       trigger: 'reply',
     });
 
-    expect(prompt).toContain('Respond with Discord Markdown.');
+    expect(prompt).toContain('Use Discord-compatible Markdown.');
     expect(prompt).toContain('User#0001');
     expect(prompt).toContain('OtherAgent#9999');
     expect(prompt).toContain('Reply to Assistant#0001');
@@ -129,9 +129,9 @@ describe('ConversationMemory', () => {
       authorId: 'u1',
       authorName: 'User#0001',
       channelId: 'ch1',
-      channelName: 'bot-channel',
+      channelName: 'bridge-channel',
       guildId: 'g1',
-      guildName: 'Sanctum',
+      guildName: 'Test Guild',
       messageId: 'm-latest',
       trigger: 'channel',
     });
@@ -152,9 +152,9 @@ describe('ConversationMemory', () => {
       authorId: 'u1',
       authorName: 'User#0001',
       channelId: 'ch1',
-      channelName: 'bot-channel',
+      channelName: 'bridge-channel',
       guildId: 'g1',
-      guildName: 'Sanctum',
+      guildName: 'Test Guild',
       messageId: 'm-image',
       trigger: 'channel',
     });
@@ -174,7 +174,7 @@ describe('ConversationMemory', () => {
       authorName: 'OtherAgent#9999',
       speakerKind: 'agent',
       channelId: 'ch2',
-      channelName: 'multi-agent-lab',
+      channelName: 'agent-lab',
       messageId: 'm9',
     }));
 
@@ -184,8 +184,8 @@ describe('ConversationMemory', () => {
       { id: 'agent-2', name: 'OtherAgent#9999', kind: 'agent' },
     ]);
     expect(mem.channels('global')).toEqual([
-      { id: 'ch1', name: 'bot-channel' },
-      { id: 'ch2', name: 'multi-agent-lab' },
+      { id: 'ch1', name: 'bridge-channel' },
+      { id: 'ch2', name: 'agent-lab' },
     ]);
   });
 
@@ -207,7 +207,7 @@ describe('ConversationMemory', () => {
     mem.add('global', userMessage('saved'));
     mem.flush();
 
-    fs.writeFileSync(path.join(tmpDir, '.memory.json'), '{broken json!!!', 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, '.gemini-discord', 'memory.json'), '{broken json!!!', 'utf-8');
 
     const validData = JSON.stringify({
       version: 2,
@@ -215,7 +215,7 @@ describe('ConversationMemory', () => {
         global: [userMessage('recovered')],
       },
     });
-    fs.writeFileSync(path.join(tmpDir, '.memory.json.tmp'), validData, 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, '.gemini-discord', 'memory.json.tmp'), validData, 'utf-8');
 
     const mem2 = new ConversationMemory(tmpDir, 10);
     const snap = mem2.snapshot('global');
@@ -224,8 +224,9 @@ describe('ConversationMemory', () => {
   });
 
   it('migrates legacy unversioned memory format', () => {
+    fs.mkdirSync(path.join(tmpDir, '.gemini-discord'), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, '.memory.json'),
+      path.join(tmpDir, '.gemini-discord', 'memory.json'),
       JSON.stringify({
         global: [{ role: 'user', content: 'legacy hello' }],
       }),
@@ -238,8 +239,9 @@ describe('ConversationMemory', () => {
   });
 
   it('starts empty when both files are corrupted', () => {
-    fs.writeFileSync(path.join(tmpDir, '.memory.json'), 'garbage', 'utf-8');
-    fs.writeFileSync(path.join(tmpDir, '.memory.json.tmp'), 'also garbage', 'utf-8');
+    fs.mkdirSync(path.join(tmpDir, '.gemini-discord'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.gemini-discord', 'memory.json'), 'garbage', 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, '.gemini-discord', 'memory.json.tmp'), 'also garbage', 'utf-8');
 
     const mem = new ConversationMemory(tmpDir, 10);
     expect(mem.snapshot('global')).toEqual([]);
@@ -265,17 +267,18 @@ describe('buildDiscordPrompt', () => {
         authorId: 'u1',
         authorName: 'User#0001',
         channelId: 'ch1',
-        channelName: 'bot-channel',
+        channelName: 'bridge-channel',
         guildId: 'g1',
-        guildName: 'Sanctum',
+        guildName: 'Test Guild',
         messageId: 'm1',
         trigger: 'channel',
       },
     });
 
     expect(prompt).toContain('[Runtime: Discord group]');
-    expect(prompt).toContain('Respond with Discord Markdown.');
-    expect(prompt).toContain('Do not use theatrical, ceremonial, roleplay, or servant-like phrasing.');
+    expect(prompt).toContain('Use Discord-compatible Markdown.');
+    expect(prompt).toContain('The incoming message is from Discord.');
+    expect(prompt).toContain('Do not call Discord send/reply tools for an ordinary response to the current message.');
     expect(prompt).toContain('[Message]');
     expect(prompt).toContain('hey');
   });
@@ -288,17 +291,17 @@ describe('buildDiscordPrompt', () => {
         authorId: 'u1',
         authorName: 'User#0001',
         channelId: 'ch1',
-        channelName: 'bot-channel',
+        channelName: 'bridge-channel',
         guildId: 'g1',
-        guildName: 'Sanctum',
+        guildName: 'Test Guild',
         messageId: 'm-bg',
         trigger: 'channel',
       },
-      backgroundContext: '[Background Operations]\n- Active watch/research jobs: 1.',
+      backgroundContext: '[Background Operations]\n- Active cron jobs: 1.',
     });
 
     expect(prompt).toContain('[Background Operations]');
-    expect(prompt).toContain('Active watch/research jobs: 1.');
+    expect(prompt).toContain('Active cron jobs: 1.');
   });
 
   it('generates DM prompt for non-guild context', () => {
@@ -309,7 +312,7 @@ describe('buildDiscordPrompt', () => {
         authorId: 'u1',
         authorName: 'User#0001',
         channelId: 'ch1',
-        channelName: 'bot-channel',
+        channelName: 'bridge-channel',
         guildId: null,
         guildName: null,
         messageId: 'm2',
@@ -318,8 +321,8 @@ describe('buildDiscordPrompt', () => {
     });
 
     expect(prompt).toContain('[Runtime: Discord direct]');
-    expect(prompt).toContain('Respond with Discord Markdown.');
-    expect(prompt).toContain('Do not narrate tool calls, MCP server names, job IDs, directives, or internal mechanics unless the user explicitly asked for them.');
+    expect(prompt).toContain('Use Discord-compatible Markdown.');
+    expect(prompt).toContain('Use Discord tools only when the user asks for Discord actions');
     expect(prompt).toContain('[Message]');
   });
 });
@@ -400,9 +403,9 @@ describe('image URLs in transcript history', () => {
       authorId: 'u1',
       authorName: 'User#0001',
       channelId: 'ch1',
-      channelName: 'bot-channel',
+      channelName: 'bridge-channel',
       guildId: 'g1',
-      guildName: 'Sanctum',
+      guildName: 'Test Guild',
       messageId: 'm3',
       trigger: 'channel',
     });
@@ -426,9 +429,9 @@ describe('buildSessionModePrompt', () => {
         authorId: 'u1',
         authorName: 'User#0001',
         channelId: 'ch1',
-        channelName: 'bot-channel',
+        channelName: 'bridge-channel',
         guildId: 'g1',
-        guildName: 'Sanctum',
+        guildName: 'Test Guild',
         messageId: 'm1',
         trigger: 'channel',
       },
@@ -436,7 +439,8 @@ describe('buildSessionModePrompt', () => {
 
     // Has runtime header
     expect(prompt).toContain('[Runtime: Discord group]');
-    expect(prompt).toContain('Respond with Discord Markdown.');
+    expect(prompt).toContain('Use Discord-compatible Markdown.');
+    expect(prompt).toContain('Your normal text response is sent back to the current Discord conversation.');
     // Has current message
     expect(prompt).toContain('[Message]');
     expect(prompt).toContain('who is this?');
@@ -454,18 +458,17 @@ describe('buildSessionModePrompt', () => {
         authorId: 'u1',
         authorName: 'User#0001',
         channelId: 'ch1',
-        channelName: 'bot-channel',
+        channelName: 'bridge-channel',
         guildId: 'g1',
-        guildName: 'Sanctum',
+        guildName: 'Test Guild',
         messageId: 'm-bg-session',
         trigger: 'channel',
       },
-      backgroundContext: '[Background Operations]\n- Active cron jobs: 2.\n- Active watch/research jobs: 1.',
+      backgroundContext: '[Background Operations]\n- Active cron jobs: 2.',
     });
 
     expect(prompt).toContain('[Background Operations]');
     expect(prompt).toContain('Active cron jobs: 2.');
-    expect(prompt).toContain('Active watch/research jobs: 1.');
     expect(prompt).not.toContain('[History]');
     expect(prompt).not.toContain('[Participants]');
   });
@@ -480,7 +483,7 @@ describe('buildSessionModePrompt', () => {
         authorId: 'u1',
         authorName: 'User#0001',
         channelId: 'ch1',
-        channelName: 'bot-channel',
+        channelName: 'bridge-channel',
         guildId: null,
         guildName: null,
         messageId: 'm2',

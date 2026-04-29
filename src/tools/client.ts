@@ -13,6 +13,7 @@ interface RequestOptions {
   path: string;
   config: Config;
   body?: object;
+  timeoutMs?: number;
 }
 
 interface DaemonResponse {
@@ -26,16 +27,16 @@ interface DaemonResponse {
  * Returns a structured response. Never throws — returns error info instead.
  */
 export async function daemonRequest(opts: RequestOptions): Promise<DaemonResponse> {
-  const { method, path, config, body } = opts;
+  const { method, path, config, body, timeoutMs } = opts;
   let tmpDir = process.cwd();
   try { tmpDir = __dirname; } catch {}
   const extensionDir = resolveExtensionDir(tmpDir);
 
-  let response = await requestOnce({ method, path, config, body });
+  let response = await requestOnce({ method, path, config, body, timeoutMs });
   if ((response.data['error'] === 'daemon_offline' || response.data['error'] === 'daemon_timeout') && config.autoStartDaemon) {
     try {
       await ensureDaemonRunning(config, extensionDir);
-      response = await requestOnce({ method, path, config, body });
+      response = await requestOnce({ method, path, config, body, timeoutMs });
     } catch {
       return { ok: false, status: 0, data: { error: 'daemon_offline' } };
     }
@@ -45,7 +46,7 @@ export async function daemonRequest(opts: RequestOptions): Promise<DaemonRespons
 }
 
 async function requestOnce(opts: RequestOptions): Promise<DaemonResponse> {
-  const { method, path, config, body } = opts;
+  const { method, path, config, body, timeoutMs } = opts;
   return new Promise((resolve) => {
     const payload = body ? JSON.stringify(body) : undefined;
 
@@ -62,7 +63,7 @@ async function requestOnce(opts: RequestOptions): Promise<DaemonResponse> {
             : {}),
           ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
         },
-        timeout: 5000,
+        timeout: timeoutMs ?? 5000,
       },
       (res) => {
         const chunks: Buffer[] = [];

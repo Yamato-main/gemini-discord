@@ -19,7 +19,7 @@ export function registerReplyTool(server: McpServer, config: Config): void {
     },
     async ({ channel_id, message_id, content = '', files }) => {
       if (!(await isDaemonOnline(config))) {
-        return text('❌ Daemon is offline. Start it: node dist/setup.cjs');
+        return text('❌ Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.');
       }
 
       const res = await daemonRequest({
@@ -27,6 +27,7 @@ export function registerReplyTool(server: McpServer, config: Config): void {
         path: '/reply',
         config,
         body: { channel_id, message_id, content, files },
+        timeoutMs: 60000,
       });
 
       if (!res.ok) {

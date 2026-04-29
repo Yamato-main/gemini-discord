@@ -15,8 +15,7 @@ import { CliProcessPool } from './daemon/cli-pool.js';
 import { runtimeStore } from './daemon/runtime.js';
 import { probeDiscordGateway } from './daemon/probe.js';
 import { shutdownCron } from './daemon/cron.js';
-import { shutdownAutonomous } from './daemon/autonomous.js';
-import { shutdownWatchJobs } from './daemon/watch-jobs.js';
+import { cleanupLegacyBindingContextFiles } from './daemon/binding.js';
 
 let tmpDir = process.cwd();
 try { tmpDir = __dirname; } catch {}
@@ -47,6 +46,11 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig(extensionDir);
+  const removedLegacyContextFiles = cleanupLegacyBindingContextFiles(extensionDir);
+  if (removedLegacyContextFiles > 0) {
+    log.info('Removed legacy per-binding Gemini context files', { count: removedLegacyContextFiles });
+  }
+
   log.info('Config loaded', {
     channelId: config.discordChannelId,
     owners: config.ownerIds.length,
@@ -88,8 +92,6 @@ async function main(): Promise<void> {
     }
 
     shutdownCron();
-    shutdownAutonomous();
-    shutdownWatchJobs();
     
     if (apiServer) {
       apiServer.close(() => {

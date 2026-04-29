@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Client } from 'discord.js';
 import type { Config, DmPairingSnapshot } from '../shared/types.js';
+import { ensureRuntimePaths, resolveRuntimePaths } from '../shared/runtime-paths.js';
 import { log } from './log.js';
 
 interface StoredDmPairing {
@@ -17,7 +18,7 @@ interface DmPairingFile {
 }
 
 function pairingsPath(extensionDir: string): string {
-  return path.join(extensionDir, '.gemini-discord', 'dm-pairings.json');
+  return resolveRuntimePaths(extensionDir).dmPairingsFile;
 }
 
 function ensureParentDir(filePath: string): void {
@@ -79,7 +80,17 @@ export function listDmPairings(extensionDir: string): DmPairingSnapshot[] {
     }));
 }
 
+export function resolveDmUserIdForChannel(extensionDir: string, channelId: string): string | null {
+  for (const pairing of loadPairingMap(extensionDir).values()) {
+    if (pairing.channelId === channelId) {
+      return pairing.userId;
+    }
+  }
+  return null;
+}
+
 export async function ensureOwnerDmPairings(client: Client, config: Config, extensionDir: string): Promise<void> {
+  ensureRuntimePaths(extensionDir);
   if (!config.enableDMs) {
     return;
   }

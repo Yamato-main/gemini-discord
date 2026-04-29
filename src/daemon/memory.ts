@@ -12,20 +12,22 @@
 
 import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
-import * as path from 'node:path';
 import type {
+  ConversationArchive,
   ConversationAttachment,
   ConversationMessage,
   HistoryChannel,
   HistoryParticipant,
   MemoryScope,
 } from '../shared/types.js';
+import { ensureRuntimePaths } from '../shared/runtime-paths.js';
 import { log } from './log.js';
 import { getChannelMapContext } from './channels.js';
 
-const MEMORY_FILE_VERSION = 2;
+const MEMORY_FILE_VERSION = 4;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MAX_SESSIONS = 500;
+const MAX_ARCHIVED_CONVERSATIONS_PER_SESSION = 8;
 const EVICTION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_PROMPT_HISTORY_MESSAGE_LIMIT = 16;
 const DEFAULT_PROMPT_HISTORY_CHAR_BUDGET = 12_000;
@@ -45,6 +47,12 @@ interface MemoryFileV2 {
 interface MemoryFileV3 {
   version: 3;
   sessions: Record<string, { messages: ConversationMessage[]; lastAccessedAt: number }>;
+}
+
+interface MemoryFileV4 {
+  version: 4;
+  sessions: Record<string, { messages: ConversationMessage[]; lastAccessedAt: number }>;
+  archives?: Record<string, ConversationArchive[]>;
 }
 
 export interface PromptInput {
@@ -76,6 +84,7 @@ export interface BuildDiscordPromptOptions {
 
 export class ConversationMemory {
   private store: Map<string, SessionEntry>;
+  private archives: Map<string, ConversationArchive[]>;
   private persistPath: string;
   private tmpPath: string;
   private dirty = false;
@@ -85,10 +94,13 @@ export class ConversationMemory {
   private maxEntries: number;
 
   constructor(extensionDir: string, historyLength: number) {
-    this.persistPath = path.join(extensionDir, '.memory.json');
-    this.tmpPath = this.persistPath + '.tmp';
+    const runtimePaths = ensureRuntimePaths(extensionDir);
+    this.persistPath = runtimePaths.memoryFile;
+    this.tmpPath = runtimePaths.memoryTmpFile;
     this.maxEntries = historyLength * 2;
-    this.store = this.loadFromDisk();
+    const loaded = this.loadFromDisk();
+    this.store = loaded.store;
+    this.archives = loaded.archives;
   }
 
   add(sessionKey: string, message: ConversationMessage): void {
@@ -114,6 +126,25 @@ export class ConversationMemory {
   reset(sessionKey: string): void {
     this.store.set(sessionKey, { messages: [], lastAccessedAt: Date.now() });
     this.dirty = true;
+  }
+
+  archiveAndReset(
+    sessionKey: string,
+    metadata: { bindingKey?: string; lastSessionId?: string } = {},
+  ): void {
+    const current = this.store.get(sessionKey);
+    if (current && current.messages.length > 0) {
+      const existing = this.archives.get(sessionKey) ?? [];
+      const archive: ConversationArchive = {
+        archivedAt: new Date().toISOString(),
+        bindingKey: metadata.bindingKey,
+        lastSessionId: metadata.lastSessionId,
+        messages: [...current.messages],
+      };
+      this.archives.set(sessionKey, [archive, ...existing].slice(0, MAX_ARCHIVED_CONVERSATIONS_PER_SESSION));
+    }
+
+    this.reset(sessionKey);
   }
 
   buildPrompt(sessionKey: string, incoming: PromptInput): string {
@@ -163,6 +194,14 @@ export class ConversationMemory {
     return [...seen.values()];
   }
 
+  archivedSessions(sessionKey: string): ConversationArchive[] {
+    this.touchSession(sessionKey);
+    return (this.archives.get(sessionKey) ?? []).map((archive) => ({
+      ...archive,
+      messages: [...archive.messages],
+    }));
+  }
+
   startAutoFlush(): void {
     if (this.flushTimer) return;
     this.flushTimer = setInterval(() => this.flushAsync(), 5000);
@@ -195,8 +234,9 @@ export class ConversationMemory {
     this.flushInProgress = true;
 
     try {
-      const data = this.serializeV3();
+      const data = this.serializeV4();
       const json = JSON.stringify(data);
+      await fsPromises.mkdir(parentDir(this.tmpPath), { recursive: true });
       await fsPromises.writeFile(this.tmpPath, json, { mode: 0o600 });
       await fsPromises.rename(this.tmpPath, this.persistPath);
     } catch (err) {
@@ -217,8 +257,9 @@ export class ConversationMemory {
     this.dirty = false;
 
     try {
-      const data = this.serializeV3();
+      const data = this.serializeV4();
       const json = JSON.stringify(data);
+      fs.mkdirSync(parentDir(this.tmpPath), { recursive: true });
       fs.writeFileSync(this.tmpPath, json, { mode: 0o600 });
       fs.renameSync(this.tmpPath, this.persistPath);
     } catch (err) {
@@ -272,7 +313,7 @@ export class ConversationMemory {
     }
   }
 
-  private serializeV3(): MemoryFileV3 {
+  private serializeV4(): MemoryFileV4 {
     const sessions: Record<string, { messages: ConversationMessage[]; lastAccessedAt: number }> = {};
     for (const [key, entry] of this.store) {
       sessions[key] = {
@@ -280,10 +321,17 @@ export class ConversationMemory {
         lastAccessedAt: entry.lastAccessedAt,
       };
     }
-    return { version: 3, sessions };
+    const archives: Record<string, ConversationArchive[]> = {};
+    for (const [key, value] of this.archives) {
+      archives[key] = value.map((archive) => ({
+        ...archive,
+        messages: [...archive.messages],
+      }));
+    }
+    return { version: MEMORY_FILE_VERSION, sessions, archives };
   }
 
-  private loadFromDisk(): Map<string, SessionEntry> {
+  private loadFromDisk(): { store: Map<string, SessionEntry>; archives: Map<string, ConversationArchive[]> } {
     const primary = this.tryParseFile(this.persistPath);
     if (primary) return primary;
 
@@ -297,28 +345,44 @@ export class ConversationMemory {
       log.warn('Memory files corrupted — starting with empty history');
     }
 
-    return new Map();
+    return { store: new Map(), archives: new Map() };
   }
 
-  private tryParseFile(filePath: string): Map<string, SessionEntry> | null {
+  private tryParseFile(filePath: string): { store: Map<string, SessionEntry>; archives: Map<string, ConversationArchive[]> } | null {
     try {
       if (!fs.existsSync(filePath)) return null;
       const raw = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(raw);
 
+      if (isMemoryFileV4(parsed)) {
+        return {
+          store: coerceSessionsV3(parsed.sessions),
+          archives: coerceArchives(parsed.archives),
+        };
+      }
+
       // V3 format (with lastAccessedAt)
       if (isMemoryFileV3(parsed)) {
-        return coerceSessionsV3(parsed.sessions);
+        return {
+          store: coerceSessionsV3(parsed.sessions),
+          archives: new Map(),
+        };
       }
 
       // V2 format (without lastAccessedAt — migrate)
       if (isMemoryFileV2(parsed)) {
-        return coerceSessionsV2(parsed.sessions);
+        return {
+          store: coerceSessionsV2(parsed.sessions),
+          archives: new Map(),
+        };
       }
 
       // Unknown format — attempt V2-style coercion
       if (typeof parsed === 'object' && parsed !== null) {
-        return coerceSessionsV2(parsed as Record<string, unknown>);
+        return {
+          store: coerceSessionsV2(parsed as Record<string, unknown>),
+          archives: new Map(),
+        };
       }
 
       return null;
@@ -368,13 +432,12 @@ ${formatIncomingDiscordMessage(options.incoming, { bossUserId: options.bossUserI
 /**
  * Build a minimal prompt for session mode.
  *
- * When `useGeminiCliSessions=true`, the CLI process resumes its own session
- * via `-r latest`. The session file IS the conversation history — replaying
+ * When `useGeminiCliSessions=true`, the CLI process resumes the stored Gemini
+ * session id for the current binding. The session file IS the conversation history — replaying
  * it in the prompt would duplicate everything the model already knows.
  *
- * This prompt only contains:
- * - Runtime context header (Discord adapter instruction)
- * - The current incoming message with speaker/channel metadata
+ * This prompt only contains Discord transport awareness and the current
+ * incoming message. Identity and long-term context stay with Gemini CLI.
  *
  * The CLI session handles everything else: prior messages, images, tool
  * call chains, system context. The bot IS the CLI agent, not a copy.
@@ -400,15 +463,11 @@ export function buildDiscordAdapterInstruction(
 
   const backgroundContext = options.backgroundContext ? `\n${options.backgroundContext}` : '';
   const runtimeInstructions = [
-    '- Respond with Discord Markdown.',
-    '- Sound like a capable human teammate speaking naturally in chat.',
-    '- Be direct and concise by default. Answer the current message first.',
-    '- Do not use theatrical, ceremonial, roleplay, or servant-like phrasing.',
-    '- Do not greet unless the user greeted you first, and do not imitate older over-formal replies from session history.',
-    '- Do not narrate tool calls, MCP server names, job IDs, directives, or internal mechanics unless the user explicitly asked for them.',
-    '- For short follow-ups, corrections, or acknowledgements, respond narrowly instead of restating the whole topic.',
-    '- When scheduling a watch, cron, or reminder, reply with one short confirmation of what will happen and when.',
-    '- Separate verified facts from rumors, spoilers, or guesses. Do not present unverified leaks as settled fact.',
+    '- The incoming message is from Discord.',
+    '- Your normal text response is sent back to the current Discord conversation.',
+    '- Use Discord-compatible Markdown.',
+    '- Do not call Discord send/reply tools for an ordinary response to the current message.',
+    '- Use Discord tools only when the user asks for Discord actions such as sending elsewhere, reading history, resetting, scheduling, or checking status.',
   ].join('\n');
 
   return `[Runtime: Discord ${chatType}${bossLine}]\n${runtimeInstructions}\n${getChannelMapContext()}${backgroundContext}`;
@@ -565,6 +624,12 @@ function isMemoryFileV3(value: unknown): value is MemoryFileV3 {
   return maybe.version === 3 && typeof maybe.sessions === 'object' && maybe.sessions !== null;
 }
 
+function isMemoryFileV4(value: unknown): value is MemoryFileV4 {
+  if (typeof value !== 'object' || value === null) return false;
+  const maybe = value as Partial<MemoryFileV4>;
+  return maybe.version === 4 && typeof maybe.sessions === 'object' && maybe.sessions !== null;
+}
+
 function migrateSessionKey(key: string): string {
   if (key.startsWith('channel:') || key.startsWith('dm:') || key === 'global') {
     return key;
@@ -618,6 +683,29 @@ function coerceSessionsV3(
     const key = migrateSessionKey(rawKey);
 
     mergeIntoSessionMap(map, key, coercedMessages, lastAccessedAt);
+  }
+
+  return map;
+}
+
+function coerceArchives(raw: unknown): Map<string, ConversationArchive[]> {
+  const map = new Map<string, ConversationArchive[]>();
+  if (typeof raw !== 'object' || raw === null) {
+    return map;
+  }
+
+  for (const [rawKey, value] of Object.entries(raw)) {
+    if (!Array.isArray(value)) continue;
+    const key = migrateSessionKey(rawKey);
+    const archives = value
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      .map((entry) => coerceArchive(entry))
+      .filter((entry): entry is ConversationArchive => entry !== null)
+      .slice(0, MAX_ARCHIVED_CONVERSATIONS_PER_SESSION);
+
+    if (archives.length > 0) {
+      map.set(key, archives);
+    }
   }
 
   return map;
@@ -679,6 +767,25 @@ function coerceMessage(entry: Record<string, unknown>): ConversationMessage {
     replyToAuthorName: optionalNullableString(entry.replyToAuthorName),
     trigger: optionalString(entry.trigger),
     createdAt: optionalString(entry.createdAt),
+  };
+}
+
+function coerceArchive(entry: Record<string, unknown>): ConversationArchive | null {
+  const messages = Array.isArray(entry.messages)
+    ? entry.messages
+      .filter((message): message is Record<string, unknown> => typeof message === 'object' && message !== null)
+      .map((message) => coerceMessage(message))
+    : [];
+
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return {
+    archivedAt: optionalString(entry.archivedAt) ?? new Date(0).toISOString(),
+    bindingKey: optionalString(entry.bindingKey),
+    lastSessionId: optionalString(entry.lastSessionId),
+    messages,
   };
 }
 
@@ -805,4 +912,7 @@ function truncateText(value: string, maxChars: number): string {
   return `${value.slice(0, Math.max(0, maxChars - 1))}…`;
 }
 
-
+function parentDir(filePath: string): string {
+  const slashIndex = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+  return slashIndex === -1 ? '.' : filePath.slice(0, slashIndex);
+}

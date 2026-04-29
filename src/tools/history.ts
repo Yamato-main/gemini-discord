@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { Config, DaemonHistory, ExchangeLog, ConversationMessage } from '../shared/types.js';
+import type { Config, DaemonHistory, ExchangeLog, ConversationArchive, ConversationMessage } from '../shared/types.js';
 import { daemonRequest } from './client.js';
 
 export function registerHistoryTool(server: McpServer, config: Config): void {
@@ -23,17 +23,25 @@ export function registerHistoryTool(server: McpServer, config: Config): void {
         .string()
         .optional()
         .describe('Channel ID to get history for. Omit for primary channel. DM channel IDs work here too.'),
+      scope: z
+        .enum(['current', 'archived', 'all'])
+        .default('current')
+        .optional()
+        .describe('Whether to read only the active conversation, only archived sessions, or both.'),
     },
-    async ({ limit, channel_id }) => {
+    async ({ limit, channel_id, scope = 'current' }) => {
       const queryLimit = limit ?? 10;
-      const queryPath = channel_id
-        ? `/history?channel_id=${encodeURIComponent(channel_id)}`
-        : '/history';
+      const params = new URLSearchParams();
+      if (channel_id) {
+        params.set('channel_id', channel_id);
+      }
+      params.set('scope', scope);
+      const queryPath = params.size > 0 ? `/history?${params.toString()}` : '/history';
 
       const res = await daemonRequest({ method: 'GET', path: queryPath, config });
 
       if (res.data['error'] === 'daemon_offline') {
-        return text('❌ Daemon is offline. No history available. Start it: node dist/setup.cjs');
+        return text('❌ Daemon is offline. No history available. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.');
       }
 
       if (!res.ok) {
@@ -43,6 +51,7 @@ export function registerHistoryTool(server: McpServer, config: Config): void {
       const history = res.data as unknown as DaemonHistory;
       const messages = (history.messages ?? []).slice(-queryLimit);
       const conversation = history.conversation ?? [];
+      const archives = history.archives ?? [];
       const participants = history.participants ?? [];
       const channels = history.channels ?? [];
 
@@ -92,6 +101,14 @@ export function registerHistoryTool(server: McpServer, config: Config): void {
         }
       }
 
+      if (archives.length > 0) {
+        lines.push('');
+        lines.push(`## Archived Sessions (${archives.length})`);
+        for (const archive of archives) {
+          renderArchive(lines, archive);
+        }
+      }
+
       return text(lines.join('\n'));
     },
   );
@@ -100,6 +117,19 @@ export function registerHistoryTool(server: McpServer, config: Config): void {
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, max) + '...';
+}
+
+function renderArchive(lines: string[], archive: ConversationArchive): void {
+  const header = archive.lastSessionId
+    ? `- Archived at ${archive.archivedAt} | Gemini session ${archive.lastSessionId}`
+    : `- Archived at ${archive.archivedAt}`;
+  lines.push(header);
+  for (const entry of archive.messages.slice(-8)) {
+    const label = entry.role === 'user'
+      ? `  👤 ${entry.authorName ?? 'User'}`
+      : `  🤖 ${entry.authorName ?? 'Assistant'}`;
+    lines.push(`${label}: ${truncate(entry.content || '(no text provided)', 160)}`);
+  }
 }
 
 function text(content: string) {

@@ -27,9 +27,6 @@ const DISCORD_BRIDGE_TOOLS = [
   'schedule_cron_job',
   'list_cron_jobs',
   'delete_cron_job',
-  'schedule_watch_job',
-  'list_watch_jobs',
-  'delete_watch_job',
 ].join(',');
 
 const ACP_PROTOCOL_VERSION = 1;
@@ -139,7 +136,7 @@ function appendHeadlessIsolationArgs(args: string[]): void {
 
 function normalizeResumeSessionId(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+  return trimmed && trimmed !== 'latest' ? trimmed : null;
 }
 
 function normalizeAcpError(error: unknown): Error {
@@ -362,7 +359,7 @@ export class CliProcessPool {
     const resumeSessionId = normalizeResumeSessionId(opts.resumeSessionId);
 
     if (entry.sessionId && entry.cwd === opts.cwd) {
-      if (!resumeSessionId || resumeSessionId === entry.sessionId || resumeSessionId === 'latest') {
+      if (!resumeSessionId || resumeSessionId === entry.sessionId) {
         opts.onSessionId?.(entry.sessionId);
         return;
       }

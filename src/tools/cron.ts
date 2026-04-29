@@ -7,7 +7,7 @@ export function registerCronTools(server: McpServer, config: Config) {
     'schedule_cron_job',
     {
       cron_expression: z.string().describe('The cron schedule expression (e.g. "0 9 * * *" for 9am daily).'),
-      message: z.string().describe('The exact final Discord message to send when the job fires. Write the message itself, not instructions for another agent. Example: "Hey, Yamato, drink water."'),
+      message: z.string().describe('The exact final Discord message to send when the job fires. Write the message itself, not instructions for another agent. Example: "Update: drink water."'),
       channel_id: z.string().optional().describe('Target Discord channel ID. Prefer this when you already know the exact ID.'),
       channel_name: z.string().optional().describe('Target Discord channel name such as "boardroom" or "#boardroom". Use this when you know the channel by name and want the daemon to resolve it.'),
       run_once: z.boolean().optional().describe('Whether this job should delete itself after the first successful send. Defaults to true for reminder-style jobs.'),

@@ -6,7 +6,7 @@
 start-daemon.sh
 .daemon.pid
 .cron.json
-.watch-jobs.json
+node_modules
 node_modules/
 coverage/
 build/
@@ -17,8 +17,6 @@ tmp/
 .DS_Store
 .gemini-discord/
 .tmp-attachments/
-.agent/autonomous/
-.agent/watch-jobs/
 graphify-out/
 !.env.example
 

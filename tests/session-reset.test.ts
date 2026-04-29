@@ -26,7 +26,7 @@ describe('resetConversationSession', () => {
 
   it('clears memory and resets the paired DM Gemini session for the user', () => {
     const memory = {
-      reset: vi.fn(),
+      archiveAndReset: vi.fn(),
     } as any;
 
     const config = createConfig();
@@ -38,13 +38,16 @@ describe('resetConversationSession', () => {
 
     expect(result.sessionKey).toBe('dm:owner-1');
     expect(result.bindingKey).toBe(resolveDmPairingKey('owner-1'));
-    expect(memory.reset).toHaveBeenCalledWith('dm:owner-1');
+    expect(memory.archiveAndReset).toHaveBeenCalledWith('dm:owner-1', {
+      bindingKey: resolveDmPairingKey('owner-1'),
+      lastSessionId: undefined,
+    });
     expect((runtimeStore.cliPool as any).kill).toHaveBeenCalledWith(resolveDmPairingKey('owner-1'));
   });
 
   it('clears memory and resets the bound Gemini session for the channel', () => {
     const memory = {
-      reset: vi.fn(),
+      archiveAndReset: vi.fn(),
     } as any;
 
     const config = createConfig();
@@ -55,11 +58,18 @@ describe('resetConversationSession', () => {
 
     expect(result.sessionKey).toBe('channel:c1');
     expect(result.bindingKey).toBe('channel:c1');
-    expect(memory.reset).toHaveBeenCalledWith('channel:c1');
+    expect(memory.archiveAndReset).toHaveBeenCalledWith('channel:c1', {
+      bindingKey: 'channel:c1',
+      lastSessionId: undefined,
+    });
     expect((runtimeStore.cliPool as any).kill).toHaveBeenCalledWith('channel:c1');
 
     const bindingDir = path.join(tmpDir, '.gemini-discord', 'bindings', 'channel-c1');
-    expect(loadGeminiBindingState(bindingDir)).toEqual({ hasSession: false });
+    expect(loadGeminiBindingState(bindingDir)).toMatchObject({
+      hasSession: false,
+      archivedSessionIds: [],
+    });
+    expect(loadGeminiBindingState(bindingDir).lastResetAt).toEqual(expect.any(String));
   });
 });
 
@@ -68,13 +78,11 @@ function createConfig(): Config {
     discordBotToken: '',
     discordChannelId: '',
     ownerIds: [],
-    discordBossId: '',
+    discordAdminId: '',
     allowedChannelIds: [],
     allowedUserIds: [],
     allowedAgentIds: [],
     daemonApiToken: '',
-    peerAgentId: '',
-    reportingChannelId: '',
     discordPrefix: '!',
     discordResetCmd: '!reset',
     daemonPort: 0,
@@ -95,21 +103,5 @@ function createConfig(): Config {
     useGeminiCliSessions: true,
     geminiSessionBindingScope: 'channel',
     cliIdleTimeoutMs: 1,
-    autonomous: {
-      enabled: false,
-      intervalMs: 300000,
-      targetChannelId: '',
-      targetChannelName: '',
-      assumeMasterAway: true,
-      fourChan: {
-        enabled: false,
-        board: 'a',
-        keywords: [],
-        minSignal: 3,
-        cooldownMs: 3600000,
-        signalWindowMs: 1800000,
-        timelineLimit: 200,
-      },
-    },
   };
 }

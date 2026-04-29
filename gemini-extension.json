@@ -1,8 +1,7 @@
 {
   "name": "gemini-discord",
   "version": "0.1.0",
-  "description": "Always-on Discord gateway for Gemini CLI. Bidirectional chat, conversation memory, streaming responses.",
-  "contextFileName": "GEMINI.md",
+  "description": "Local Discord bridge that gives your existing Gemini CLI agent a Discord channel.",
   "settings": [
     {
       "name": "Discord Bot Token",
@@ -12,44 +11,14 @@
     },
     {
       "name": "Primary Discord Channel ID",
-      "description": "The main channel ID the bot will listen to and reply in.",
+      "description": "Default Discord channel ID the agent should listen to and reply in.",
       "envVar": "DISCORD_CHANNEL_ID",
       "sensitive": false
     },
     {
       "name": "Owner Discord User IDs",
-      "description": "Comma-separated list of user IDs who have full ownership over the bot.",
+      "description": "Comma-separated user IDs with full ownership over the bridge.",
       "envVar": "DISCORD_OWNER_IDS",
-      "sensitive": false
-    },
-    {
-      "name": "Admin Discord User ID",
-      "description": "A single User ID designated for privileged commands. Leave blank to default to the first Owner.",
-      "envVar": "DISCORD_ADMIN_ID",
-      "sensitive": false
-    },
-    {
-      "name": "Allowed Channel IDs",
-      "description": "Comma-separated list of all channel IDs the bot is allowed to read/write in.",
-      "envVar": "ALLOWED_CHANNEL_IDS",
-      "sensitive": false
-    },
-    {
-      "name": "Allowed User IDs",
-      "description": "Additional user IDs allowed to interact with the bot. Leave blank for owners only.",
-      "envVar": "DISCORD_ALLOWED_USER_IDS",
-      "sensitive": false
-    },
-    {
-      "name": "Memory Scope",
-      "description": "Whether context history is tracked globally ('global') or per channel ('channel').",
-      "envVar": "MEMORY_SCOPE",
-      "sensitive": false
-    },
-    {
-      "name": "Gemini Session Binding Scope",
-      "description": "Scope for preserving underlying Gemini CLI sessions ('channel', 'global', or 'server').",
-      "envVar": "GEMINI_SESSION_BINDING_SCOPE",
       "sensitive": false
     }
   ],
@@ -61,12 +30,7 @@
       "env": {
         "DISCORD_BOT_TOKEN": "${DISCORD_BOT_TOKEN}",
         "DISCORD_CHANNEL_ID": "${DISCORD_CHANNEL_ID}",
-        "DISCORD_OWNER_IDS": "${DISCORD_OWNER_IDS}",
-        "DISCORD_ADMIN_ID": "${DISCORD_ADMIN_ID}",
-        "ALLOWED_CHANNEL_IDS": "${ALLOWED_CHANNEL_IDS}",
-        "DISCORD_ALLOWED_USER_IDS": "${DISCORD_ALLOWED_USER_IDS}",
-        "MEMORY_SCOPE": "${MEMORY_SCOPE}",
-        "GEMINI_SESSION_BINDING_SCOPE": "${GEMINI_SESSION_BINDING_SCOPE}"
+        "DISCORD_OWNER_IDS": "${DISCORD_OWNER_IDS}"
       }
     }
   }

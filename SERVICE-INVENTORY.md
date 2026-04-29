@@ -7,14 +7,11 @@ This file tracks the real moving parts of `gemini-discord` so future work does n
 | Service | File | Responsibility | Key Methods |
 | --- | --- | --- | --- |
 | Daemon entry | `src/daemon.ts` | Boot the local runtime, wire shared services, and handle shutdown. | `main()` |
-| Control API | `src/daemon/api.ts` | Expose localhost health, history, send/reply, reset, cron, and watch-job routes. | `startControlApi()` |
+| Control API | `src/daemon/api.ts` | Expose localhost health, history, send/reply, reset, and cron routes. | `startControlApi()` |
 | Discord gateway | `src/daemon/gateway.ts` | Bind Discord events to Gemini processing, queueing, memory persistence, and slash commands. | `initGateway()` |
 | CLI pool | `src/daemon/cli-pool.ts` | Run headless Gemini CLI turns with tool gating and session resume. | `CliProcessPool.send()`, `kill()`, `status()` |
 | Binding manager | `src/daemon/binding.ts` | Map Discord scope to stable Gemini workspaces and persist session ids. | `ensureGeminiBindingWorkspace()`, `loadGeminiBindingState()`, `saveGeminiBindingState()` |
 | Cron scheduler | `src/daemon/cron.ts` | Persist and deliver exact-message Discord cron jobs. | `initCron()`, `scheduleJob()`, `listJobs()`, `deleteJob()` |
-| Watch scheduler | `src/daemon/watch-jobs.ts` | Persist background watch jobs, poll sources, and wake Gemini for delayed reports. | `initWatchJobs()`, `scheduleWatchJob()`, `listWatchJobs()`, `deleteWatchJob()`, `runWatchCycleNow()` |
-| Autonomous watcher | `src/daemon/autonomous.ts` | Run optional always-armed away-mode collection without polluting normal Discord memory. | `initAutonomous()`, `getAutonomousStatus()` |
-| 4chan collector | `src/daemon/autonomous-4chan.ts` | Collect `/a/` signal, build briefings/timelines, and prepare wake requests for Gemini. | `collectFourChanAwaySignal()` |
 | MCP server | `src/server.ts` | Register Discord bridge tools for Gemini CLI and wake the daemon on demand. | `main()` |
 
 ## Shared Modules
@@ -31,8 +28,7 @@ This file tracks the real moving parts of `gemini-discord` so future work does n
 
 ## Established Patterns
 
-- Discord channels map to stable Gemini binding workspaces under `.gemini-discord/bindings/...`.
-- Headless Gemini turns are resumed from the binding workspace so session history stays project-scoped per channel.
-- Background jobs do not write into normal Discord memory; they send their final message directly after Gemini finishes reasoning.
-- The collector/script stage gathers raw data first; Gemini is only awakened for filtering, synthesis, and the final Discord-facing report.
+- Discord bindings store metadata under `.gemini-discord/bindings/...`; Gemini still runs from the normal Gemini project context.
+- Headless Gemini turns resume explicit stored session ids so Discord does not become a separate project or persona.
+- Scheduled jobs do not write into normal Discord memory; they send exact final messages at delivery time.
 - Tool access is intentionally narrowed per turn: plain chat stays light, research gets web tools, Discord actions get bridge tools, and full tools are explicit.

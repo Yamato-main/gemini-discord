@@ -3222,8 +3222,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path3) {
-      let input = path3;
+    function removeDotSegments(path4) {
+      let input = path4;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3422,8 +3422,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path3, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
+        const [path4, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -4224,7 +4224,7 @@ var require_core = __commonJS({
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
         if (!errors || errors.length === 0)
           return "No errors";
-        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text8, msg) => text8 + separator + msg);
+        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text7, msg) => text7 + separator + msg);
       }
       $dataMetaSchema(metaSchema, keywordsJsonPointers) {
         const rules = this.RULES.all;
@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs3, exportName) {
+    function addFormats(ajv, list, fs4, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs3[f]);
+        ajv.addFormat(f, fs4[f]);
     }
     module2.exports = exports2 = formatsPlugin;
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -7276,8 +7276,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path3, errorMaps, issueData } = params;
-  const fullPath = [...path3, ...issueData.path || []];
+  const { data, path: path4, errorMaps, issueData } = params;
+  const fullPath = [...path4, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7393,11 +7393,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path3, key) {
+  constructor(parent, value, path4, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path3;
+    this._path = path4;
     this._key = key;
   }
   get path() {
@@ -11035,10 +11035,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path3) {
-  if (!path3)
+function getElementAtPath(obj, path4) {
+  if (!path4)
     return obj;
-  return path3.reduce((acc, key) => acc?.[key], obj);
+  return path4.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11358,11 +11358,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path3, issues) {
+function prefixIssues(path4, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path3);
+    iss.path.unshift(path4);
     return iss;
   });
 }
@@ -21014,13 +21014,89 @@ var StdioServerTransport = class {
 };
 
 // src/shared/config.ts
+var fs2 = __toESM(require("node:fs"), 1);
+var path2 = __toESM(require("node:path"), 1);
+var crypto = __toESM(require("node:crypto"), 1);
+
+// src/shared/runtime-paths.ts
 var fs = __toESM(require("node:fs"), 1);
 var path = __toESM(require("node:path"), 1);
-var crypto = __toESM(require("node:crypto"), 1);
+function resolveRuntimePaths(extensionDir2) {
+  const runtimeDir = path.join(extensionDir2, ".gemini-discord");
+  return {
+    runtimeDir,
+    bindingsDir: path.join(runtimeDir, "bindings"),
+    configSnapshotFile: resolveManagedRuntimePath(extensionDir2, "config.json"),
+    daemonTokenFile: resolveManagedRuntimePath(extensionDir2, "daemon-token", ".daemon-token"),
+    daemonLogFile: resolveManagedRuntimePath(extensionDir2, "daemon.log", "daemon.log"),
+    memoryFile: resolveManagedRuntimePath(extensionDir2, "memory.json", ".memory.json"),
+    memoryTmpFile: resolveManagedRuntimePath(extensionDir2, "memory.json.tmp", ".memory.json.tmp"),
+    cronFile: resolveManagedRuntimePath(extensionDir2, "cron.json", ".cron.json"),
+    dmPairingsFile: path.join(runtimeDir, "dm-pairings.json")
+  };
+}
+function ensureRuntimePaths(extensionDir2) {
+  const paths = resolveRuntimePaths(extensionDir2);
+  fs.mkdirSync(paths.runtimeDir, { recursive: true });
+  fs.mkdirSync(paths.bindingsDir, { recursive: true });
+  return paths;
+}
+function resolveManagedRuntimePath(extensionDir2, runtimeRelativePath, legacyFileName) {
+  const runtimeDir = path.join(extensionDir2, ".gemini-discord");
+  const runtimePath = path.join(runtimeDir, runtimeRelativePath);
+  const legacyPath = legacyFileName ? path.join(extensionDir2, legacyFileName) : null;
+  if (fs.existsSync(runtimePath) || !legacyPath || !fs.existsSync(legacyPath)) {
+    return runtimePath;
+  }
+  try {
+    fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
+    fs.renameSync(legacyPath, runtimePath);
+    return runtimePath;
+  } catch {
+    return legacyPath;
+  }
+}
+
+// src/shared/config.ts
+var CONFIG_SNAPSHOT_VERSION = 1;
+var CONFIG_ENV_KEYS = [
+  "DISCORD_BOT_TOKEN",
+  "DISCORD_CHANNEL_ID",
+  "DISCORD_OWNER_IDS",
+  "DISCORD_ADMIN_ID",
+  "DISCORD_ALLOWED_CHANNEL_IDS",
+  "DISCORD_ALLOWED_USER_IDS",
+  "DISCORD_ALLOWED_AGENT_IDS",
+  "DAEMON_API_TOKEN",
+  "DISCORD_PREFIX",
+  "DISCORD_RESET_CMD",
+  "DAEMON_PORT",
+  "GEMINI_PATH",
+  "GEMINI_MODEL",
+  "GEMINI_TIMEOUT_MS",
+  "GEMINI_MAX_CONCURRENT",
+  "CONVERSATION_HISTORY_LENGTH",
+  "PROMPT_HISTORY_MAX_MESSAGES",
+  "PROMPT_HISTORY_MAX_CHARS",
+  "STREAMING",
+  "QUEUE_MAX_DEPTH",
+  "ENABLE_DMS",
+  "REQUIRE_MENTION",
+  "RESPOND_TO_REPLIES",
+  "MEMORY_SCOPE",
+  "AUTO_START_DAEMON",
+  "USE_GEMINI_CLI_SESSIONS",
+  "GEMINI_SESSION_BINDING_SCOPE",
+  "CLI_IDLE_TIMEOUT_MS"
+];
+var LEGACY_ENV_ALIASES = {
+  DISCORD_ADMIN_ID: ["DISCORD_BOSS_ID"],
+  DISCORD_ALLOWED_CHANNEL_IDS: ["ALLOWED_CHANNEL_IDS"]
+};
 function parseEnvFile(filePath) {
   const result = {};
-  if (!fs.existsSync(filePath)) return result;
-  const content = fs.readFileSync(filePath, "utf-8");
+  if (!fs2.existsSync(filePath)) return result;
+  const content = fs2.readFileSync(filePath, "utf-8");
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -21042,9 +21118,6 @@ function parseEnvFile(filePath) {
 function splitIds(value) {
   return value.split(",").map((s) => s.trim()).filter(Boolean);
 }
-function splitList(value) {
-  return value.split(",").map((item) => item.trim()).filter(Boolean);
-}
 function parseBoolean(value, fallback) {
   if (value === void 0 || value === "") return fallback;
   return value.toLowerCase() === "true";
@@ -21062,8 +21135,8 @@ function parseGeminiSessionBindingScope(value) {
       return "channel";
   }
 }
-function resolveBossId(explicitBossId, ownerIds) {
-  const explicit = explicitBossId?.trim();
+function resolveAdminId(explicitAdminId, ownerIds) {
+  const explicit = explicitAdminId?.trim();
   if (explicit) {
     return explicit;
   }
@@ -21072,42 +21145,119 @@ function resolveBossId(explicitBossId, ownerIds) {
   }
   return ownerIds[0] ?? "";
 }
-function loadConfig(extensionDir2) {
-  const envPath = path.join(extensionDir2, ".env");
-  const fileVars = parseEnvFile(envPath);
-  const get = (key, fallback = "") => {
-    if (Object.prototype.hasOwnProperty.call(fileVars, key)) {
-      return fileVars[key];
+function readSnapshot(filePath) {
+  try {
+    const parsed = JSON.parse(fs2.readFileSync(filePath, "utf-8"));
+    if (parsed.version !== CONFIG_SNAPSHOT_VERSION || typeof parsed.values !== "object" || parsed.values === null) {
+      return {};
     }
-    const envValue = process.env[key];
+    const rawValues = {};
+    for (const [key, value] of Object.entries(parsed.values)) {
+      if (typeof value === "string") {
+        rawValues[key] = value;
+      }
+    }
+    return normalizeConfigMap(rawValues);
+  } catch {
+    return {};
+  }
+}
+function normalizeConfigMap(input) {
+  const normalized = {};
+  for (const key of CONFIG_ENV_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      normalized[key] = input[key];
+      continue;
+    }
+    const aliases = LEGACY_ENV_ALIASES[key] ?? [];
+    for (const alias of aliases) {
+      if (Object.prototype.hasOwnProperty.call(input, alias)) {
+        normalized[key] = input[alias];
+        break;
+      }
+    }
+  }
+  return normalized;
+}
+function collectProcessEnv() {
+  const result = {};
+  for (const key of CONFIG_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== void 0) {
+      result[key] = value;
+    }
+    const aliases = LEGACY_ENV_ALIASES[key] ?? [];
+    for (const alias of aliases) {
+      const aliasValue = process.env[alias];
+      if (aliasValue !== void 0 && result[key] === void 0) {
+        result[key] = aliasValue;
+      }
+    }
+  }
+  return result;
+}
+function writeSnapshot(filePath, values) {
+  const payload = {
+    version: CONFIG_SNAPSHOT_VERSION,
+    values: {}
+  };
+  for (const key of CONFIG_ENV_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(values, key)) {
+      payload.values[key] = values[key];
+    }
+  }
+  fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
+  fs2.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
+}
+function resolveConfigEnvMap(extensionDir2) {
+  const runtimePaths = ensureRuntimePaths(extensionDir2);
+  const snapshotVars = readSnapshot(runtimePaths.configSnapshotFile);
+  const processVars = collectProcessEnv();
+  const fileVars = parseEnvFile(path2.join(extensionDir2, ".env"));
+  const resolved = normalizeConfigMap({
+    ...snapshotVars,
+    ...processVars,
+    ...fileVars
+  });
+  try {
+    writeSnapshot(runtimePaths.configSnapshotFile, resolved);
+  } catch {
+  }
+  return resolved;
+}
+function loadConfig(extensionDir2) {
+  const envVars = resolveConfigEnvMap(extensionDir2);
+  const runtimePaths = ensureRuntimePaths(extensionDir2);
+  const get = (key, fallback = "") => {
+    const envValue = envVars[key];
     return envValue === void 0 ? fallback : envValue;
   };
   const ownerIds = splitIds(get("DISCORD_OWNER_IDS"));
+  const primaryChannelId = get("DISCORD_CHANNEL_ID");
+  const configuredAllowedChannelIds = splitIds(get("DISCORD_ALLOWED_CHANNEL_IDS"));
   const allowedUserIds = splitIds(get("DISCORD_ALLOWED_USER_IDS"));
   const config3 = {
     discordBotToken: get("DISCORD_BOT_TOKEN"),
-    discordChannelId: get("DISCORD_CHANNEL_ID"),
+    discordChannelId: primaryChannelId,
     ownerIds,
-    discordBossId: resolveBossId(get("DISCORD_BOSS_ID"), ownerIds),
-    allowedChannelIds: splitIds(get("ALLOWED_CHANNEL_IDS")),
+    discordAdminId: resolveAdminId(get("DISCORD_ADMIN_ID"), ownerIds),
+    allowedChannelIds: configuredAllowedChannelIds.length > 0 ? configuredAllowedChannelIds : primaryChannelId ? [primaryChannelId] : [],
     allowedUserIds: allowedUserIds.length > 0 ? allowedUserIds : ownerIds,
     allowedAgentIds: splitIds(get("DISCORD_ALLOWED_AGENT_IDS")),
     daemonApiToken: (() => {
       let token = get("DAEMON_API_TOKEN");
       if (token) return token;
-      const tokenPath = path.join(extensionDir2, ".daemon-token");
-      if (fs.existsSync(tokenPath)) {
-        return fs.readFileSync(tokenPath, "utf-8").trim();
+      const tokenPath = runtimePaths.daemonTokenFile;
+      if (fs2.existsSync(tokenPath)) {
+        return fs2.readFileSync(tokenPath, "utf-8").trim();
       }
       token = crypto.randomBytes(32).toString("hex");
       try {
-        fs.writeFileSync(tokenPath, token, { mode: 384 });
+        fs2.writeFileSync(tokenPath, token, { mode: 384 });
       } catch (e) {
       }
       return token;
     })(),
-    peerAgentId: get("DISCORD_PEER_AGENT_ID", "1485836823170121880"),
-    reportingChannelId: get("DISCORD_REPORTING_CHANNEL_ID", "1493481295051886697"),
     discordPrefix: get("DISCORD_PREFIX"),
     discordResetCmd: get("DISCORD_RESET_CMD", "!reset"),
     daemonPort: parseInt(get("DAEMON_PORT", "18790"), 10),
@@ -21123,44 +21273,28 @@ function loadConfig(extensionDir2) {
     enableDMs: parseBoolean(get("ENABLE_DMS", "true"), true),
     requireMention: parseBoolean(get("REQUIRE_MENTION", "true"), true),
     respondToReplies: parseBoolean(get("RESPOND_TO_REPLIES", "true"), true),
-    memoryScope: parseMemoryScope(get("MEMORY_SCOPE", "channel")),
+    memoryScope: parseMemoryScope(get("MEMORY_SCOPE", "global")),
     autoStartDaemon: parseBoolean(get("AUTO_START_DAEMON", "true"), true),
     useGeminiCliSessions: parseBoolean(get("USE_GEMINI_CLI_SESSIONS", "true"), true),
-    geminiSessionBindingScope: parseGeminiSessionBindingScope(get("GEMINI_SESSION_BINDING_SCOPE", "channel")),
-    cliIdleTimeoutMs: parseInt(get("CLI_IDLE_TIMEOUT_MS", "300000"), 10),
-    autonomous: {
-      enabled: parseBoolean(get("AUTONOMOUS_TURNS_ENABLED", "false"), false),
-      intervalMs: parseInt(get("AUTONOMOUS_INTERVAL_MS", "300000"), 10),
-      targetChannelId: get("AUTONOMOUS_TARGET_CHANNEL_ID", get("DISCORD_REPORTING_CHANNEL_ID", "1493481295051886697")),
-      targetChannelName: get("AUTONOMOUS_TARGET_CHANNEL_NAME"),
-      assumeMasterAway: parseBoolean(get("AUTONOMOUS_ASSUME_MASTER_AWAY", "true"), true),
-      fourChan: {
-        enabled: parseBoolean(get("AUTONOMOUS_4CHAN_A_ENABLED", "false"), false),
-        board: get("AUTONOMOUS_4CHAN_A_BOARD", "a"),
-        keywords: splitList(get("AUTONOMOUS_4CHAN_A_KEYWORDS", "one piece,onepiece")),
-        minSignal: parseInt(get("AUTONOMOUS_4CHAN_A_MIN_SIGNAL", "3"), 10),
-        cooldownMs: parseInt(get("AUTONOMOUS_4CHAN_A_COOLDOWN_MS", "3600000"), 10),
-        signalWindowMs: parseInt(get("AUTONOMOUS_4CHAN_A_SIGNAL_WINDOW_MS", "1800000"), 10),
-        timelineLimit: parseInt(get("AUTONOMOUS_4CHAN_A_TIMELINE_LIMIT", "200"), 10)
-      }
-    }
+    geminiSessionBindingScope: parseGeminiSessionBindingScope(get("GEMINI_SESSION_BINDING_SCOPE", "global")),
+    cliIdleTimeoutMs: parseInt(get("CLI_IDLE_TIMEOUT_MS", "300000"), 10)
   };
   return config3;
 }
 function resolveExtensionDir(fromDir) {
   let dir = fromDir;
   if (dir.startsWith("file://")) {
-    dir = path.dirname(new URL(dir).pathname);
+    dir = path2.dirname(new URL(dir).pathname);
   }
-  if (path.basename(dir) === "dist") {
-    return path.dirname(dir);
+  if (path2.basename(dir) === "dist") {
+    return path2.dirname(dir);
   }
   let current = dir;
-  while (current !== path.dirname(current)) {
-    if (fs.existsSync(path.join(current, "gemini-extension.json"))) {
+  while (current !== path2.dirname(current)) {
+    if (fs2.existsSync(path2.join(current, "gemini-extension.json"))) {
       return current;
     }
-    current = path.dirname(current);
+    current = path2.dirname(current);
   }
   return dir;
 }
@@ -21169,9 +21303,9 @@ function resolveExtensionDir(fromDir) {
 var http2 = __toESM(require("node:http"), 1);
 
 // src/shared/daemon-runtime.ts
-var fs2 = __toESM(require("node:fs"), 1);
+var fs3 = __toESM(require("node:fs"), 1);
 var http = __toESM(require("node:http"), 1);
-var path2 = __toESM(require("node:path"), 1);
+var path3 = __toESM(require("node:path"), 1);
 var import_node_child_process = require("node:child_process");
 var startupPromise = null;
 var HEALTH_POLL_MS = 500;
@@ -21261,10 +21395,10 @@ async function isDaemonHealthy(port) {
   });
 }
 async function startDaemonProcess(config3, extensionDir2) {
-  const daemonEntry = path2.join(extensionDir2, "dist", "daemon.cjs");
-  const logPath = path2.join(extensionDir2, "daemon.log");
-  const outFd = fs2.openSync(logPath, "a");
-  const errFd = fs2.openSync(logPath, "a");
+  const daemonEntry = path3.join(extensionDir2, "dist", "daemon.cjs");
+  const logPath = resolveRuntimePaths(extensionDir2).daemonLogFile;
+  const outFd = fs3.openSync(logPath, "a");
+  const errFd = fs3.openSync(logPath, "a");
   const child = (0, import_node_child_process.spawn)(process.execPath, [daemonEntry], {
     cwd: extensionDir2,
     detached: true,
@@ -21339,18 +21473,18 @@ async function waitForNewStartTime(config3, previousStartedAt, timeoutMs, pollIn
 
 // src/tools/client.ts
 async function daemonRequest(opts) {
-  const { method, path: path3, config: config3, body } = opts;
+  const { method, path: path4, config: config3, body, timeoutMs } = opts;
   let tmpDir2 = process.cwd();
   try {
     tmpDir2 = __dirname;
   } catch {
   }
   const extensionDir2 = resolveExtensionDir(tmpDir2);
-  let response = await requestOnce({ method, path: path3, config: config3, body });
+  let response = await requestOnce({ method, path: path4, config: config3, body, timeoutMs });
   if ((response.data["error"] === "daemon_offline" || response.data["error"] === "daemon_timeout") && config3.autoStartDaemon) {
     try {
       await ensureDaemonRunning(config3, extensionDir2);
-      response = await requestOnce({ method, path: path3, config: config3, body });
+      response = await requestOnce({ method, path: path4, config: config3, body, timeoutMs });
     } catch {
       return { ok: false, status: 0, data: { error: "daemon_offline" } };
     }
@@ -21358,21 +21492,21 @@ async function daemonRequest(opts) {
   return response;
 }
 async function requestOnce(opts) {
-  const { method, path: path3, config: config3, body } = opts;
+  const { method, path: path4, config: config3, body, timeoutMs } = opts;
   return new Promise((resolve) => {
     const payload = body ? JSON.stringify(body) : void 0;
     const req = http2.request(
       {
         hostname: "127.0.0.1",
         port: config3.daemonPort,
-        path: path3,
+        path: path4,
         method,
         headers: {
           "Content-Type": "application/json",
           ...method === "POST" && config3.daemonApiToken ? { Authorization: `Bearer ${config3.daemonApiToken}` } : {},
           ...payload ? { "Content-Length": Buffer.byteLength(payload) } : {}
         },
-        timeout: 5e3
+        timeout: timeoutMs ?? 5e3
       },
       (res) => {
         const chunks = [];
@@ -21413,7 +21547,7 @@ function registerStatusTool(server2, config3) {
     async () => {
       const res = await daemonRequest({ method: "GET", path: "/status", config: config3 });
       if (res.data["error"] === "daemon_offline") {
-        return text("\u274C Daemon is offline. Start it: node dist/setup.cjs");
+        return text("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
       }
       if (res.data["error"] === "daemon_timeout") {
         return text("\u23F3 Daemon is not responding. It may be starting up. Try again in a few seconds.");
@@ -21446,26 +21580,10 @@ function registerStatusTool(server2, config3) {
           lines.push(`- **#${c.name}**: \`${c.id}\``);
         });
       }
-      if (s.autonomous) {
-        lines.push("", "### Autonomous");
-        lines.push(`- **Enabled:** ${s.autonomous.enabled ? "yes" : "no"}`);
-        lines.push(`- **Running:** ${s.autonomous.running ? "yes" : "no"}`);
-        lines.push(`- **Interval:** ${s.autonomous.intervalMs}ms`);
-        lines.push(`- **Target Channel:** ${s.autonomous.targetChannelName || s.autonomous.targetChannelId || "(default)"}`);
-        for (const source of s.autonomous.sources) {
-          lines.push(`- **${source.id}:** ${source.lastDecision ?? "idle"} | signal ${source.lastSignalScore} | last post ${source.lastPostedAt ?? "never"}`);
-        }
-      }
       if (s.cronJobs && s.cronJobs.length > 0) {
         lines.push("", "### Cron Jobs");
         for (const job of s.cronJobs) {
           lines.push(`- **${job.id}:** ${job.runOnce ? "one-time" : "recurring"} | next ${new Date(job.nextRun).toISOString()} | <#${job.channelId}> | ${job.message}`);
-        }
-      }
-      if (s.watchJobs && s.watchJobs.length > 0) {
-        lines.push("", "### Watch Jobs");
-        for (const job of s.watchJobs) {
-          lines.push(`- **${job.id}:** ${job.status} | ${job.topic} | /${job.board}/ | due ${job.dueAt} | signal ${job.lastSignalScore}`);
         }
       }
       if (s.dmPairings && s.dmPairings.length > 0) {
@@ -21477,7 +21595,8 @@ function registerStatusTool(server2, config3) {
       if (s.bindings && s.bindings.length > 0) {
         lines.push("", "### Gemini Bindings");
         for (const binding of s.bindings) {
-          lines.push(`- **${binding.workspace}:** ${binding.hasSession ? `session ${binding.lastSessionId ?? "(unknown id)"}` : "no session yet"}`);
+          const sessionSummary = binding.hasSession ? `session ${binding.lastSessionId ?? "(unknown id)"}` : "no active session";
+          lines.push(`- **${binding.workspace}:** ${sessionSummary} | archived ${binding.archivedSessions} | last reset ${binding.lastResetAt ?? "never"}`);
         }
       }
       if (s.lastError) {
@@ -21524,13 +21643,14 @@ function registerSendTool(server2, config3) {
         body["channel_id"] = config3.discordChannelId;
       }
       if (!await isDaemonOnline(config3)) {
-        return text2("\u274C Daemon is offline. Start it: node dist/setup.cjs");
+        return text2("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
       }
       const res = await daemonRequest({
         method: "POST",
         path: "/send",
         config: config3,
-        body
+        body,
+        timeoutMs: 6e4
       });
       if (!res.ok) {
         return text2(`\u274C Send failed: ${res.data["error"] ?? "unknown error"}`);
@@ -21558,13 +21678,14 @@ function registerReplyTool(server2, config3) {
     },
     async ({ channel_id, message_id, content = "", files }) => {
       if (!await isDaemonOnline(config3)) {
-        return text3("\u274C Daemon is offline. Start it: node dist/setup.cjs");
+        return text3("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
       }
       const res = await daemonRequest({
         method: "POST",
         path: "/reply",
         config: config3,
-        body: { channel_id, message_id, content, files }
+        body: { channel_id, message_id, content, files },
+        timeoutMs: 6e4
       });
       if (!res.ok) {
         return text3(`\u274C Reply failed: ${res.data["error"] ?? "unknown error"}`);
@@ -21584,14 +21705,20 @@ function registerHistoryTool(server2, config3) {
     "Read recent Discord message exchanges and the conversation memory buffer. Use this to see what has been discussed.",
     {
       limit: external_exports.number().min(1).max(30).default(10).optional().describe("Number of recent exchanges to return (1-30, default 10)"),
-      channel_id: external_exports.string().optional().describe("Channel ID to get history for. Omit for primary channel. DM channel IDs work here too.")
+      channel_id: external_exports.string().optional().describe("Channel ID to get history for. Omit for primary channel. DM channel IDs work here too."),
+      scope: external_exports.enum(["current", "archived", "all"]).default("current").optional().describe("Whether to read only the active conversation, only archived sessions, or both.")
     },
-    async ({ limit, channel_id }) => {
+    async ({ limit, channel_id, scope = "current" }) => {
       const queryLimit = limit ?? 10;
-      const queryPath = channel_id ? `/history?channel_id=${encodeURIComponent(channel_id)}` : "/history";
+      const params = new URLSearchParams();
+      if (channel_id) {
+        params.set("channel_id", channel_id);
+      }
+      params.set("scope", scope);
+      const queryPath = params.size > 0 ? `/history?${params.toString()}` : "/history";
       const res = await daemonRequest({ method: "GET", path: queryPath, config: config3 });
       if (res.data["error"] === "daemon_offline") {
-        return text4("\u274C Daemon is offline. No history available. Start it: node dist/setup.cjs");
+        return text4("\u274C Daemon is offline. No history available. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
       }
       if (!res.ok) {
         return text4(`\u274C History error: ${res.data["error"] ?? "unknown error"}`);
@@ -21599,6 +21726,7 @@ function registerHistoryTool(server2, config3) {
       const history = res.data;
       const messages = (history.messages ?? []).slice(-queryLimit);
       const conversation = history.conversation ?? [];
+      const archives = history.archives ?? [];
       const participants = history.participants ?? [];
       const channels = history.channels ?? [];
       const lines = [];
@@ -21635,13 +21763,28 @@ function registerHistoryTool(server2, config3) {
           lines.push(`${label}${location}: ${truncate(c.content || "(no text provided)", 200)}${attachments}`);
         }
       }
+      if (archives.length > 0) {
+        lines.push("");
+        lines.push(`## Archived Sessions (${archives.length})`);
+        for (const archive of archives) {
+          renderArchive(lines, archive);
+        }
+      }
       return text4(lines.join("\n"));
     }
   );
 }
-function truncate(text8, max) {
-  if (text8.length <= max) return text8;
-  return text8.slice(0, max) + "...";
+function truncate(text7, max) {
+  if (text7.length <= max) return text7;
+  return text7.slice(0, max) + "...";
+}
+function renderArchive(lines, archive) {
+  const header = archive.lastSessionId ? `- Archived at ${archive.archivedAt} | Gemini session ${archive.lastSessionId}` : `- Archived at ${archive.archivedAt}`;
+  lines.push(header);
+  for (const entry of archive.messages.slice(-8)) {
+    const label = entry.role === "user" ? `  \u{1F464} ${entry.authorName ?? "User"}` : `  \u{1F916} ${entry.authorName ?? "Assistant"}`;
+    lines.push(`${label}: ${truncate(entry.content || "(no text provided)", 160)}`);
+  }
 }
 function text4(content) {
   return { content: [{ type: "text", text: content }] };
@@ -21651,11 +21794,11 @@ function text4(content) {
 function registerResetTool(server2, config3) {
   server2.tool(
     "discord_reset",
-    "Start a fresh Discord conversation by clearing both the saved Discord memory buffer and the bound Gemini CLI session for the current channel.",
+    "Start a fresh Discord conversation by archiving the active Discord transcript and starting a brand new Gemini CLI session for the current channel.",
     {},
     async () => {
       if (!await isDaemonOnline(config3)) {
-        return text5("\u274C Daemon is offline. Start it: node dist/setup.cjs");
+        return text5("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
       }
       const res = await daemonRequest({
         method: "POST",
@@ -21666,7 +21809,7 @@ function registerResetTool(server2, config3) {
       if (!res.ok) {
         return text5(`\u274C Reset failed: ${res.data["error"] ?? "unknown error"}`);
       }
-      return text5("\u2705 Started a fresh conversation. The saved Discord memory and Gemini CLI session were cleared for the current channel.");
+      return text5("\u2705 Started a fresh conversation. The active Discord transcript was archived and the bound Gemini CLI session was restarted for the current channel.");
     }
   );
 }
@@ -21763,7 +21906,7 @@ function registerCronTools(server2, config3) {
     "schedule_cron_job",
     {
       cron_expression: external_exports.string().describe('The cron schedule expression (e.g. "0 9 * * *" for 9am daily).'),
-      message: external_exports.string().describe('The exact final Discord message to send when the job fires. Write the message itself, not instructions for another agent. Example: "Hey, Yamato, drink water."'),
+      message: external_exports.string().describe('The exact final Discord message to send when the job fires. Write the message itself, not instructions for another agent. Example: "Update: drink water."'),
       channel_id: external_exports.string().optional().describe("Target Discord channel ID. Prefer this when you already know the exact ID."),
       channel_name: external_exports.string().optional().describe('Target Discord channel name such as "boardroom" or "#boardroom". Use this when you know the channel by name and want the daemon to resolve it.'),
       run_once: external_exports.boolean().optional().describe("Whether this job should delete itself after the first successful send. Defaults to true for reminder-style jobs.")
@@ -21867,7 +22010,7 @@ function registerChannelsTool(server2, config3) {
     async ({ query }) => {
       const res = await daemonRequest({ method: "GET", path: "/status", config: config3 });
       if (res.data["error"] === "daemon_offline") {
-        return text6("\u274C Daemon is offline. Start it: node dist/setup.cjs");
+        return text6("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
       }
       if (!res.ok) {
         return text6(`\u274C Failed to fetch channels: ${JSON.stringify(res.data)}`);
@@ -21886,93 +22029,6 @@ function registerChannelsTool(server2, config3) {
 }
 function text6(content) {
   return { content: [{ type: "text", text: content }] };
-}
-
-// src/tools/watch.ts
-function registerWatchTools(server2, config3) {
-  server2.tool(
-    "schedule_watch_job",
-    {
-      source: external_exports.enum(["4chan_a_watch"]).optional().describe("Background watch source. Currently only 4chan /a/ watch is supported."),
-      topic: external_exports.string().describe('What Yamato wants monitored. Example: "One Piece spoiler thread".'),
-      board: external_exports.string().optional().describe('4chan board to monitor. Defaults to "a".'),
-      keywords: external_exports.array(external_exports.string()).min(1).describe("Keywords the background collector should use to find relevant threads."),
-      report_in_minutes: external_exports.number().optional().describe("How long to collect before waking Gemini to report back. Defaults to 30."),
-      poll_every_minutes: external_exports.number().optional().describe("How often the collector should poll for changes while waiting. Defaults to 5."),
-      channel_id: external_exports.string().optional().describe("Optional target Discord channel ID for the final report."),
-      channel_name: external_exports.string().optional().describe('Optional target Discord channel name such as "boardroom" or "#boardroom".'),
-      min_signal: external_exports.number().optional().describe("Minimum signal target used for status/scoring while collecting. Defaults to 3.")
-    },
-    async ({ source = "4chan_a_watch", topic, board, keywords, report_in_minutes, poll_every_minutes, channel_id, channel_name, min_signal }) => {
-      const res = await daemonRequest({
-        method: "POST",
-        path: "/watch",
-        config: config3,
-        body: {
-          source,
-          topic,
-          board,
-          keywords,
-          report_in_minutes,
-          poll_every_minutes,
-          channel_id,
-          channel_name,
-          min_signal
-        }
-      });
-      if (!res.ok) {
-        return text7(`\u274C Failed to schedule watch job: ${res.data["error"] ?? "unknown error"}`, true);
-      }
-      const job = res.data["job"] ?? {};
-      const dueAt = typeof job.dueAt === "string" ? job.dueAt : "unknown time";
-      const pollEveryMs = typeof job.pollEveryMs === "number" ? job.pollEveryMs : 0;
-      const pollEveryMinutes = pollEveryMs > 0 ? Math.round(pollEveryMs / 6e4) : 0;
-      const target = job.channelName || job.channelId || channel_name || channel_id || config3.discordChannelId;
-      return text7(
-        `Watcher armed: ${job.id ?? "(unknown id)"} | topic: ${job.topic ?? topic} | source: /${job.board ?? (board ?? "a")}/ | collector every ${pollEveryMinutes || 5}m | Gemini wake-up near ${dueAt} | target ${target}.`
-      );
-    }
-  );
-  server2.tool(
-    "list_watch_jobs",
-    {},
-    async () => {
-      const res = await daemonRequest({ method: "GET", path: "/watch", config: config3 });
-      if (!res.ok) {
-        return text7(`\u274C Failed to fetch watch jobs: ${res.data["error"] ?? "unknown error"}`, true);
-      }
-      const jobs = Array.isArray(res.data["jobs"]) ? res.data["jobs"] : [];
-      if (jobs.length === 0) {
-        return text7("No background watch jobs are currently scheduled.");
-      }
-      const lines = jobs.map((job) => `- ${job.id} | ${job.status} | ${job.topic} | /${job.board}/ | due ${job.dueAt} | target ${job.channelName || job.channelId}`);
-      return text7(lines.join("\n"));
-    }
-  );
-  server2.tool(
-    "delete_watch_job",
-    {
-      job_id: external_exports.string().describe("The watch job ID to delete.")
-    },
-    async ({ job_id }) => {
-      const res = await daemonRequest({
-        method: "POST",
-        path: "/watch/delete",
-        config: config3,
-        body: { job_id }
-      });
-      if (!res.ok) {
-        return text7(`\u274C Failed to delete watch job: ${res.data["error"] ?? "unknown error"}`, true);
-      }
-      return text7(Boolean(res.data["ok"]) ? "Watch job deleted successfully." : "Watch job not found.");
-    }
-  );
-}
-function text7(content, isError = false) {
-  return {
-    content: [{ type: "text", text: content }],
-    ...isError ? { isError: true } : {}
-  };
 }
 
 // src/server.ts
@@ -21996,7 +22052,6 @@ registerRestartTool(server, config2);
 registerFindImagesTool(server);
 registerCronTools(server, config2);
 registerChannelsTool(server, config2);
-registerWatchTools(server, config2);
 async function main() {
   if (config2.autoStartDaemon) {
     try {

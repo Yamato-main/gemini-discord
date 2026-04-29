@@ -26,7 +26,7 @@ export interface RoutingDecision {
 }
 
 export function isDirectMessageAuthorAllowed(authorId: string, config: Config): boolean {
-  return authorId === config.discordBossId
+  return authorId === config.discordAdminId
     || config.ownerIds.includes(authorId)
     || config.allowedUserIds.includes(authorId);
 }

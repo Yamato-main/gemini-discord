@@ -34,7 +34,7 @@ export function registerSendTool(server: McpServer, config: Config): void {
       }
 
       if (!(await isDaemonOnline(config))) {
-        return text('❌ Daemon is offline. Start it: node dist/setup.cjs');
+        return text('❌ Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.');
       }
 
       const res = await daemonRequest({
@@ -42,6 +42,7 @@ export function registerSendTool(server: McpServer, config: Config): void {
         path: '/send',
         config,
         body,
+        timeoutMs: 60000,
       });
 
       if (!res.ok) {
