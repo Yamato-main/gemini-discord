@@ -85,16 +85,36 @@ export async function runPreflight(extensionDir: string): Promise<PreflightResul
 }
 
 /**
- * Check if a port is already bound on 127.0.0.1.
+ * Check if a port already has an active listener on 127.0.0.1.
+ *
+ * This intentionally uses a client connection probe instead of briefly binding
+ * the port ourselves. Binding during preflight can race with the real control
+ * API startup and leave the daemon tripping over its own availability check.
  */
-function checkPortInUse(port: number): Promise<boolean> {
+export function checkPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once('error', () => resolve(true));
-    server.once('listening', () => {
-      server.close(() => resolve(false));
+    const socket = net.createConnection({ host: '127.0.0.1', port });
+    let settled = false;
+
+    const finish = (inUse: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      resolve(inUse);
+    };
+
+    socket.setTimeout(750);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ECONNREFUSED' || error.code === 'EPERM' || error.code === 'EACCES') {
+        finish(false);
+        return;
+      }
+      finish(true);
     });
-    server.listen(port, '127.0.0.1');
   });
 }
 

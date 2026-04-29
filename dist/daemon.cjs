@@ -87565,23 +87565,51 @@ async function processViaCli(message, accepted, config, memory, processingContex
     if (!cliPool) {
       throw new Error("CLI pool not initialized");
     }
+    const sendViaCli = async (callbacks) => {
+      const baseOptions = {
+        cwd: processingContext.geminiProjectDir,
+        resumeSessionId,
+        isBoss: accepted.isBoss,
+        toolMode,
+        attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+        onSessionId: (sessionId) => {
+          currentSessionId = sessionId;
+        }
+      };
+      try {
+        return await cliPool.send(
+          processingContext.bindingKey,
+          prompt,
+          callbacks,
+          baseOptions
+        );
+      } catch (error) {
+        if (!shouldRetryWithFreshSession(error, resumeSessionId)) {
+          throw error;
+        }
+        log.warn("Gemini resume session crashed; retrying with a fresh session", {
+          bindingKey: processingContext.bindingKey,
+          sessionId: resumeSessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        resetGeminiBindingSession(processingContext.bindingDir);
+        currentSessionId = null;
+        return cliPool.send(
+          processingContext.bindingKey,
+          prompt,
+          callbacks,
+          {
+            ...baseOptions,
+            resumeSessionId: null
+          }
+        );
+      }
+    };
     if (editor) {
-      response = await cliPool.send(
-        processingContext.bindingKey,
-        prompt,
+      response = await sendViaCli(
         {
           onToken: (token) => editor.feed(token),
           onThought: () => editor.feedThought()
-        },
-        {
-          cwd: processingContext.geminiProjectDir,
-          resumeSessionId,
-          isBoss: accepted.isBoss,
-          toolMode,
-          attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-          onSessionId: (sessionId) => {
-            currentSessionId = sessionId;
-          }
         }
       );
       const prepared = await finalizeAssistantResponse(response, message, accepted.isBoss);
@@ -87608,23 +87636,11 @@ async function processViaCli(message, accepted, config, memory, processingContex
         });
       }, 9e3);
       try {
-        response = await cliPool.send(
-          processingContext.bindingKey,
-          prompt,
+        response = await sendViaCli(
           {
             onToken: () => {
             },
             onThought: () => {
-            }
-          },
-          {
-            cwd: processingContext.geminiProjectDir,
-            resumeSessionId,
-            isBoss: accepted.isBoss,
-            toolMode,
-            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-            onSessionId: (sessionId) => {
-              currentSessionId = sessionId;
             }
           }
         );
@@ -87722,6 +87738,13 @@ function formatError(err) {
   }
   return `**Error:** ${msg.slice(0, 300)}`;
 }
+function shouldRetryWithFreshSession(error, resumeSessionId) {
+  if (!resumeSessionId) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes("exited with code") || message.includes("returned no assistant output") || message.includes("resume_session_unavailable");
+}
 var fsp, path9, ERROR_MATCHERS;
 var init_engine_cli = __esm({
   "src/daemon/engine-cli.ts"() {
@@ -87735,6 +87758,7 @@ var init_engine_cli = __esm({
     init_sanitizer();
     init_background_context();
     init_runtime();
+    init_log();
     init_binding();
     init_gemini_project();
     fsp = __toESM(require("node:fs/promises"), 1);
@@ -88188,12 +88212,26 @@ async function runPreflight(extensionDir2) {
 }
 function checkPortInUse(port) {
   return new Promise((resolve2) => {
-    const server = net.createServer();
-    server.once("error", () => resolve2(true));
-    server.once("listening", () => {
-      server.close(() => resolve2(false));
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    let settled = false;
+    const finish = (inUse) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      resolve2(inUse);
+    };
+    socket.setTimeout(750);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", (error) => {
+      if (error.code === "ECONNREFUSED" || error.code === "EPERM" || error.code === "EACCES") {
+        finish(false);
+        return;
+      }
+      finish(true);
     });
-    server.listen(port, "127.0.0.1");
   });
 }
 function shellEscape(value) {

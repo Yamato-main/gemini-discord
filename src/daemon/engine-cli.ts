@@ -20,10 +20,12 @@ import { processCrossChannelSends } from './channels.js';
 import { sanitizeFullResponse } from './sanitizer.js';
 import { getBackgroundOperationsContext } from './background-context.js';
 import { runtimeStore } from './runtime.js';
+import { log } from './log.js';
 import {
   ensureGeminiBindingWorkspace,
   loadGeminiBindingState,
   recordGeminiBindingSession,
+  resetGeminiBindingSession,
   resolveGeminiBindingKey,
 } from './binding.js';
 import {
@@ -145,21 +147,54 @@ export async function processViaCli(
       throw new Error('CLI pool not initialized');
     }
 
+    const sendViaCli = async (callbacks: { onToken: (token: string) => void; onThought: () => void }): Promise<string> => {
+      const baseOptions = {
+        cwd: processingContext.geminiProjectDir,
+        resumeSessionId,
+        isBoss: accepted.isBoss,
+        toolMode,
+        attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+        onSessionId: (sessionId: string) => { currentSessionId = sessionId; },
+      } as const;
+
+      try {
+        return await cliPool.send(
+          processingContext.bindingKey,
+          prompt,
+          callbacks,
+          baseOptions,
+        );
+      } catch (error) {
+        if (!shouldRetryWithFreshSession(error, resumeSessionId)) {
+          throw error;
+        }
+
+        log.warn('Gemini resume session crashed; retrying with a fresh session', {
+          bindingKey: processingContext.bindingKey,
+          sessionId: resumeSessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        resetGeminiBindingSession(processingContext.bindingDir);
+        currentSessionId = null;
+
+        return cliPool.send(
+          processingContext.bindingKey,
+          prompt,
+          callbacks,
+          {
+            ...baseOptions,
+            resumeSessionId: null,
+          },
+        );
+      }
+    };
+
     if (editor) {
-      response = await cliPool.send(
-        processingContext.bindingKey,
-        prompt,
+      response = await sendViaCli(
         {
           onToken: (token) => editor.feed(token),
           onThought: () => editor.feedThought(),
-        },
-        {
-          cwd: processingContext.geminiProjectDir,
-          resumeSessionId,
-          isBoss: accepted.isBoss,
-          toolMode,
-          attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-          onSessionId: (sessionId) => { currentSessionId = sessionId; },
         },
       );
 
@@ -187,20 +222,10 @@ export async function processViaCli(
       }, 9000);
 
       try {
-        response = await cliPool.send(
-          processingContext.bindingKey,
-          prompt,
+        response = await sendViaCli(
           {
             onToken: () => {},
             onThought: () => {},
-          },
-          {
-            cwd: processingContext.geminiProjectDir,
-            resumeSessionId,
-            isBoss: accepted.isBoss,
-            toolMode,
-            attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
-            onSessionId: (sessionId) => { currentSessionId = sessionId; },
           },
         );
         clearInterval(typingInterval);
@@ -352,4 +377,15 @@ export function formatError(err: unknown): string {
   }
 
   return `**Error:** ${msg.slice(0, 300)}`;
+}
+
+function shouldRetryWithFreshSession(error: unknown, resumeSessionId: string | null): boolean {
+  if (!resumeSessionId) {
+    return false;
+  }
+
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes('exited with code')
+    || message.includes('returned no assistant output')
+    || message.includes('resume_session_unavailable');
 }
