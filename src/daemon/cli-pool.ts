@@ -155,6 +155,12 @@ function normalizeAcpError(error: unknown): Error {
   return new Error(typeof error === 'string' ? error : 'Gemini ACP request failed');
 }
 
+function isRetryableAcpExitError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  return message.includes('gemini acp exited with code 1')
+    || message.includes('gemini returned no assistant output');
+}
+
 function isMissingSessionError(error: Error): boolean {
   const message = error.message.toLowerCase();
   return message.includes('no previous sessions found for this project')
@@ -219,43 +225,59 @@ export class CliProcessPool {
   ): Promise<string> {
     const allowedTools = resolveAllowedTools(opts.isBoss, opts.toolMode);
     const poolKey = buildPoolKey(bindingKey, allowedTools);
+    let lastError: Error | null = null;
 
-    let entry = this.pool.get(poolKey);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let entry = this.pool.get(poolKey);
 
-    if (entry && !entry.busy && this.isAlive(entry)) {
-      entry.busy = true;
-      entry.lastActivityAt = Date.now();
-      this.resetIdleTimer(entry);
-      log.info('CLI pool: reusing warm ACP process', {
-        poolKey,
-        aliveMs: Date.now() - entry.spawnedAt,
-        sessionId: entry.sessionId,
-      });
-    } else {
-      if (entry) {
+      if (entry && !entry.busy && this.isAlive(entry)) {
+        entry.busy = true;
+        entry.lastActivityAt = Date.now();
+        this.resetIdleTimer(entry);
+        log.info('CLI pool: reusing warm ACP process', {
+          poolKey,
+          aliveMs: Date.now() - entry.spawnedAt,
+          sessionId: entry.sessionId,
+        });
+      } else {
+        if (entry) {
+          this.evict(poolKey);
+        }
+
+        if (this.pool.size >= this.maxSize) {
+          this.evictOldestIdle();
+        }
+
+        entry = await this.spawnProcess(poolKey, allowedTools);
+        entry.busy = true;
+        this.pool.set(poolKey, entry);
+      }
+
+      try {
+        await this.ensureSession(entry, opts);
+        const response = await this.promptWithAcp(entry, prompt, callbacks, opts);
+        entry.busy = false;
+        entry.lastActivityAt = Date.now();
+        this.resetIdleTimer(entry);
+        return response;
+      } catch (error) {
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        lastError = normalized;
         this.evict(poolKey);
-      }
 
-      if (this.pool.size >= this.maxSize) {
-        this.evictOldestIdle();
-      }
+        if (attempt === 0 && isRetryableAcpExitError(normalized)) {
+          log.warn('CLI pool: retrying Gemini ACP after crash', {
+            poolKey,
+            error: normalized.message,
+          });
+          continue;
+        }
 
-      entry = await this.spawnProcess(poolKey, allowedTools);
-      entry.busy = true;
-      this.pool.set(poolKey, entry);
+        throw normalized;
+      }
     }
 
-    try {
-      await this.ensureSession(entry, opts);
-      const response = await this.promptWithAcp(entry, prompt, callbacks, opts);
-      entry.busy = false;
-      entry.lastActivityAt = Date.now();
-      this.resetIdleTimer(entry);
-      return response;
-    } catch (error) {
-      this.evict(poolKey);
-      throw error;
-    }
+    throw lastError ?? new Error('Gemini ACP request failed');
   }
 
   private async spawnProcess(poolKey: string, allowedTools: string): Promise<PersistentProcess> {
