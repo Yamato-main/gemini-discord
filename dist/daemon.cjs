@@ -39,7 +39,7 @@ function resolveRuntimePaths(extensionDir2) {
   return {
     runtimeDir,
     bindingsDir: path.join(runtimeDir, "bindings"),
-    configSnapshotFile: resolveManagedRuntimePath(extensionDir2, "config.json"),
+    managedConfigFile: resolveManagedRuntimePath(extensionDir2, "config.json"),
     daemonTokenFile: resolveManagedRuntimePath(extensionDir2, "daemon-token", ".daemon-token"),
     daemonLogFile: resolveManagedRuntimePath(extensionDir2, "daemon.log", "daemon.log"),
     memoryFile: resolveManagedRuntimePath(extensionDir2, "memory.json", ".memory.json"),
@@ -78,11 +78,102 @@ var init_runtime_paths = __esm({
   }
 });
 
+// src/shared/managed-config.ts
+function readManagedConfigFile(filePath) {
+  if (!fs2.existsSync(filePath)) {
+    return createManagedConfigFile();
+  }
+  try {
+    const parsed = JSON.parse(fs2.readFileSync(filePath, "utf-8"));
+    if (parsed.version === 1 && typeof parsed.values === "object" && parsed.values !== null) {
+      return createManagedConfigFile(coerceStringMap(parsed.values));
+    }
+    if (parsed.version === MANAGED_CONFIG_VERSION) {
+      return {
+        version: MANAGED_CONFIG_VERSION,
+        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : (/* @__PURE__ */ new Date()).toISOString(),
+        env: coerceStringMap(parsed.env),
+        discord: coerceDiscordMetadata(parsed.discord)
+      };
+    }
+  } catch {
+  }
+  return createManagedConfigFile();
+}
+function writeManagedConfigFile(filePath, config) {
+  const payload = {
+    version: MANAGED_CONFIG_VERSION,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    env: coerceStringMap(config.env),
+    discord: coerceDiscordMetadata(config.discord)
+  };
+  fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
+  fs2.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
+}
+function updateManagedConfigFile(filePath, updater) {
+  const next = updater(readManagedConfigFile(filePath));
+  writeManagedConfigFile(filePath, next);
+  return next;
+}
+function createManagedConfigFile(env = {}) {
+  return {
+    version: MANAGED_CONFIG_VERSION,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    env: coerceStringMap(env),
+    discord: {}
+  };
+}
+function coerceStringMap(input) {
+  if (!input || typeof input !== "object") {
+    return {};
+  }
+  const result = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "string") {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+function coerceDiscordMetadata(input) {
+  if (!input || typeof input !== "object") {
+    return {};
+  }
+  const result = {};
+  const fields = [
+    "primaryGuildId",
+    "primaryGuildName",
+    "primaryChannelId",
+    "primaryChannelName",
+    "botUserId",
+    "botTag",
+    "appOwnerId",
+    "appOwnerTag",
+    "lastConnectedAt"
+  ];
+  for (const field of fields) {
+    const value = input[field];
+    if (typeof value === "string" && value.trim()) {
+      result[field] = value;
+    }
+  }
+  return result;
+}
+var fs2, path2, MANAGED_CONFIG_VERSION;
+var init_managed_config = __esm({
+  "src/shared/managed-config.ts"() {
+    "use strict";
+    fs2 = __toESM(require("node:fs"), 1);
+    path2 = __toESM(require("node:path"), 1);
+    MANAGED_CONFIG_VERSION = 2;
+  }
+});
+
 // src/shared/config.ts
 function parseEnvFile(filePath) {
   const result = {};
-  if (!fs2.existsSync(filePath)) return result;
-  const content = fs2.readFileSync(filePath, "utf-8");
+  if (!fs3.existsSync(filePath)) return result;
+  const content = fs3.readFileSync(filePath, "utf-8");
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -131,33 +222,16 @@ function resolveAdminId(explicitAdminId, ownerIds) {
   }
   return ownerIds[0] ?? "";
 }
-function readSnapshot(filePath) {
-  try {
-    const parsed = JSON.parse(fs2.readFileSync(filePath, "utf-8"));
-    if (parsed.version !== CONFIG_SNAPSHOT_VERSION || typeof parsed.values !== "object" || parsed.values === null) {
-      return {};
-    }
-    const rawValues = {};
-    for (const [key, value] of Object.entries(parsed.values)) {
-      if (typeof value === "string") {
-        rawValues[key] = value;
-      }
-    }
-    return normalizeConfigMap(rawValues);
-  } catch {
-    return {};
-  }
-}
 function normalizeConfigMap(input) {
   const normalized = {};
   for (const key of CONFIG_ENV_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(input, key)) {
+    if (Object.prototype.hasOwnProperty.call(input, key) && input[key].trim() !== "") {
       normalized[key] = input[key];
       continue;
     }
     const aliases = LEGACY_ENV_ALIASES[key] ?? [];
     for (const alias of aliases) {
-      if (Object.prototype.hasOwnProperty.call(input, alias)) {
+      if (Object.prototype.hasOwnProperty.call(input, alias) && input[alias].trim() !== "") {
         normalized[key] = input[alias];
         break;
       }
@@ -182,31 +256,19 @@ function collectProcessEnv() {
   }
   return result;
 }
-function writeSnapshot(filePath, values) {
-  const payload = {
-    version: CONFIG_SNAPSHOT_VERSION,
-    values: {}
-  };
-  for (const key of CONFIG_ENV_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(values, key)) {
-      payload.values[key] = values[key];
-    }
-  }
-  fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
-  fs2.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
-}
 function resolveConfigEnvMap(extensionDir2) {
   const runtimePaths = ensureRuntimePaths(extensionDir2);
-  const snapshotVars = readSnapshot(runtimePaths.configSnapshotFile);
-  const processVars = collectProcessEnv();
-  const fileVars = parseEnvFile(path2.join(extensionDir2, ".env"));
-  const resolved = normalizeConfigMap({
+  const managedConfig = readManagedConfigFile(runtimePaths.managedConfigFile);
+  const snapshotVars = normalizeConfigMap(managedConfig.env);
+  const processVars = normalizeConfigMap(collectProcessEnv());
+  const fileVars = normalizeConfigMap(parseEnvFile(path3.join(extensionDir2, ".env")));
+  const resolved = {
     ...snapshotVars,
     ...processVars,
     ...fileVars
-  });
+  };
   try {
-    writeSnapshot(runtimePaths.configSnapshotFile, resolved);
+    persistManagedConfig(runtimePaths.managedConfigFile, managedConfig, resolved);
   } catch {
   }
   return resolved;
@@ -214,6 +276,7 @@ function resolveConfigEnvMap(extensionDir2) {
 function loadConfig(extensionDir2) {
   const envVars = resolveConfigEnvMap(extensionDir2);
   const runtimePaths = ensureRuntimePaths(extensionDir2);
+  const managedConfig = readManagedConfigFile(runtimePaths.managedConfigFile);
   const get = (key, fallback = "") => {
     const envValue = envVars[key];
     return envValue === void 0 ? fallback : envValue;
@@ -225,6 +288,8 @@ function loadConfig(extensionDir2) {
   const config = {
     discordBotToken: get("DISCORD_BOT_TOKEN"),
     discordChannelId: primaryChannelId,
+    discordServerId: managedConfig.discord.primaryGuildId ?? "",
+    discordServerName: managedConfig.discord.primaryGuildName ?? "",
     ownerIds,
     discordAdminId: resolveAdminId(get("DISCORD_ADMIN_ID"), ownerIds),
     allowedChannelIds: configuredAllowedChannelIds.length > 0 ? configuredAllowedChannelIds : primaryChannelId ? [primaryChannelId] : [],
@@ -234,12 +299,12 @@ function loadConfig(extensionDir2) {
       let token = get("DAEMON_API_TOKEN");
       if (token) return token;
       const tokenPath = runtimePaths.daemonTokenFile;
-      if (fs2.existsSync(tokenPath)) {
-        return fs2.readFileSync(tokenPath, "utf-8").trim();
+      if (fs3.existsSync(tokenPath)) {
+        return fs3.readFileSync(tokenPath, "utf-8").trim();
       }
       token = crypto.randomBytes(32).toString("hex");
       try {
-        fs2.writeFileSync(tokenPath, token, { mode: 384 });
+        fs3.writeFileSync(tokenPath, token, { mode: 384 });
       } catch (e) {
       }
       return token;
@@ -270,30 +335,27 @@ function loadConfig(extensionDir2) {
 function resolveExtensionDir(fromDir) {
   let dir = fromDir;
   if (dir.startsWith("file://")) {
-    dir = path2.dirname(new URL(dir).pathname);
+    dir = path3.dirname(new URL(dir).pathname);
   }
-  if (path2.basename(dir) === "dist") {
-    return path2.dirname(dir);
+  if (path3.basename(dir) === "dist") {
+    return path3.dirname(dir);
   }
   let current = dir;
-  while (current !== path2.dirname(current)) {
-    if (fs2.existsSync(path2.join(current, "gemini-extension.json"))) {
+  while (current !== path3.dirname(current)) {
+    if (fs3.existsSync(path3.join(current, "gemini-extension.json"))) {
       return current;
     }
-    current = path2.dirname(current);
+    current = path3.dirname(current);
   }
   return dir;
 }
 async function updateEnvModel(extensionDir2, model) {
-  const envPath = path2.join(extensionDir2, ".env");
-  if (!fs2.existsSync(envPath)) {
-    const runtimePaths = resolveRuntimePaths(extensionDir2);
-    const current = resolveConfigEnvMap(extensionDir2);
-    current.GEMINI_MODEL = model;
-    writeSnapshot(runtimePaths.configSnapshotFile, current);
+  const envPath = path3.join(extensionDir2, ".env");
+  if (!fs3.existsSync(envPath)) {
+    persistConfigEnvUpdates(extensionDir2, { GEMINI_MODEL: model });
     return;
   }
-  const content = fs2.readFileSync(envPath, "utf-8");
+  const content = fs3.readFileSync(envPath, "utf-8");
   const lines = content.split("\n");
   let found = false;
   const newLines = lines.map((line) => {
@@ -306,17 +368,55 @@ async function updateEnvModel(extensionDir2, model) {
   if (!found) {
     newLines.push(`GEMINI_MODEL=${model}`);
   }
-  fs2.writeFileSync(envPath, newLines.join("\n"));
+  fs3.writeFileSync(envPath, newLines.join("\n"));
 }
-var fs2, path2, crypto, CONFIG_SNAPSHOT_VERSION, CONFIG_ENV_KEYS, LEGACY_ENV_ALIASES;
+function persistConfigEnvUpdates(extensionDir2, updates) {
+  const runtimePaths = ensureRuntimePaths(extensionDir2);
+  updateManagedConfigFile(runtimePaths.managedConfigFile, (current) => {
+    const nextEnv = normalizeConfigMap({
+      ...current.env,
+      ...updates
+    });
+    return {
+      ...current,
+      env: nextEnv
+    };
+  });
+}
+function persistDiscordMetadata(extensionDir2, updates) {
+  const runtimePaths = ensureRuntimePaths(extensionDir2);
+  updateManagedConfigFile(runtimePaths.managedConfigFile, (current) => ({
+    ...current,
+    discord: {
+      ...current.discord,
+      ...filterEmptyMetadata(updates)
+    }
+  }));
+}
+function persistManagedConfig(filePath, current, values) {
+  updateManagedConfigFile(filePath, () => ({
+    ...current,
+    env: normalizeConfigMap(values)
+  }));
+}
+function filterEmptyMetadata(updates) {
+  const next = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (typeof value === "string" && value.trim()) {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+var fs3, path3, crypto, CONFIG_ENV_KEYS, LEGACY_ENV_ALIASES;
 var init_config = __esm({
   "src/shared/config.ts"() {
     "use strict";
-    fs2 = __toESM(require("node:fs"), 1);
-    path2 = __toESM(require("node:path"), 1);
+    fs3 = __toESM(require("node:fs"), 1);
+    path3 = __toESM(require("node:path"), 1);
     crypto = __toESM(require("node:crypto"), 1);
     init_runtime_paths();
-    CONFIG_SNAPSHOT_VERSION = 1;
+    init_managed_config();
     CONFIG_ENV_KEYS = [
       "DISCORD_BOT_TOKEN",
       "DISCORD_CHANNEL_ID",
@@ -930,13 +1030,13 @@ function __disposeResources(env) {
   }
   return next();
 }
-function __rewriteRelativeImportExtension(path10, preserveJsx) {
-  if (typeof path10 === "string" && /^\.\.?\//.test(path10)) {
-    return path10.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
+function __rewriteRelativeImportExtension(path11, preserveJsx) {
+  if (typeof path11 === "string" && /^\.\.?\//.test(path11)) {
+    return path11.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
       return tsx ? preserveJsx ? ".jsx" : ".js" : d && (!ext || !cm) ? m : d + ext + "." + cm.toLowerCase() + "js";
     });
   }
-  return path10;
+  return path11;
 }
 var extendStatics, __assign, __createBinding, __setModuleDefault, ownKeys, _SuppressedError, tslib_es6_default;
 var init_tslib_es6 = __esm({
@@ -1828,14 +1928,14 @@ var require_util = __commonJS({
         }
         const port = url.port != null ? url.port : url.protocol === "https:" ? 443 : 80;
         let origin = url.origin != null ? url.origin : `${url.protocol || ""}//${url.hostname || ""}:${port}`;
-        let path10 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
+        let path11 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
         if (origin[origin.length - 1] === "/") {
           origin = origin.slice(0, origin.length - 1);
         }
-        if (path10 && path10[0] !== "/") {
-          path10 = `/${path10}`;
+        if (path11 && path11[0] !== "/") {
+          path11 = `/${path11}`;
         }
-        return new URL(`${origin}${path10}`);
+        return new URL(`${origin}${path11}`);
       }
       if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
         throw new InvalidArgumentError("Invalid URL protocol: the URL must start with `http:` or `https:`.");
@@ -2286,39 +2386,39 @@ var require_diagnostics = __commonJS({
       });
       diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
         const {
-          request: { method, path: path10, origin }
+          request: { method, path: path11, origin }
         } = evt;
-        debuglog("sending request to %s %s/%s", method, origin, path10);
+        debuglog("sending request to %s %s/%s", method, origin, path11);
       });
       diagnosticsChannel.channel("undici:request:headers").subscribe((evt) => {
         const {
-          request: { method, path: path10, origin },
+          request: { method, path: path11, origin },
           response: { statusCode }
         } = evt;
         debuglog(
           "received response to %s %s/%s - HTTP %d",
           method,
           origin,
-          path10,
+          path11,
           statusCode
         );
       });
       diagnosticsChannel.channel("undici:request:trailers").subscribe((evt) => {
         const {
-          request: { method, path: path10, origin }
+          request: { method, path: path11, origin }
         } = evt;
-        debuglog("trailers received from %s %s/%s", method, origin, path10);
+        debuglog("trailers received from %s %s/%s", method, origin, path11);
       });
       diagnosticsChannel.channel("undici:request:error").subscribe((evt) => {
         const {
-          request: { method, path: path10, origin },
+          request: { method, path: path11, origin },
           error
         } = evt;
         debuglog(
           "request to %s %s/%s errored - %s",
           method,
           origin,
-          path10,
+          path11,
           error.message
         );
       });
@@ -2367,9 +2467,9 @@ var require_diagnostics = __commonJS({
         });
         diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
           const {
-            request: { method, path: path10, origin }
+            request: { method, path: path11, origin }
           } = evt;
-          debuglog("sending request to %s %s/%s", method, origin, path10);
+          debuglog("sending request to %s %s/%s", method, origin, path11);
         });
       }
       diagnosticsChannel.channel("undici:websocket:open").subscribe((evt) => {
@@ -2432,7 +2532,7 @@ var require_request = __commonJS({
     var kHandler = Symbol("handler");
     var Request = class {
       constructor(origin, {
-        path: path10,
+        path: path11,
         method,
         body,
         headers,
@@ -2447,11 +2547,11 @@ var require_request = __commonJS({
         expectContinue,
         servername
       }, handler) {
-        if (typeof path10 !== "string") {
+        if (typeof path11 !== "string") {
           throw new InvalidArgumentError("path must be a string");
-        } else if (path10[0] !== "/" && !(path10.startsWith("http://") || path10.startsWith("https://")) && method !== "CONNECT") {
+        } else if (path11[0] !== "/" && !(path11.startsWith("http://") || path11.startsWith("https://")) && method !== "CONNECT") {
           throw new InvalidArgumentError("path must be an absolute URL or start with a slash");
-        } else if (invalidPathRegex.test(path10)) {
+        } else if (invalidPathRegex.test(path11)) {
           throw new InvalidArgumentError("invalid request path");
         }
         if (typeof method !== "string") {
@@ -2517,7 +2617,7 @@ var require_request = __commonJS({
         this.completed = false;
         this.aborted = false;
         this.upgrade = upgrade || null;
-        this.path = query ? buildURL(path10, query) : path10;
+        this.path = query ? buildURL(path11, query) : path11;
         this.origin = origin;
         this.idempotent = idempotent == null ? method === "HEAD" || method === "GET" : idempotent;
         this.blocking = blocking == null ? false : blocking;
@@ -7036,7 +7136,7 @@ var require_client_h1 = __commonJS({
       return method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && method !== "TRACE" && method !== "CONNECT";
     }
     function writeH1(client, request) {
-      const { method, path: path10, host, upgrade, blocking, reset } = request;
+      const { method, path: path11, host, upgrade, blocking, reset } = request;
       let { body, headers, contentLength } = request;
       const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH" || method === "QUERY" || method === "PROPFIND" || method === "PROPPATCH";
       if (util.isFormDataLike(body)) {
@@ -7102,7 +7202,7 @@ var require_client_h1 = __commonJS({
       if (blocking) {
         socket[kBlocking] = true;
       }
-      let header = `${method} ${path10} HTTP/1.1\r
+      let header = `${method} ${path11} HTTP/1.1\r
 `;
       if (typeof host === "string") {
         header += `host: ${host}\r
@@ -7628,7 +7728,7 @@ var require_client_h2 = __commonJS({
     }
     function writeH2(client, request) {
       const session = client[kHTTP2Session];
-      const { method, path: path10, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
+      const { method, path: path11, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
       let { body } = request;
       if (upgrade) {
         util.errorRequest(client, request, new Error("Upgrade not supported for H2"));
@@ -7695,7 +7795,7 @@ var require_client_h2 = __commonJS({
         });
         return true;
       }
-      headers[HTTP2_HEADER_PATH] = path10;
+      headers[HTTP2_HEADER_PATH] = path11;
       headers[HTTP2_HEADER_SCHEME] = "https";
       const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH";
       if (body && typeof body.read === "function") {
@@ -8048,9 +8148,9 @@ var require_redirect_handler = __commonJS({
           return this.handler.onHeaders(statusCode, headers, resume, statusText);
         }
         const { origin, pathname, search } = util.parseURL(new URL(this.location, this.opts.origin && new URL(this.opts.path, this.opts.origin)));
-        const path10 = search ? `${pathname}${search}` : pathname;
+        const path11 = search ? `${pathname}${search}` : pathname;
         this.opts.headers = cleanRequestHeaders(this.opts.headers, statusCode === 303, this.opts.origin !== origin);
-        this.opts.path = path10;
+        this.opts.path = path11;
         this.opts.origin = origin;
         this.opts.maxRedirections = 0;
         this.opts.query = null;
@@ -9284,10 +9384,10 @@ var require_proxy_agent = __commonJS({
         };
         const {
           origin,
-          path: path10 = "/",
+          path: path11 = "/",
           headers = {}
         } = opts;
-        opts.path = origin + path10;
+        opts.path = origin + path11;
         if (!("host" in headers) && !("Host" in headers)) {
           const { host } = new URL2(origin);
           headers.host = host;
@@ -11208,20 +11308,20 @@ var require_mock_utils = __commonJS({
       }
       return true;
     }
-    function safeUrl(path10) {
-      if (typeof path10 !== "string") {
-        return path10;
+    function safeUrl(path11) {
+      if (typeof path11 !== "string") {
+        return path11;
       }
-      const pathSegments = path10.split("?");
+      const pathSegments = path11.split("?");
       if (pathSegments.length !== 2) {
-        return path10;
+        return path11;
       }
       const qp = new URLSearchParams(pathSegments.pop());
       qp.sort();
       return [...pathSegments, qp.toString()].join("?");
     }
-    function matchKey(mockDispatch2, { path: path10, method, body, headers }) {
-      const pathMatch = matchValue(mockDispatch2.path, path10);
+    function matchKey(mockDispatch2, { path: path11, method, body, headers }) {
+      const pathMatch = matchValue(mockDispatch2.path, path11);
       const methodMatch = matchValue(mockDispatch2.method, method);
       const bodyMatch = typeof mockDispatch2.body !== "undefined" ? matchValue(mockDispatch2.body, body) : true;
       const headersMatch = matchHeaders(mockDispatch2, headers);
@@ -11243,7 +11343,7 @@ var require_mock_utils = __commonJS({
     function getMockDispatch(mockDispatches, key) {
       const basePath = key.query ? buildURL(key.path, key.query) : key.path;
       const resolvedPath = typeof basePath === "string" ? safeUrl(basePath) : basePath;
-      let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path10 }) => matchValue(safeUrl(path10), resolvedPath));
+      let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path11 }) => matchValue(safeUrl(path11), resolvedPath));
       if (matchedMockDispatches.length === 0) {
         throw new MockNotMatchedError(`Mock dispatch not matched for path '${resolvedPath}'`);
       }
@@ -11281,9 +11381,9 @@ var require_mock_utils = __commonJS({
       }
     }
     function buildKey(opts) {
-      const { path: path10, method, body, headers, query } = opts;
+      const { path: path11, method, body, headers, query } = opts;
       return {
-        path: path10,
+        path: path11,
         method,
         body,
         headers,
@@ -11746,10 +11846,10 @@ var require_pending_interceptors_formatter = __commonJS({
       }
       format(pendingInterceptors) {
         const withPrettyHeaders = pendingInterceptors.map(
-          ({ method, path: path10, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
+          ({ method, path: path11, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
             Method: method,
             Origin: origin,
-            Path: path10,
+            Path: path11,
             "Status code": statusCode,
             Persistent: persist ? PERSISTENT : NOT_PERSISTENT,
             Invocations: timesInvoked,
@@ -16630,9 +16730,9 @@ var require_util6 = __commonJS({
         }
       }
     }
-    function validateCookiePath(path10) {
-      for (let i = 0; i < path10.length; ++i) {
-        const code = path10.charCodeAt(i);
+    function validateCookiePath(path11) {
+      for (let i = 0; i < path11.length; ++i) {
+        const code = path11.charCodeAt(i);
         if (code < 32 || // exclude CTLs (0-31)
         code === 127 || // DEL
         code === 59) {
@@ -19272,11 +19372,11 @@ var require_undici = __commonJS({
           if (typeof opts.path !== "string") {
             throw new InvalidArgumentError("invalid opts.path");
           }
-          let path10 = opts.path;
+          let path11 = opts.path;
           if (!opts.path.startsWith("/")) {
-            path10 = `/${path10}`;
+            path11 = `/${path11}`;
           }
-          url = new URL(util.parseOrigin(url).origin + path10);
+          url = new URL(util.parseOrigin(url).origin + path11);
         } else {
           if (!opts) {
             opts = typeof url === "object" ? url : {};
@@ -20090,26 +20190,26 @@ var require_channel = __commonJS({
       ForumLayoutType2[ForumLayoutType2["ListView"] = 1] = "ListView";
       ForumLayoutType2[ForumLayoutType2["GalleryView"] = 2] = "GalleryView";
     })(ForumLayoutType || (exports2.ForumLayoutType = ForumLayoutType = {}));
-    var ChannelType2;
-    (function(ChannelType3) {
-      ChannelType3[ChannelType3["GuildText"] = 0] = "GuildText";
-      ChannelType3[ChannelType3["DM"] = 1] = "DM";
-      ChannelType3[ChannelType3["GuildVoice"] = 2] = "GuildVoice";
-      ChannelType3[ChannelType3["GroupDM"] = 3] = "GroupDM";
-      ChannelType3[ChannelType3["GuildCategory"] = 4] = "GuildCategory";
-      ChannelType3[ChannelType3["GuildAnnouncement"] = 5] = "GuildAnnouncement";
-      ChannelType3[ChannelType3["AnnouncementThread"] = 10] = "AnnouncementThread";
-      ChannelType3[ChannelType3["PublicThread"] = 11] = "PublicThread";
-      ChannelType3[ChannelType3["PrivateThread"] = 12] = "PrivateThread";
-      ChannelType3[ChannelType3["GuildStageVoice"] = 13] = "GuildStageVoice";
-      ChannelType3[ChannelType3["GuildDirectory"] = 14] = "GuildDirectory";
-      ChannelType3[ChannelType3["GuildForum"] = 15] = "GuildForum";
-      ChannelType3[ChannelType3["GuildMedia"] = 16] = "GuildMedia";
-      ChannelType3[ChannelType3["GuildNews"] = 5] = "GuildNews";
-      ChannelType3[ChannelType3["GuildNewsThread"] = 10] = "GuildNewsThread";
-      ChannelType3[ChannelType3["GuildPublicThread"] = 11] = "GuildPublicThread";
-      ChannelType3[ChannelType3["GuildPrivateThread"] = 12] = "GuildPrivateThread";
-    })(ChannelType2 || (exports2.ChannelType = ChannelType2 = {}));
+    var ChannelType3;
+    (function(ChannelType4) {
+      ChannelType4[ChannelType4["GuildText"] = 0] = "GuildText";
+      ChannelType4[ChannelType4["DM"] = 1] = "DM";
+      ChannelType4[ChannelType4["GuildVoice"] = 2] = "GuildVoice";
+      ChannelType4[ChannelType4["GroupDM"] = 3] = "GroupDM";
+      ChannelType4[ChannelType4["GuildCategory"] = 4] = "GuildCategory";
+      ChannelType4[ChannelType4["GuildAnnouncement"] = 5] = "GuildAnnouncement";
+      ChannelType4[ChannelType4["AnnouncementThread"] = 10] = "AnnouncementThread";
+      ChannelType4[ChannelType4["PublicThread"] = 11] = "PublicThread";
+      ChannelType4[ChannelType4["PrivateThread"] = 12] = "PrivateThread";
+      ChannelType4[ChannelType4["GuildStageVoice"] = 13] = "GuildStageVoice";
+      ChannelType4[ChannelType4["GuildDirectory"] = 14] = "GuildDirectory";
+      ChannelType4[ChannelType4["GuildForum"] = 15] = "GuildForum";
+      ChannelType4[ChannelType4["GuildMedia"] = 16] = "GuildMedia";
+      ChannelType4[ChannelType4["GuildNews"] = 5] = "GuildNews";
+      ChannelType4[ChannelType4["GuildNewsThread"] = 10] = "GuildNewsThread";
+      ChannelType4[ChannelType4["GuildPublicThread"] = 11] = "GuildPublicThread";
+      ChannelType4[ChannelType4["GuildPrivateThread"] = 12] = "GuildPrivateThread";
+    })(ChannelType3 || (exports2.ChannelType = ChannelType3 = {}));
     var VideoQualityMode;
     (function(VideoQualityMode2) {
       VideoQualityMode2[VideoQualityMode2["Auto"] = 1] = "Auto";
@@ -26680,13 +26780,13 @@ var require_tree2 = __commonJS({
       mime: leaf.info.mime,
       extension: leaf.info.extension
     });
-    var isLeafNode = (tree, path10) => tree && path10.length === 0;
+    var isLeafNode = (tree, path11) => tree && path11.length === 0;
     var merge = (node, tree) => {
       if (node.bytes.length === 0)
         return tree;
-      const [currentByte, ...path10] = node.bytes;
+      const [currentByte, ...path11] = node.bytes;
       const currentTree = tree.bytes[currentByte];
-      if (isLeafNode(currentTree, path10)) {
+      if (isLeafNode(currentTree, path11)) {
         const matchingNode = tree.bytes[currentByte];
         tree.bytes[currentByte] = {
           ...matchingNode,
@@ -26698,9 +26798,9 @@ var require_tree2 = __commonJS({
         return tree;
       }
       if (tree.bytes[currentByte]) {
-        tree.bytes[currentByte] = exports2.merge(exports2.createNode(node.typename, path10, node.info), tree.bytes[currentByte]);
+        tree.bytes[currentByte] = exports2.merge(exports2.createNode(node.typename, path11, node.info), tree.bytes[currentByte]);
       } else {
-        tree.bytes[currentByte] = exports2.createComplexNode(node.typename, path10, node.info);
+        tree.bytes[currentByte] = exports2.createComplexNode(node.typename, path11, node.info);
       }
       return tree;
     };
@@ -26714,7 +26814,7 @@ var require_tree2 = __commonJS({
         bytes: {},
         matches: void 0
       };
-      const [currentKey, ...path10] = bytes;
+      const [currentKey, ...path11] = bytes;
       if (bytes.length === 0) {
         return {
           matches: [
@@ -26726,7 +26826,7 @@ var require_tree2 = __commonJS({
           bytes: {}
         };
       }
-      obj.bytes[currentKey] = exports2.createComplexNode(typename, path10, info);
+      obj.bytes[currentKey] = exports2.createComplexNode(typename, path11, info);
       return obj;
     };
     exports2.createComplexNode = createComplexNode;
@@ -31734,7 +31834,7 @@ var require_ChannelFlagsBitField = __commonJS({
 var require_Constants = __commonJS({
   "node_modules/discord.js/src/util/Constants.js"(exports2) {
     "use strict";
-    var { ChannelType: ChannelType2, MessageType, ComponentType, ImageFormat, StickerFormatType } = require_v106();
+    var { ChannelType: ChannelType3, MessageType, ComponentType, ImageFormat, StickerFormatType } = require_v106();
     exports2.MaxBulkDeletableMessageAge = 12096e5;
     exports2.SweeperKeys = [
       "autoModerationRules",
@@ -31761,18 +31861,18 @@ var require_Constants = __commonJS({
       MessageType.ContextMenuCommand
     ];
     exports2.GuildTextBasedChannelTypes = [
-      ChannelType2.GuildText,
-      ChannelType2.GuildAnnouncement,
-      ChannelType2.AnnouncementThread,
-      ChannelType2.PublicThread,
-      ChannelType2.PrivateThread,
-      ChannelType2.GuildVoice,
-      ChannelType2.GuildStageVoice
+      ChannelType3.GuildText,
+      ChannelType3.GuildAnnouncement,
+      ChannelType3.AnnouncementThread,
+      ChannelType3.PublicThread,
+      ChannelType3.PrivateThread,
+      ChannelType3.GuildVoice,
+      ChannelType3.GuildStageVoice
     ];
-    exports2.TextBasedChannelTypes = [...exports2.GuildTextBasedChannelTypes, ChannelType2.DM, ChannelType2.GroupDM];
-    exports2.SendableChannels = [...exports2.GuildTextBasedChannelTypes, ChannelType2.DM];
-    exports2.ThreadChannelTypes = [ChannelType2.AnnouncementThread, ChannelType2.PublicThread, ChannelType2.PrivateThread];
-    exports2.VoiceBasedChannelTypes = [ChannelType2.GuildVoice, ChannelType2.GuildStageVoice];
+    exports2.TextBasedChannelTypes = [...exports2.GuildTextBasedChannelTypes, ChannelType3.DM, ChannelType3.GroupDM];
+    exports2.SendableChannels = [...exports2.GuildTextBasedChannelTypes, ChannelType3.DM];
+    exports2.ThreadChannelTypes = [ChannelType3.AnnouncementThread, ChannelType3.PublicThread, ChannelType3.PrivateThread];
+    exports2.VoiceBasedChannelTypes = [ChannelType3.GuildVoice, ChannelType3.GuildStageVoice];
     exports2.SelectMenuTypes = [
       ComponentType.StringSelect,
       ComponentType.UserSelect,
@@ -31831,7 +31931,7 @@ var require_BaseChannel = __commonJS({
     "use strict";
     var { channelLink, channelMention } = require_dist7();
     var { DiscordSnowflake } = require_cjs3();
-    var { ChannelType: ChannelType2, Routes: Routes3 } = require_v106();
+    var { ChannelType: ChannelType3, Routes: Routes3 } = require_v106();
     var Base = require_Base();
     var ChannelFlagsBitField = require_ChannelFlagsBitField();
     var { ThreadChannelTypes } = require_Constants();
@@ -31932,7 +32032,7 @@ var require_BaseChannel = __commonJS({
        * @returns {boolean}
        */
       isDMBased() {
-        return [ChannelType2.DM, ChannelType2.GroupDM].includes(this.type);
+        return [ChannelType3.DM, ChannelType3.GroupDM].includes(this.type);
       }
       /**
        * Indicates whether this channel is {@link BaseGuildVoiceChannel voice-based}.
@@ -32878,7 +32978,7 @@ var require_GuildChannel = __commonJS({
   "node_modules/discord.js/src/structures/GuildChannel.js"(exports2, module2) {
     "use strict";
     var { Snowflake } = require_cjs3();
-    var { PermissionFlagsBits: PermissionFlagsBits2, ChannelType: ChannelType2 } = require_v106();
+    var { PermissionFlagsBits: PermissionFlagsBits2, ChannelType: ChannelType3 } = require_v106();
     var { BaseChannel } = require_BaseChannel();
     var { DiscordjsError: DiscordjsError2, ErrorCodes: ErrorCodes2 } = require_errors2();
     var PermissionOverwriteManager = require_PermissionOverwriteManager();
@@ -32955,7 +33055,7 @@ var require_GuildChannel = __commonJS({
        * @readonly
        */
       get position() {
-        const selfIsCategory = this.type === ChannelType2.GuildCategory;
+        const selfIsCategory = this.type === ChannelType3.GuildCategory;
         const types = getSortableGroupTypes(this.type);
         let count = 0;
         for (const channel of this.guild.channels.cache.values()) {
@@ -33274,7 +33374,7 @@ var require_Util = __commonJS({
     var { parse } = require("node:path");
     var process2 = require("node:process");
     var { Collection: Collection2 } = require_dist6();
-    var { ChannelType: ChannelType2, RouteBases, Routes: Routes3 } = require_v106();
+    var { ChannelType: ChannelType3, RouteBases, Routes: Routes3 } = require_v106();
     var { fetch: fetch2 } = require_undici();
     var Colors = require_Colors();
     var { DiscordjsError: DiscordjsError2, DiscordjsRangeError: DiscordjsRangeError2, DiscordjsTypeError: DiscordjsTypeError2, ErrorCodes: ErrorCodes2 } = require_errors2();
@@ -33343,24 +33443,24 @@ var require_Util = __commonJS({
       };
     }
     var TextSortableGroupTypes = [
-      ChannelType2.GuildText,
-      ChannelType2.GuildAnnouncement,
-      ChannelType2.GuildForum,
-      ChannelType2.GuildMedia
+      ChannelType3.GuildText,
+      ChannelType3.GuildAnnouncement,
+      ChannelType3.GuildForum,
+      ChannelType3.GuildMedia
     ];
-    var VoiceSortableGroupTypes = [ChannelType2.GuildVoice, ChannelType2.GuildStageVoice];
-    var CategorySortableGroupTypes = [ChannelType2.GuildCategory];
+    var VoiceSortableGroupTypes = [ChannelType3.GuildVoice, ChannelType3.GuildStageVoice];
+    var CategorySortableGroupTypes = [ChannelType3.GuildCategory];
     function getSortableGroupTypes(type) {
       switch (type) {
-        case ChannelType2.GuildText:
-        case ChannelType2.GuildAnnouncement:
-        case ChannelType2.GuildForum:
-        case ChannelType2.GuildMedia:
+        case ChannelType3.GuildText:
+        case ChannelType3.GuildAnnouncement:
+        case ChannelType3.GuildForum:
+        case ChannelType3.GuildMedia:
           return TextSortableGroupTypes;
-        case ChannelType2.GuildVoice:
-        case ChannelType2.GuildStageVoice:
+        case ChannelType3.GuildVoice:
+        case ChannelType3.GuildStageVoice:
           return VoiceSortableGroupTypes;
-        case ChannelType2.GuildCategory:
+        case ChannelType3.GuildCategory:
           return CategorySortableGroupTypes;
         default:
           return [type];
@@ -33413,8 +33513,8 @@ var require_Util = __commonJS({
       await client.rest.patch(route, { body: updatedItems, reason });
       return updatedItems;
     }
-    function basename3(path10, ext) {
-      const res = parse(path10);
+    function basename3(path11, ext) {
+      const res = parse(path11);
       return ext && res.ext.startsWith(ext) ? res.name : res.base.split("?")[0];
     }
     function cleanContent(str, channel) {
@@ -33435,7 +33535,7 @@ var require_Util = __commonJS({
               return user ? `@${user.displayName}` : match;
             }
             case "@&": {
-              if (channel.type === ChannelType2.DM) return match;
+              if (channel.type === ChannelType3.DM) return match;
               const role = channel.guild.roles.cache.get(id);
               return role ? `@${role.name}` : match;
             }
@@ -35896,8 +35996,8 @@ var require_DataResolver = __commonJS({
   "node_modules/discord.js/src/util/DataResolver.js"(exports2, module2) {
     "use strict";
     var { Buffer: Buffer2 } = require("node:buffer");
-    var fs8 = require("node:fs/promises");
-    var path10 = require("node:path");
+    var fs9 = require("node:fs/promises");
+    var path11 = require("node:path");
     var { fetch: fetch2 } = require_undici();
     var { DiscordjsError: DiscordjsError2, DiscordjsTypeError: DiscordjsTypeError2, ErrorCodes: ErrorCodes2 } = require_errors2();
     var Invite2 = require_Invite();
@@ -35923,10 +36023,10 @@ var require_DataResolver = __commonJS({
           const res = await fetch2(resource);
           return { data: Buffer2.from(await res.arrayBuffer()), contentType: res.headers.get("content-type") };
         }
-        const file = path10.resolve(resource);
-        const stats = await fs8.stat(file);
+        const file = path11.resolve(resource);
+        const stats = await fs9.stat(file);
         if (!stats.isFile()) throw new DiscordjsError2(ErrorCodes2.FileNotFound, file);
-        return { data: await fs8.readFile(file) };
+        return { data: await fs9.readFile(file) };
       }
       throw new DiscordjsTypeError2(ErrorCodes2.ReqResourceType);
     }
@@ -39077,11 +39177,11 @@ var require_baseGet = __commonJS({
   "node_modules/lodash/_baseGet.js"(exports2, module2) {
     var castPath = require_castPath();
     var toKey = require_toKey();
-    function baseGet(object, path10) {
-      path10 = castPath(path10, object);
-      var index = 0, length = path10.length;
+    function baseGet(object, path11) {
+      path11 = castPath(path11, object);
+      var index = 0, length = path11.length;
       while (object != null && index < length) {
-        object = object[toKey(path10[index++])];
+        object = object[toKey(path11[index++])];
       }
       return index && index == length ? object : void 0;
     }
@@ -39093,8 +39193,8 @@ var require_baseGet = __commonJS({
 var require_get = __commonJS({
   "node_modules/lodash/get.js"(exports2, module2) {
     var baseGet = require_baseGet();
-    function get(object, path10, defaultValue) {
-      var result = object == null ? void 0 : baseGet(object, path10);
+    function get(object, path11, defaultValue) {
+      var result = object == null ? void 0 : baseGet(object, path11);
       return result === void 0 ? defaultValue : result;
     }
     module2.exports = get;
@@ -49706,7 +49806,7 @@ var require_Message = __commonJS({
     var { DiscordSnowflake } = require_cjs3();
     var {
       InteractionType,
-      ChannelType: ChannelType2,
+      ChannelType: ChannelType3,
       MessageType,
       MessageFlags,
       PermissionFlagsBits: PermissionFlagsBits2,
@@ -50223,7 +50323,7 @@ var require_Message = __commonJS({
         const bitfield = PermissionFlagsBits2.SendMessages | (this.author.id === this.client.user.id ? PermissionsBitField2.DefaultBit : PermissionFlagsBits2.ManageMessages);
         const { channel } = this;
         return Boolean(
-          channel?.type === ChannelType2.GuildAnnouncement && !this.flags.has(MessageFlags.Crossposted) && this.reference?.type !== MessageReferenceType.Forward && this.type === MessageType.Default && !this.poll && channel.viewable && channel.permissionsFor(this.client.user)?.has(bitfield, false)
+          channel?.type === ChannelType3.GuildAnnouncement && !this.flags.has(MessageFlags.Crossposted) && this.reference?.type !== MessageReferenceType.Forward && this.type === MessageType.Default && !this.poll && channel.viewable && channel.permissionsFor(this.client.user)?.has(bitfield, false)
         );
       }
       /**
@@ -50392,7 +50492,7 @@ var require_Message = __commonJS({
        */
       async startThread(options = {}) {
         if (!this.channel) throw new DiscordjsError2(ErrorCodes2.ChannelNotCached);
-        if (![ChannelType2.GuildText, ChannelType2.GuildAnnouncement].includes(this.channel.type)) {
+        if (![ChannelType3.GuildText, ChannelType3.GuildAnnouncement].includes(this.channel.type)) {
           throw new DiscordjsError2(ErrorCodes2.MessageThreadParent);
         }
         if (this.hasThread) throw new DiscordjsError2(ErrorCodes2.MessageExistingThread);
@@ -50980,7 +51080,7 @@ var require_WebhookClient = __commonJS({
 var require_VoiceState = __commonJS({
   "node_modules/discord.js/src/structures/VoiceState.js"(exports2, module2) {
     "use strict";
-    var { ChannelType: ChannelType2, Routes: Routes3 } = require_v106();
+    var { ChannelType: ChannelType3, Routes: Routes3 } = require_v106();
     var Base = require_Base();
     var { DiscordjsError: DiscordjsError2, DiscordjsTypeError: DiscordjsTypeError2, ErrorCodes: ErrorCodes2 } = require_errors2();
     var VoiceState = class extends Base {
@@ -51124,7 +51224,7 @@ var require_VoiceState = __commonJS({
        * @returns {Promise<VoiceState>}
        */
       async edit(options) {
-        if (this.channel?.type !== ChannelType2.GuildStageVoice) throw new DiscordjsError2(ErrorCodes2.VoiceNotStageChannel);
+        if (this.channel?.type !== ChannelType3.GuildStageVoice) throw new DiscordjsError2(ErrorCodes2.VoiceNotStageChannel);
         const target = this.client.user.id === this.id ? "@me" : this.id;
         if (target !== "@me" && options.requestToSpeak !== void 0) {
           throw new DiscordjsError2(ErrorCodes2.VoiceStateNotOwn);
@@ -53462,7 +53562,7 @@ var require_Partials = __commonJS({
 var require_Action = __commonJS({
   "node_modules/discord.js/src/client/actions/Action.js"(exports2, module2) {
     "use strict";
-    var { ChannelType: ChannelType2 } = require_v106();
+    var { ChannelType: ChannelType3 } = require_v106();
     var { Poll } = require_Poll();
     var { PollAnswer } = require_PollAnswer();
     var Partials2 = require_Partials();
@@ -53484,7 +53584,7 @@ var require_Action = __commonJS({
           if (!data.recipients.some((existingRecipient) => recipient.id === existingRecipient.id)) {
             payloadData.recipients = [...data.recipients, recipient];
           }
-        } else if (data.type === ChannelType2.DM || data.type === ChannelType2.GroupDM) {
+        } else if (data.type === ChannelType3.DM || data.type === ChannelType3.GroupDM) {
           const recipient = data.author ?? data.user ?? { id: data.user_id };
           payloadData.recipients = [recipient];
         }
@@ -53910,7 +54010,7 @@ var require_DMChannel = __commonJS({
   "node_modules/discord.js/src/structures/DMChannel.js"(exports2, module2) {
     "use strict";
     var { userMention } = require_dist7();
-    var { ChannelType: ChannelType2 } = require_v106();
+    var { ChannelType: ChannelType3 } = require_v106();
     var { BaseChannel } = require_BaseChannel();
     var TextBasedChannel = require_TextBasedChannel();
     var DMMessageManager = require_DMMessageManager();
@@ -53918,7 +54018,7 @@ var require_DMChannel = __commonJS({
     var DMChannel = class extends BaseChannel {
       constructor(client, data) {
         super(client, data);
-        this.type = ChannelType2.DM;
+        this.type = ChannelType3.DM;
         this.messages = new DMMessageManager(this);
       }
       _patch(data) {
@@ -54539,7 +54639,7 @@ var require_ThreadChannel = __commonJS({
     "use strict";
     var { DiscordAPIError } = require_dist5();
     var { lazy } = require_dist();
-    var { RESTJSONErrorCodes, ChannelFlags, ChannelType: ChannelType2, PermissionFlagsBits: PermissionFlagsBits2, Routes: Routes3 } = require_v106();
+    var { RESTJSONErrorCodes, ChannelFlags, ChannelType: ChannelType3, PermissionFlagsBits: PermissionFlagsBits2, Routes: Routes3 } = require_v106();
     var { BaseChannel } = require_BaseChannel();
     var getThreadOnlyChannel = lazy(() => require_ThreadOnlyChannel());
     var TextBasedChannel = require_TextBasedChannel();
@@ -54573,7 +54673,7 @@ var require_ThreadChannel = __commonJS({
         }
         if ("thread_metadata" in data) {
           this.locked = data.thread_metadata.locked ?? false;
-          this.invitable = this.type === ChannelType2.PrivateThread ? data.thread_metadata.invitable ?? false : null;
+          this.invitable = this.type === ChannelType3.PrivateThread ? data.thread_metadata.invitable ?? false : null;
           this.archived = data.thread_metadata.archived;
           this.autoArchiveDuration = data.thread_metadata.auto_archive_duration;
           this.archiveTimestamp = Date.parse(data.thread_metadata.archive_timestamp);
@@ -54587,7 +54687,7 @@ var require_ThreadChannel = __commonJS({
           this.archiveTimestamp ??= null;
           this.invitable ??= null;
         }
-        this._createdTimestamp ??= this.type === ChannelType2.PrivateThread ? super.createdTimestamp : null;
+        this._createdTimestamp ??= this.type === ChannelType3.PrivateThread ? super.createdTimestamp : null;
         if ("last_message_id" in data) {
           this.lastMessageId = data.last_message_id;
         } else {
@@ -54760,7 +54860,7 @@ var require_ThreadChannel = __commonJS({
             auto_archive_duration: options.autoArchiveDuration,
             rate_limit_per_user: options.rateLimitPerUser,
             locked: options.locked,
-            invitable: this.type === ChannelType2.PrivateThread ? options.invitable : void 0,
+            invitable: this.type === ChannelType3.PrivateThread ? options.invitable : void 0,
             applied_tags: options.appliedTags,
             flags: "flags" in options ? ChannelFlagsBitField.resolve(options.flags) : void 0
           },
@@ -54807,7 +54907,7 @@ var require_ThreadChannel = __commonJS({
        * @returns {Promise<ThreadChannel>}
        */
       async setInvitable(invitable = true, reason) {
-        if (this.type !== ChannelType2.PrivateThread) {
+        if (this.type !== ChannelType3.PrivateThread) {
           throw new DiscordjsRangeError2(ErrorCodes2.ThreadInvitableType, this.type);
         }
         return this.edit({ invitable, reason });
@@ -54890,7 +54990,7 @@ var require_ThreadChannel = __commonJS({
        * @readonly
        */
       get editable() {
-        return this.ownerId === this.client.user.id && (this.type !== ChannelType2.PrivateThread || this.joined) || this.manageable;
+        return this.ownerId === this.client.user.id && (this.type !== ChannelType3.PrivateThread || this.joined) || this.manageable;
       }
       /**
        * Whether the thread is joinable by the client user
@@ -54899,7 +54999,7 @@ var require_ThreadChannel = __commonJS({
        */
       get joinable() {
         return !this.archived && !this.joined && this.permissionsFor(this.client.user)?.has(
-          this.type === ChannelType2.PrivateThread ? PermissionFlagsBits2.ManageThreads : PermissionFlagsBits2.ViewChannel,
+          this.type === ChannelType3.PrivateThread ? PermissionFlagsBits2.ManageThreads : PermissionFlagsBits2.ViewChannel,
           false
         );
       }
@@ -54934,7 +55034,7 @@ var require_ThreadChannel = __commonJS({
         const permissions = this.permissionsFor(this.client.user);
         if (!permissions) return false;
         if (permissions.has(PermissionFlagsBits2.Administrator, false)) return true;
-        return !(this.archived && this.locked && !this.manageable) && (this.type !== ChannelType2.PrivateThread || this.joined || this.manageable) && permissions.has(PermissionFlagsBits2.SendMessagesInThreads, false) && this.guild.members.me.communicationDisabledUntilTimestamp < Date.now();
+        return !(this.archived && this.locked && !this.manageable) && (this.type !== ChannelType3.PrivateThread || this.joined || this.manageable) && permissions.has(PermissionFlagsBits2.SendMessagesInThreads, false) && this.guild.members.me.communicationDisabledUntilTimestamp < Date.now();
       }
       /**
        * Whether the thread is unarchivable by the client user
@@ -55096,9 +55196,9 @@ var require_ThreadManager = __commonJS({
        * @returns {Promise<FetchedThreadsMore>}
        */
       async fetchArchived({ type = "public", fetchAll = false, before, limit } = {}, cache = true) {
-        let path10 = Routes3.channelThreads(this.channel.id, type);
+        let path11 = Routes3.channelThreads(this.channel.id, type);
         if (type === "private" && !fetchAll) {
-          path10 = Routes3.channelJoinedArchivedThreads(this.channel.id);
+          path11 = Routes3.channelJoinedArchivedThreads(this.channel.id);
         }
         let timestamp;
         let id;
@@ -55122,7 +55222,7 @@ var require_ThreadManager = __commonJS({
             }
           }
         }
-        const raw = await this.client.rest.get(path10, { query });
+        const raw = await this.client.rest.get(path11, { query });
         return this.constructor._mapThreads(raw, this.client, { parent: this.channel, cache });
       }
       /**
@@ -55157,7 +55257,7 @@ var require_ThreadManager = __commonJS({
 var require_GuildTextThreadManager = __commonJS({
   "node_modules/discord.js/src/managers/GuildTextThreadManager.js"(exports2, module2) {
     "use strict";
-    var { ChannelType: ChannelType2, Routes: Routes3 } = require_v106();
+    var { ChannelType: ChannelType3, Routes: Routes3 } = require_v106();
     var ThreadManager = require_ThreadManager();
     var { DiscordjsTypeError: DiscordjsTypeError2, ErrorCodes: ErrorCodes2 } = require_errors2();
     var GuildTextThreadManager = class extends ThreadManager {
@@ -55213,12 +55313,12 @@ var require_GuildTextThreadManager = __commonJS({
         reason,
         rateLimitPerUser
       } = {}) {
-        let resolvedType = this.channel.type === ChannelType2.GuildAnnouncement ? ChannelType2.AnnouncementThread : ChannelType2.PublicThread;
+        let resolvedType = this.channel.type === ChannelType3.GuildAnnouncement ? ChannelType3.AnnouncementThread : ChannelType3.PublicThread;
         let startMessageId;
         if (startMessage) {
           startMessageId = this.channel.messages.resolveId(startMessage);
           if (!startMessageId) throw new DiscordjsTypeError2(ErrorCodes2.InvalidType, "startMessage", "MessageResolvable");
-        } else if (this.channel.type !== ChannelType2.GuildAnnouncement) {
+        } else if (this.channel.type !== ChannelType3.GuildAnnouncement) {
           resolvedType = type ?? resolvedType;
         }
         const data = await this.client.rest.post(Routes3.threads(this.channel.id, startMessageId), {
@@ -55226,7 +55326,7 @@ var require_GuildTextThreadManager = __commonJS({
             name,
             auto_archive_duration: autoArchiveDuration,
             type: resolvedType,
-            invitable: resolvedType === ChannelType2.PrivateThread ? invitable : void 0,
+            invitable: resolvedType === ChannelType3.PrivateThread ? invitable : void 0,
             rate_limit_per_user: rateLimitPerUser
           },
           reason
@@ -55890,7 +55990,7 @@ var require_Channels = __commonJS({
   "node_modules/discord.js/src/util/Channels.js"(exports2, module2) {
     "use strict";
     var { lazy } = require_dist();
-    var { ChannelType: ChannelType2 } = require_v106();
+    var { ChannelType: ChannelType3 } = require_v106();
     var getCategoryChannel = lazy(() => require_CategoryChannel());
     var getDMChannel = lazy(() => require_DMChannel());
     var getNewsChannel = lazy(() => require_NewsChannel());
@@ -55905,49 +56005,49 @@ var require_Channels = __commonJS({
     function createChannel(client, data, guild, { allowUnknownGuild } = {}) {
       let channel;
       if (!data.guild_id && !guild) {
-        if (data.recipients && data.type !== ChannelType2.GroupDM || data.type === ChannelType2.DM) {
+        if (data.recipients && data.type !== ChannelType3.GroupDM || data.type === ChannelType3.DM) {
           channel = new (getDMChannel())(client, data);
-        } else if (data.type === ChannelType2.GroupDM) {
+        } else if (data.type === ChannelType3.GroupDM) {
           channel = new (getPartialGroupDMChannel())(client, data);
         }
       } else {
         guild ??= client.guilds.cache.get(data.guild_id);
         if (guild || allowUnknownGuild) {
           switch (data.type) {
-            case ChannelType2.GuildText: {
+            case ChannelType3.GuildText: {
               channel = new (getTextChannel())(guild, data, client);
               break;
             }
-            case ChannelType2.GuildVoice: {
+            case ChannelType3.GuildVoice: {
               channel = new (getVoiceChannel())(guild, data, client);
               break;
             }
-            case ChannelType2.GuildCategory: {
+            case ChannelType3.GuildCategory: {
               channel = new (getCategoryChannel())(guild, data, client);
               break;
             }
-            case ChannelType2.GuildAnnouncement: {
+            case ChannelType3.GuildAnnouncement: {
               channel = new (getNewsChannel())(guild, data, client);
               break;
             }
-            case ChannelType2.GuildStageVoice: {
+            case ChannelType3.GuildStageVoice: {
               channel = new (getStageChannel())(guild, data, client);
               break;
             }
-            case ChannelType2.AnnouncementThread:
-            case ChannelType2.PublicThread:
-            case ChannelType2.PrivateThread: {
+            case ChannelType3.AnnouncementThread:
+            case ChannelType3.PublicThread:
+            case ChannelType3.PrivateThread: {
               channel = new (getThreadChannel())(guild, data, client);
               if (!allowUnknownGuild) channel.parent?.threads.cache.set(channel.id, channel);
               break;
             }
-            case ChannelType2.GuildDirectory:
+            case ChannelType3.GuildDirectory:
               channel = new (getDirectoryChannel())(guild, data, client);
               break;
-            case ChannelType2.GuildForum:
+            case ChannelType3.GuildForum:
               channel = new (getForumChannel())(guild, data, client);
               break;
-            case ChannelType2.GuildMedia:
+            case ChannelType3.GuildMedia:
               channel = new (getMediaChannel())(guild, data, client);
               break;
           }
@@ -64798,20 +64898,20 @@ var require_dist10 = __commonJS({
         }
       }
       resolveWorkerPath() {
-        const path10 = this.options.workerPath;
-        if (!path10) {
+        const path11 = this.options.workerPath;
+        if (!path11) {
           return (0, import_node_path.join)(__dirname, "defaultWorker.js");
         }
-        if ((0, import_node_path.isAbsolute)(path10)) {
-          return path10;
+        if ((0, import_node_path.isAbsolute)(path11)) {
+          return path11;
         }
-        if (/^\.\.?[/\\]/.test(path10)) {
-          return (0, import_node_path.resolve)(path10);
+        if (/^\.\.?[/\\]/.test(path11)) {
+          return (0, import_node_path.resolve)(path11);
         }
         try {
-          return require.resolve(path10);
+          return require.resolve(path11);
         } catch {
-          return (0, import_node_path.resolve)(path10);
+          return (0, import_node_path.resolve)(path11);
         }
       }
       async waitForWorkerReady(worker) {
@@ -68811,7 +68911,7 @@ var require_GuildChannelManager = __commonJS({
     "use strict";
     var process2 = require("node:process");
     var { Collection: Collection2 } = require_dist6();
-    var { ChannelType: ChannelType2, Routes: Routes3 } = require_v106();
+    var { ChannelType: ChannelType3, Routes: Routes3 } = require_v106();
     var CachedManager = require_CachedManager();
     var GuildTextThreadManager = require_GuildTextThreadManager();
     var { DiscordjsError: DiscordjsError2, DiscordjsTypeError: DiscordjsTypeError2, ErrorCodes: ErrorCodes2 } = require_errors2();
@@ -69074,7 +69174,7 @@ var require_GuildChannelManager = __commonJS({
         if (options.lockPermissions) {
           if (parentId) {
             const newParent = this.cache.get(parentId);
-            if (newParent?.type === ChannelType2.GuildCategory) {
+            if (newParent?.type === ChannelType3.GuildCategory) {
               permission_overwrites = newParent.permissionOverwrites.cache.map(
                 (overwrite) => PermissionOverwrites.resolve(overwrite, this.guild)
               );
@@ -71753,7 +71853,7 @@ var require_Guild = __commonJS({
     var { Collection: Collection2 } = require_dist6();
     var { makeURLSearchParams: makeURLSearchParams2 } = require_dist5();
     var { DiscordSnowflake } = require_cjs3();
-    var { ChannelType: ChannelType2, GuildPremiumTier, Routes: Routes3, GuildFeature } = require_v106();
+    var { ChannelType: ChannelType3, GuildPremiumTier, Routes: Routes3, GuildFeature } = require_v106();
     var AnonymousGuild = require_AnonymousGuild();
     var GuildAuditLogs = require_GuildAuditLogs();
     var { GuildOnboarding } = require_GuildOnboarding();
@@ -72879,7 +72979,7 @@ var require_Guild = __commonJS({
        * @private
        */
       _sortedChannels(channel) {
-        const channelIsCategory = channel.type === ChannelType2.GuildCategory;
+        const channelIsCategory = channel.type === ChannelType3.GuildCategory;
         const types = getSortableGroupTypes(channel.type);
         return discordSort(
           this.channels.cache.filter(
@@ -73261,7 +73361,7 @@ var require_GuildManager = __commonJS({
 var require_UserManager = __commonJS({
   "node_modules/discord.js/src/managers/UserManager.js"(exports2, module2) {
     "use strict";
-    var { ChannelType: ChannelType2, Routes: Routes3 } = require_v106();
+    var { ChannelType: ChannelType3, Routes: Routes3 } = require_v106();
     var CachedManager = require_CachedManager();
     var { DiscordjsError: DiscordjsError2, ErrorCodes: ErrorCodes2 } = require_errors2();
     var { GuildMember } = require_GuildMember();
@@ -73296,7 +73396,7 @@ var require_UserManager = __commonJS({
       dmChannel(userId) {
         const expectedRecipientIds = [userId, this.client.user.id];
         return this.client.channels.cache.find(
-          (channel) => channel.type === ChannelType2.DM && channel.recipientId === userId && channel.recipientIds.every((id) => expectedRecipientIds.includes(id))
+          (channel) => channel.type === ChannelType3.DM && channel.recipientId === userId && channel.recipientIds.every((id) => expectedRecipientIds.includes(id))
         ) ?? null;
       }
       /**
@@ -74552,7 +74652,7 @@ var require_Shard = __commonJS({
   "node_modules/discord.js/src/sharding/Shard.js"(exports2, module2) {
     "use strict";
     var EventEmitter = require("node:events");
-    var path10 = require("node:path");
+    var path11 = require("node:path");
     var process2 = require("node:process");
     var { setTimeout: setTimeout2, clearTimeout: clearTimeout2 } = require("node:timers");
     var { setTimeout: sleep2 } = require("node:timers/promises");
@@ -74604,14 +74704,14 @@ var require_Shard = __commonJS({
         this._exitListener = this._handleExit.bind(this, void 0, timeout);
         switch (this.manager.mode) {
           case "process":
-            this.process = childProcess.fork(path10.resolve(this.manager.file), this.args, {
+            this.process = childProcess.fork(path11.resolve(this.manager.file), this.args, {
               env: this.env,
               execArgv: this.execArgv,
               silent: this.silent
             }).on("message", this._handleMessage.bind(this)).on("exit", this._exitListener);
             break;
           case "worker":
-            this.worker = new Worker(path10.resolve(this.manager.file), {
+            this.worker = new Worker(path11.resolve(this.manager.file), {
               workerData: this.env,
               env: SHARE_ENV,
               execArgv: this.execArgv,
@@ -74872,8 +74972,8 @@ var require_ShardingManager = __commonJS({
   "node_modules/discord.js/src/sharding/ShardingManager.js"(exports2, module2) {
     "use strict";
     var EventEmitter = require("node:events");
-    var fs8 = require("node:fs");
-    var path10 = require("node:path");
+    var fs9 = require("node:fs");
+    var path11 = require("node:path");
     var process2 = require("node:process");
     var { setTimeout: sleep2 } = require("node:timers/promises");
     var { Collection: Collection2 } = require_dist6();
@@ -74918,8 +75018,8 @@ var require_ShardingManager = __commonJS({
         };
         this.file = file;
         if (!file) throw new DiscordjsError2(ErrorCodes2.ClientInvalidOption, "File", "specified.");
-        if (!path10.isAbsolute(file)) this.file = path10.resolve(process2.cwd(), file);
-        const stats = fs8.statSync(this.file);
+        if (!path11.isAbsolute(file)) this.file = path11.resolve(process2.cwd(), file);
+        const stats = fs9.statSync(this.file);
         if (!stats.isFile()) throw new DiscordjsError2(ErrorCodes2.ClientInvalidOption, "File", "a file");
         this.shardList = _options.shardList ?? "auto";
         if (this.shardList !== "auto") {
@@ -76042,7 +76142,7 @@ async function sendDiscordMessage(channel, content, chunkFn, options = {}) {
   if (options.files && options.files.length > 0) {
     const filePromises = options.files.map(async (filePath) => {
       try {
-        const fileName = path3.basename(filePath);
+        const fileName = path4.basename(filePath);
         return new import_discord.AttachmentBuilder(filePath, { name: fileName });
       } catch (err) {
         log.warn("Failed to read file for discord attachment", {
@@ -76086,11 +76186,11 @@ async function sendDiscordMessage(channel, content, chunkFn, options = {}) {
   }
   return messageIds;
 }
-var path3, import_discord;
+var path4, import_discord;
 var init_sender = __esm({
   "src/daemon/sender.ts"() {
     "use strict";
-    path3 = __toESM(require("node:path"), 1);
+    path4 = __toESM(require("node:path"), 1);
     import_discord = __toESM(require_src(), 1);
     init_log();
     init_retry();
@@ -76633,11 +76733,11 @@ function parentDir(filePath) {
   const slashIndex = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
   return slashIndex === -1 ? "." : filePath.slice(0, slashIndex);
 }
-var fs3, fsPromises, MEMORY_FILE_VERSION, SESSION_TTL_MS, MAX_SESSIONS, MAX_ARCHIVED_CONVERSATIONS_PER_SESSION, EVICTION_INTERVAL_MS, DEFAULT_PROMPT_HISTORY_MESSAGE_LIMIT, DEFAULT_PROMPT_HISTORY_CHAR_BUDGET, TRANSCRIPT_ENTRY_CHAR_LIMIT, ACTIVE_PARTICIPANT_LIMIT, ConversationMemory;
+var fs4, fsPromises, MEMORY_FILE_VERSION, SESSION_TTL_MS, MAX_SESSIONS, MAX_ARCHIVED_CONVERSATIONS_PER_SESSION, EVICTION_INTERVAL_MS, DEFAULT_PROMPT_HISTORY_MESSAGE_LIMIT, DEFAULT_PROMPT_HISTORY_CHAR_BUDGET, TRANSCRIPT_ENTRY_CHAR_LIMIT, ACTIVE_PARTICIPANT_LIMIT, ConversationMemory;
 var init_memory = __esm({
   "src/daemon/memory.ts"() {
     "use strict";
-    fs3 = __toESM(require("node:fs"), 1);
+    fs4 = __toESM(require("node:fs"), 1);
     fsPromises = __toESM(require("node:fs/promises"), 1);
     init_runtime_paths();
     init_log();
@@ -76803,9 +76903,9 @@ var init_memory = __esm({
         try {
           const data = this.serializeV4();
           const json = JSON.stringify(data);
-          fs3.mkdirSync(parentDir(this.tmpPath), { recursive: true });
-          fs3.writeFileSync(this.tmpPath, json, { mode: 384 });
-          fs3.renameSync(this.tmpPath, this.persistPath);
+          fs4.mkdirSync(parentDir(this.tmpPath), { recursive: true });
+          fs4.writeFileSync(this.tmpPath, json, { mode: 384 });
+          fs4.renameSync(this.tmpPath, this.persistPath);
         } catch (err) {
           log.error("Failed to sync-flush memory to disk", {
             error: err instanceof Error ? err.message : String(err)
@@ -76872,15 +76972,15 @@ var init_memory = __esm({
           log.warn("Recovered memory from .tmp file (primary was corrupted)");
           return fallback;
         }
-        if (fs3.existsSync(this.persistPath) || fs3.existsSync(this.tmpPath)) {
+        if (fs4.existsSync(this.persistPath) || fs4.existsSync(this.tmpPath)) {
           log.warn("Memory files corrupted \u2014 starting with empty history");
         }
         return { store: /* @__PURE__ */ new Map(), archives: /* @__PURE__ */ new Map() };
       }
       tryParseFile(filePath) {
         try {
-          if (!fs3.existsSync(filePath)) return null;
-          const raw = fs3.readFileSync(filePath, "utf-8");
+          if (!fs4.existsSync(filePath)) return null;
+          const raw = fs4.readFileSync(filePath, "utf-8");
           const parsed = JSON.parse(raw);
           if (isMemoryFileV4(parsed)) {
             return {
@@ -85981,8 +86081,8 @@ var require_CronFileParser = __commonJS({
        * @throws If file cannot be read
        */
       static parseFileSync(filePath) {
-        const { readFileSync: readFileSync6 } = require("fs");
-        const data = readFileSync6(filePath, "utf8");
+        const { readFileSync: readFileSync7 } = require("fs");
+        const data = readFileSync7(filePath, "utf8");
         return _CronFileParser.#parseContent(data);
       }
       /**
@@ -86095,8 +86195,8 @@ function shutdownCron() {
 function loadJobs() {
   jobs = /* @__PURE__ */ new Map();
   try {
-    if (fs4.existsSync(storePath)) {
-      const data = JSON.parse(fs4.readFileSync(storePath, "utf-8"));
+    if (fs5.existsSync(storePath)) {
+      const data = JSON.parse(fs5.readFileSync(storePath, "utf-8"));
       if (Array.isArray(data)) {
         jobs = new Map(
           data.map(coerceCronJob).filter((job) => job !== null).map((job) => [job.id, job])
@@ -86110,8 +86210,8 @@ function loadJobs() {
 function saveJobs() {
   try {
     const data = Array.from(jobs.values());
-    fs4.mkdirSync(path4.dirname(storePath), { recursive: true });
-    fs4.writeFileSync(storePath, JSON.stringify(data, null, 2), { mode: 384 });
+    fs5.mkdirSync(path5.dirname(storePath), { recursive: true });
+    fs5.writeFileSync(storePath, JSON.stringify(data, null, 2), { mode: 384 });
   } catch (err) {
     log.error("Failed to save cron jobs", { error: err });
   }
@@ -86119,7 +86219,7 @@ function saveJobs() {
 function scheduleJob(input) {
   try {
     const interval = import_cron_parser.CronExpressionParser.parse(input.cronExpression);
-    const id = Math.random().toString(36).substring(2, 10);
+    const id = createJobId();
     const job = {
       id,
       cronExpression: input.cronExpression,
@@ -86129,18 +86229,25 @@ function scheduleJob(input) {
       nextRun: interval.next().getTime(),
       runOnce: input.runOnce !== false
     };
-    jobs.set(id, job);
-    saveJobs();
-    log.info("Scheduled new cron job", {
-      id,
-      channelId: job.channelId,
-      runOnce: job.runOnce,
-      nextRun: new Date(job.nextRun).toISOString()
-    });
+    persistJob(job, "Scheduled new cron job");
     return id;
   } catch (err) {
     throw new Error(`Invalid cron expression: ${err}`);
   }
+}
+function scheduleReminder(input) {
+  const runAt = normalizeReminderRunAt(input);
+  const job = {
+    id: createJobId(),
+    cronExpression: `once:${new Date(runAt).toISOString()}`,
+    message: input.message,
+    channelId: input.channelId,
+    authorId: input.authorId,
+    nextRun: runAt,
+    runOnce: true
+  };
+  persistJob(job, "Scheduled reminder");
+  return job.id;
 }
 function listJobs() {
   return Array.from(jobs.values());
@@ -86188,6 +86295,19 @@ async function checkJobs() {
     saveJobs();
   }
 }
+function createJobId() {
+  return Math.random().toString(36).substring(2, 10);
+}
+function persistJob(job, message) {
+  jobs.set(job.id, job);
+  saveJobs();
+  log.info(message, {
+    id: job.id,
+    channelId: job.channelId,
+    runOnce: job.runOnce,
+    nextRun: new Date(job.nextRun).toISOString()
+  });
+}
 async function deliverCronJob(job) {
   if (!discordClient) {
     log.warn("Cron delivery skipped: Discord client not ready", { id: job.id });
@@ -86231,17 +86351,29 @@ function coerceCronJob(value) {
     runOnce
   };
 }
-var fs4, path4, import_cron_parser, jobs, storePath, discordClient, poller;
+function normalizeReminderRunAt(input) {
+  const requestedAt = typeof input.runAt === "number" ? input.runAt : Date.now() + Math.round((input.delayMinutes ?? 0) * 6e4);
+  if (!Number.isFinite(requestedAt)) {
+    throw new Error("Invalid reminder time.");
+  }
+  const roundedUp = Math.ceil(requestedAt / MIN_REMINDER_DELAY_MS) * MIN_REMINDER_DELAY_MS;
+  if (roundedUp < Date.now() + MIN_REMINDER_DELAY_MS) {
+    throw new Error("Reminders must be scheduled at least 1 minute in the future.");
+  }
+  return roundedUp;
+}
+var fs5, path5, import_cron_parser, MIN_REMINDER_DELAY_MS, jobs, storePath, discordClient, poller;
 var init_cron = __esm({
   "src/daemon/cron.ts"() {
     "use strict";
-    fs4 = __toESM(require("node:fs"), 1);
-    path4 = __toESM(require("node:path"), 1);
+    fs5 = __toESM(require("node:fs"), 1);
+    path5 = __toESM(require("node:path"), 1);
     import_cron_parser = __toESM(require_dist11(), 1);
     init_log();
     init_chunker();
     init_sender();
     init_runtime_paths();
+    MIN_REMINDER_DELAY_MS = 6e4;
     jobs = /* @__PURE__ */ new Map();
     storePath = "";
     discordClient = null;
@@ -86254,12 +86386,12 @@ function pairingsPath(extensionDir2) {
   return resolveRuntimePaths(extensionDir2).dmPairingsFile;
 }
 function ensureParentDir(filePath) {
-  fs5.mkdirSync(path5.dirname(filePath), { recursive: true });
+  fs6.mkdirSync(path6.dirname(filePath), { recursive: true });
 }
 function loadPairingMap(extensionDir2) {
   const filePath = pairingsPath(extensionDir2);
   try {
-    const parsed = JSON.parse(fs5.readFileSync(filePath, "utf-8"));
+    const parsed = JSON.parse(fs6.readFileSync(filePath, "utf-8"));
     const pairings = Array.isArray(parsed.pairings) ? parsed.pairings : [];
     return new Map(
       pairings.filter((entry) => Boolean(entry && typeof entry.userId === "string" && typeof entry.channelId === "string")).map((entry) => [entry.userId, entry])
@@ -86275,7 +86407,7 @@ function savePairingMap(extensionDir2, pairings) {
     version: 1,
     pairings: [...pairings.values()].sort((left, right) => left.userId.localeCompare(right.userId))
   };
-  fs5.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
+  fs6.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
 }
 function resolveDmPairingKey(userId) {
   return `dm:${userId}`;
@@ -86330,12 +86462,12 @@ async function ensureOwnerDmPairings(client, config, extensionDir2) {
     }
   }
 }
-var fs5, path5;
+var fs6, path6;
 var init_dm_pairing = __esm({
   "src/daemon/dm-pairing.ts"() {
     "use strict";
-    fs5 = __toESM(require("node:fs"), 1);
-    path5 = __toESM(require("node:path"), 1);
+    fs6 = __toESM(require("node:fs"), 1);
+    path6 = __toESM(require("node:path"), 1);
     init_runtime_paths();
     init_log();
   }
@@ -86362,8 +86494,8 @@ function resolveGeminiBindingKey(scope, context) {
 function ensureGeminiBindingWorkspace(extensionDir2, bindingKey) {
   const bindingsRoot = ensureRuntimePaths(extensionDir2).bindingsDir;
   const bindingDir = resolveBindingWorkspacePath(bindingsRoot, bindingKey);
-  const attachmentsDir = path6.join(bindingDir, "discord-attachments");
-  fs6.mkdirSync(attachmentsDir, { recursive: true });
+  const attachmentsDir = path7.join(bindingDir, "discord-attachments");
+  fs7.mkdirSync(attachmentsDir, { recursive: true });
   removeLegacyBindingContextFiles(bindingDir);
   syncBindingProjectFile(extensionDir2, bindingDir, ".geminiignore");
   return {
@@ -86373,9 +86505,9 @@ function ensureGeminiBindingWorkspace(extensionDir2, bindingKey) {
   };
 }
 function loadGeminiBindingState(bindingDir) {
-  const statePath = path6.join(bindingDir, ".binding-state.json");
+  const statePath = path7.join(bindingDir, ".binding-state.json");
   try {
-    const raw = fs6.readFileSync(statePath, "utf-8");
+    const raw = fs7.readFileSync(statePath, "utf-8");
     const parsed = JSON.parse(raw);
     const archivedSessionIds = Array.isArray(parsed.archivedSessionIds) ? parsed.archivedSessionIds.filter((value) => typeof value === "string" && value.length > 0) : [];
     return {
@@ -86389,7 +86521,7 @@ function loadGeminiBindingState(bindingDir) {
   }
 }
 function saveGeminiBindingState(bindingDir, state2) {
-  const statePath = path6.join(bindingDir, ".binding-state.json");
+  const statePath = path7.join(bindingDir, ".binding-state.json");
   const nextState = {
     hasSession: state2.hasSession
   };
@@ -86402,15 +86534,15 @@ function saveGeminiBindingState(bindingDir, state2) {
   if (state2.lastResetAt) {
     nextState.lastResetAt = state2.lastResetAt;
   }
-  fs6.writeFileSync(statePath, JSON.stringify(nextState), { mode: 384 });
+  fs7.writeFileSync(statePath, JSON.stringify(nextState), { mode: 384 });
 }
 function listGeminiBindingStates(extensionDir2) {
   const bindingsRoot = resolveRuntimePaths(extensionDir2).bindingsDir;
-  if (!fs6.existsSync(bindingsRoot)) {
+  if (!fs7.existsSync(bindingsRoot)) {
     return [];
   }
-  return fs6.readdirSync(bindingsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
-    const bindingDir = path6.join(bindingsRoot, entry.name);
+  return fs7.readdirSync(bindingsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+    const bindingDir = path7.join(bindingsRoot, entry.name);
     const state2 = loadGeminiBindingState(bindingDir);
     return {
       workspace: entry.name,
@@ -86423,15 +86555,15 @@ function listGeminiBindingStates(extensionDir2) {
 }
 function cleanupLegacyBindingContextFiles(extensionDir2) {
   const bindingsRoot = resolveRuntimePaths(extensionDir2).bindingsDir;
-  if (!fs6.existsSync(bindingsRoot)) {
+  if (!fs7.existsSync(bindingsRoot)) {
     return 0;
   }
   let removed = 0;
-  for (const entry of fs6.readdirSync(bindingsRoot, { withFileTypes: true })) {
+  for (const entry of fs7.readdirSync(bindingsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) {
       continue;
     }
-    removed += removeLegacyBindingContextFiles(path6.join(bindingsRoot, entry.name));
+    removed += removeLegacyBindingContextFiles(path7.join(bindingsRoot, entry.name));
   }
   return removed;
 }
@@ -86450,12 +86582,12 @@ function recordGeminiBindingSession(bindingDir, sessionId) {
 function removeLegacyBindingContextFiles(bindingDir) {
   let removed = 0;
   for (const fileName of ["GEMINI.md", "Gemini.md", "gemini.md"]) {
-    const target = path6.join(bindingDir, fileName);
-    if (!fs6.existsSync(target)) {
+    const target = path7.join(bindingDir, fileName);
+    if (!fs7.existsSync(target)) {
       continue;
     }
     try {
-      fs6.rmSync(target, { force: true });
+      fs7.rmSync(target, { force: true });
       removed += 1;
     } catch {
     }
@@ -86477,43 +86609,43 @@ function resetGeminiBindingSession(bindingDir) {
   return nextState;
 }
 function syncBindingProjectFile(extensionDir2, bindingDir, fileName) {
-  const source = path6.join(extensionDir2, fileName);
-  if (!fs6.existsSync(source)) {
+  const source = path7.join(extensionDir2, fileName);
+  if (!fs7.existsSync(source)) {
     return;
   }
-  const target = path6.join(bindingDir, fileName);
-  const sourceMtime = fs6.statSync(source).mtimeMs;
-  const targetMtime = fs6.existsSync(target) ? fs6.statSync(target).mtimeMs : 0;
-  if (!fs6.existsSync(target) || sourceMtime > targetMtime) {
-    fs6.copyFileSync(source, target);
+  const target = path7.join(bindingDir, fileName);
+  const sourceMtime = fs7.statSync(source).mtimeMs;
+  const targetMtime = fs7.existsSync(target) ? fs7.statSync(target).mtimeMs : 0;
+  if (!fs7.existsSync(target) || sourceMtime > targetMtime) {
+    fs7.copyFileSync(source, target);
   }
 }
 function toBindingSlug(bindingKey) {
   return bindingKey.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 function resolveBindingWorkspacePath(bindingsRoot, bindingKey) {
-  const legacyDir = path6.join(bindingsRoot, bindingKey);
-  const slugDir = path6.join(bindingsRoot, toBindingSlug(bindingKey));
-  if (fs6.existsSync(slugDir)) {
+  const legacyDir = path7.join(bindingsRoot, bindingKey);
+  const slugDir = path7.join(bindingsRoot, toBindingSlug(bindingKey));
+  if (fs7.existsSync(slugDir)) {
     return slugDir;
   }
-  if (!fs6.existsSync(legacyDir)) {
+  if (!fs7.existsSync(legacyDir)) {
     return slugDir;
   }
   try {
-    fs6.mkdirSync(bindingsRoot, { recursive: true });
-    fs6.renameSync(legacyDir, slugDir);
+    fs7.mkdirSync(bindingsRoot, { recursive: true });
+    fs7.renameSync(legacyDir, slugDir);
     return slugDir;
   } catch {
     return legacyDir;
   }
 }
-var fs6, path6;
+var fs7, path7;
 var init_binding = __esm({
   "src/daemon/binding.ts"() {
     "use strict";
-    fs6 = __toESM(require("node:fs"), 1);
-    path6 = __toESM(require("node:path"), 1);
+    fs7 = __toESM(require("node:fs"), 1);
+    path7 = __toESM(require("node:path"), 1);
     init_runtime_paths();
     init_dm_pairing();
   }
@@ -87316,8 +87448,8 @@ async function downloadImageAttachments(message, attachmentsRootDir, geminiProje
   if (attachments.length === 0) {
     return [];
   }
-  const targetDir = path7.join(attachmentsRootDir, sanitizeFilename(message.id));
-  await fs7.mkdir(targetDir, { recursive: true });
+  const targetDir = path8.join(attachmentsRootDir, sanitizeFilename(message.id));
+  await fs8.mkdir(targetDir, { recursive: true });
   const downloads = attachments.map(async (attachment, index) => {
     try {
       const response = await fetch(attachment.url);
@@ -87326,9 +87458,9 @@ async function downloadImageAttachments(message, attachmentsRootDir, geminiProje
       }
       const buffer = Buffer.from(await response.arrayBuffer());
       const safeName = sanitizeFilename(attachment.name || `image-${index + 1}.bin`);
-      const localPath = path7.join(targetDir, `${index + 1}-${safeName}`);
-      await fs7.writeFile(localPath, buffer);
-      const relativePath = path7.relative(geminiProjectDir, localPath);
+      const localPath = path8.join(targetDir, `${index + 1}-${safeName}`);
+      await fs8.writeFile(localPath, buffer);
+      const relativePath = path8.relative(geminiProjectDir, localPath);
       return {
         localPath,
         relativePath,
@@ -87351,7 +87483,7 @@ async function downloadImageAttachments(message, attachmentsRootDir, geminiProje
     (item) => item !== null
   );
   if (downloaded.length === 0) {
-    await fs7.rm(targetDir, { recursive: true, force: true }).catch(() => {
+    await fs8.rm(targetDir, { recursive: true, force: true }).catch(() => {
     });
   }
   return downloaded;
@@ -87369,7 +87501,7 @@ function isImageAttachment(contentType, name) {
   if (contentType?.startsWith("image/")) {
     return true;
   }
-  return IMAGE_EXTENSIONS.has(path7.extname(name).toLowerCase());
+  return IMAGE_EXTENSIONS.has(path8.extname(name).toLowerCase());
 }
 function toConversationAttachment(attachment) {
   return {
@@ -87382,12 +87514,12 @@ function toConversationAttachment(attachment) {
 function sanitizeFilename(filename) {
   return filename.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
-var fs7, path7, MAX_IMAGE_ATTACHMENTS, MAX_IMAGE_BYTES, IMAGE_EXTENSIONS;
+var fs8, path8, MAX_IMAGE_ATTACHMENTS, MAX_IMAGE_BYTES, IMAGE_EXTENSIONS;
 var init_attachments = __esm({
   "src/daemon/attachments.ts"() {
     "use strict";
-    fs7 = __toESM(require("node:fs/promises"), 1);
-    path7 = __toESM(require("node:path"), 1);
+    fs8 = __toESM(require("node:fs/promises"), 1);
+    path8 = __toESM(require("node:path"), 1);
     init_log();
     MAX_IMAGE_ATTACHMENTS = 4;
     MAX_IMAGE_BYTES = 35 * 1024 * 1024;
@@ -87466,12 +87598,12 @@ var init_background_context = __esm({
 
 // src/daemon/gemini-project.ts
 function resolveGeminiProjectDir(extensionDir2) {
-  const resolved = path8.resolve(extensionDir2);
-  const parts = resolved.split(path8.sep);
+  const resolved = path9.resolve(extensionDir2);
+  const parts = resolved.split(path9.sep);
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     if (parts[index] === ".gemini") {
-      const prefix = parts.slice(0, index + 1).join(path8.sep);
-      return prefix || path8.sep;
+      const prefix = parts.slice(0, index + 1).join(path9.sep);
+      return prefix || path9.sep;
     }
   }
   return resolved;
@@ -87480,11 +87612,11 @@ function resolveBindingResumeSessionId(state2) {
   const sessionId = state2.lastSessionId?.trim();
   return sessionId ? sessionId : null;
 }
-var path8;
+var path9;
 var init_gemini_project = __esm({
   "src/daemon/gemini-project.ts"() {
     "use strict";
-    path8 = __toESM(require("node:path"), 1);
+    path9 = __toESM(require("node:path"), 1);
   }
 });
 
@@ -87675,7 +87807,7 @@ async function processViaCli(message, accepted, config, memory, processingContex
       });
     }
     if (downloadedAttachments.length > 0) {
-      const targetDir = path9.dirname(downloadedAttachments[0].localPath);
+      const targetDir = path10.dirname(downloadedAttachments[0].localPath);
       for (const att of downloadedAttachments) {
         try {
           await fsp.unlink(att.localPath);
@@ -87745,7 +87877,7 @@ function shouldRetryWithFreshSession(error, resumeSessionId) {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   return message.includes("exited with code") || message.includes("returned no assistant output") || message.includes("resume_session_unavailable");
 }
-var fsp, path9, ERROR_MATCHERS;
+var fsp, path10, ERROR_MATCHERS;
 var init_engine_cli = __esm({
   "src/daemon/engine-cli.ts"() {
     "use strict";
@@ -87762,7 +87894,7 @@ var init_engine_cli = __esm({
     init_binding();
     init_gemini_project();
     fsp = __toESM(require("node:fs/promises"), 1);
-    path9 = __toESM(require("node:path"), 1);
+    path10 = __toESM(require("node:path"), 1);
     ERROR_MATCHERS = [
       {
         match: (msg) => msg.includes("timed out") || msg.includes("stalled"),
@@ -87880,6 +88012,182 @@ var init_tool_mode = __esm({
   }
 });
 
+// src/daemon/onboarding.ts
+async function bootstrapManagedDiscordConfig(client, config, extensionDir2) {
+  const envUpdates = {};
+  const metadataUpdates = {
+    botUserId: client.user?.id ?? "",
+    botTag: client.user?.tag ?? "",
+    lastConnectedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const ownerDiscovery = await discoverApplicationOwners(client);
+  if (config.ownerIds.length === 0 && ownerDiscovery.ids.length > 0) {
+    config.ownerIds = ownerDiscovery.ids;
+    envUpdates.DISCORD_OWNER_IDS = ownerDiscovery.ids.join(",");
+    if (!config.discordAdminId) {
+      config.discordAdminId = ownerDiscovery.ids[0];
+      envUpdates.DISCORD_ADMIN_ID = ownerDiscovery.ids[0];
+    }
+    if (config.allowedUserIds.length === 0) {
+      config.allowedUserIds = [...ownerDiscovery.ids];
+      envUpdates.DISCORD_ALLOWED_USER_IDS = ownerDiscovery.ids.join(",");
+    }
+  }
+  if (ownerDiscovery.ids[0]) {
+    metadataUpdates.appOwnerId = ownerDiscovery.ids[0];
+  }
+  if (ownerDiscovery.tags[0]) {
+    metadataUpdates.appOwnerTag = ownerDiscovery.tags[0];
+  }
+  const channelDiscovery = await discoverGuildDefaults(client, config);
+  if (channelDiscovery.primaryGuildId) {
+    config.discordServerId = channelDiscovery.primaryGuildId;
+    metadataUpdates.primaryGuildId = channelDiscovery.primaryGuildId;
+  }
+  if (channelDiscovery.primaryGuildName) {
+    config.discordServerName = channelDiscovery.primaryGuildName;
+    metadataUpdates.primaryGuildName = channelDiscovery.primaryGuildName;
+  }
+  if (!config.discordChannelId && channelDiscovery.primaryChannelId) {
+    config.discordChannelId = channelDiscovery.primaryChannelId;
+    envUpdates.DISCORD_CHANNEL_ID = channelDiscovery.primaryChannelId;
+    metadataUpdates.primaryChannelId = channelDiscovery.primaryChannelId;
+  }
+  if (channelDiscovery.primaryChannelName) {
+    metadataUpdates.primaryChannelName = channelDiscovery.primaryChannelName;
+  }
+  if (config.allowedChannelIds.length === 0 && channelDiscovery.allowedChannelIds.length > 0) {
+    config.allowedChannelIds = [...channelDiscovery.allowedChannelIds];
+    envUpdates.DISCORD_ALLOWED_CHANNEL_IDS = channelDiscovery.allowedChannelIds.join(",");
+  }
+  if (Object.keys(envUpdates).length > 0) {
+    persistConfigEnvUpdates(extensionDir2, envUpdates);
+    log.info("Managed install config updated from Discord discovery", { envKeys: Object.keys(envUpdates) });
+  }
+  persistDiscordMetadata(extensionDir2, metadataUpdates);
+}
+function rememberPrimaryChannelFromMessage(config, extensionDir2, message) {
+  if (!message.guildId) {
+    return;
+  }
+  const envUpdates = {};
+  const metadataUpdates = {};
+  let changed = false;
+  if (!config.discordChannelId) {
+    config.discordChannelId = message.channelId;
+    envUpdates.DISCORD_CHANNEL_ID = message.channelId;
+    changed = true;
+  }
+  if (!config.allowedChannelIds.includes(message.channelId)) {
+    config.allowedChannelIds = [...config.allowedChannelIds, message.channelId];
+    envUpdates.DISCORD_ALLOWED_CHANNEL_IDS = config.allowedChannelIds.join(",");
+    changed = true;
+  }
+  if (!config.discordServerId && message.guildId) {
+    config.discordServerId = message.guildId;
+    changed = true;
+  }
+  if (!config.discordServerName && message.guild?.name) {
+    config.discordServerName = message.guild.name;
+    changed = true;
+  }
+  if (changed) {
+    metadataUpdates.primaryGuildId = message.guildId;
+    metadataUpdates.primaryGuildName = message.guild?.name;
+    metadataUpdates.primaryChannelId = message.channelId;
+    metadataUpdates.primaryChannelName = getChannelName2(message);
+    persistConfigEnvUpdates(extensionDir2, envUpdates);
+    persistDiscordMetadata(extensionDir2, metadataUpdates);
+    log.info("Managed primary channel remembered from owner activity", {
+      channelId: message.channelId,
+      guildId: message.guildId
+    });
+  }
+}
+async function discoverApplicationOwners(client) {
+  try {
+    const application = await client.application?.fetch();
+    const owner = application?.owner;
+    if (!owner) {
+      return { ids: [], tags: [] };
+    }
+    if (typeof owner["id"] === "string") {
+      return {
+        ids: [owner["id"]],
+        tags: typeof owner["tag"] === "string" ? [owner["tag"]] : []
+      };
+    }
+    if (typeof owner["ownerId"] === "string") {
+      return {
+        ids: [owner["ownerId"]],
+        tags: []
+      };
+    }
+  } catch (err) {
+    log.warn("Could not discover Discord application owner", {
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
+  return { ids: [], tags: [] };
+}
+async function discoverGuildDefaults(client, config) {
+  const result = {
+    primaryGuildId: config.discordServerId,
+    primaryGuildName: config.discordServerName,
+    primaryChannelId: config.discordChannelId,
+    primaryChannelName: "",
+    allowedChannelIds: [...config.allowedChannelIds]
+  };
+  if (config.discordChannelId) {
+    try {
+      const channel = await client.channels.fetch(config.discordChannelId);
+      if (channel && channel.type !== import_discord5.ChannelType.DM && "guild" in channel && channel.guild) {
+        result.primaryGuildId = channel.guild.id;
+        result.primaryGuildName = channel.guild.name;
+        result.primaryChannelName = "name" in channel && typeof channel.name === "string" ? channel.name : "";
+      }
+    } catch {
+    }
+  }
+  const guildRefs = await client.guilds.fetch();
+  if (guildRefs.size !== 1) {
+    return result;
+  }
+  const [guildId] = guildRefs.keys();
+  const guild = await client.guilds.fetch(guildId);
+  const channels = await guild.channels.fetch();
+  const eligible = channels.filter(
+    (channel) => channel && (channel.type === import_discord5.ChannelType.GuildText || channel.type === import_discord5.ChannelType.GuildAnnouncement)
+  ).map((channel) => ({ id: channel.id, name: channel.name })).sort((left, right) => left.name.localeCompare(right.name));
+  if (!result.primaryGuildId) {
+    result.primaryGuildId = guild.id;
+    result.primaryGuildName = guild.name;
+  }
+  if (result.allowedChannelIds.length === 0 && eligible.length > 0) {
+    result.allowedChannelIds = eligible.map((channel) => channel.id);
+  }
+  if (!result.primaryChannelId && eligible.length === 1) {
+    result.primaryChannelId = eligible[0].id;
+    result.primaryChannelName = eligible[0].name;
+  }
+  return result;
+}
+function getChannelName2(message) {
+  if ("name" in message.channel && typeof message.channel.name === "string") {
+    return message.channel.name;
+  }
+  return `channel-${message.channelId}`;
+}
+var import_discord5;
+var init_onboarding = __esm({
+  "src/daemon/onboarding.ts"() {
+    "use strict";
+    import_discord5 = __toESM(require_src(), 1);
+    init_config();
+    init_log();
+  }
+});
+
 // src/daemon/gateway.ts
 var gateway_exports = {};
 __export(gateway_exports, {
@@ -87894,19 +88202,26 @@ async function initGateway(config, state2, memory, queue, apiServer, extensionDi
   });
   client.once("clientReady", async () => {
     log.info("Discord bot connected", { tag: client.user?.tag });
-    try {
-      const channel = await client.channels.fetch(config.discordChannelId);
-      if (!channel) {
-        log.error("Could not find configured primary channel", { channelId: config.discordChannelId });
+    await bootstrapManagedDiscordConfig(client, config, extensionDir2);
+    if (config.discordChannelId) {
+      try {
+        const channel = await client.channels.fetch(config.discordChannelId);
+        if (!channel) {
+          log.error("Could not find configured primary channel", { channelId: config.discordChannelId });
+          process.exit(1);
+        }
+        log.info("Primary channel access verified", { channelId: config.discordChannelId });
+      } catch (err) {
+        log.error("Failed to access configured primary channel", {
+          channelId: config.discordChannelId,
+          error: err instanceof Error ? err.message : String(err)
+        });
         process.exit(1);
       }
-      log.info("Primary channel access verified", { channelId: config.discordChannelId });
-    } catch (err) {
-      log.error("Failed to access configured primary channel", {
-        channelId: config.discordChannelId,
-        error: err instanceof Error ? err.message : String(err)
+    } else {
+      log.info("No primary channel configured yet; the first owner message in an allowed server channel will be remembered automatically.", {
+        guildId: config.discordServerId || void 0
       });
-      process.exit(1);
     }
     await buildGuildChannelMap(client);
     if (state2.status !== "degraded") {
@@ -87922,6 +88237,8 @@ async function initGateway(config, state2, memory, queue, apiServer, extensionDi
       runtimeStore.lastInteractiveMessageAt = Date.now();
       if (!message.guildId) {
         touchDmPairing(extensionDir2, message.author.id, message.channelId);
+      } else if (accepted.speakerKind === "human") {
+        rememberPrimaryChannelFromMessage(config, extensionDir2, message);
       }
       const processingContext = resolveProcessingContext(config, message, accepted, extensionDir2);
       const chan = message.channel;
@@ -88150,6 +88467,7 @@ var init_gateway = __esm({
     init_cron();
     init_session_reset();
     init_dm_pairing();
+    init_onboarding();
     MAX_AGENT_EXCHANGES = 6;
   }
 });
@@ -88164,21 +88482,28 @@ init_log();
 init_config();
 async function runPreflight(extensionDir2) {
   const envVars = resolveConfigEnvMap(extensionDir2);
-  const required = ["DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID", "DISCORD_OWNER_IDS"];
+  const required = ["DISCORD_BOT_TOKEN"];
   const missing = required.filter((k) => !envVars[k]?.trim());
   if (missing.length > 0) {
     log.error("Missing required extension settings", { missing });
     log.error("Run `gemini extensions config gemini-discord` or create a local `.env` file for development.");
     process.exit(1);
   }
-  const allowedIds = (envVars["DISCORD_ALLOWED_CHANNEL_IDS"] || envVars["DISCORD_CHANNEL_ID"] || "").split(",").map((s) => s.trim()).filter(Boolean);
-  const channelId = envVars["DISCORD_CHANNEL_ID"].trim();
-  if (!allowedIds.includes(channelId)) {
-    log.error("DISCORD_CHANNEL_ID must be in DISCORD_ALLOWED_CHANNEL_IDS", {
-      channelId,
-      allowedIds
-    });
-    process.exit(1);
+  const channelId = envVars["DISCORD_CHANNEL_ID"]?.trim() ?? "";
+  if (channelId) {
+    const allowedIds = (envVars["DISCORD_ALLOWED_CHANNEL_IDS"] || envVars["DISCORD_CHANNEL_ID"] || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (!allowedIds.includes(channelId)) {
+      log.error("DISCORD_CHANNEL_ID must be in DISCORD_ALLOWED_CHANNEL_IDS", {
+        channelId,
+        allowedIds
+      });
+      process.exit(1);
+    }
+  } else {
+    log.info("Primary Discord channel not configured yet; onboarding will auto-manage it after the bot connects.");
+  }
+  if (!envVars["DISCORD_OWNER_IDS"]?.trim()) {
+    log.info("Discord owners not configured yet; the daemon will try to infer the application owner automatically.");
   }
   log.info("Node version", { version: process.version });
   const geminiPath = envVars["GEMINI_PATH"]?.trim() || "gemini";
@@ -88369,6 +88694,8 @@ function startControlApi(deps) {
           botTag: deps.client?.user?.tag ?? null,
           wsPing: deps.client?.ws?.ping ?? -1,
           channelId: config.discordChannelId,
+          serverId: config.discordServerId || void 0,
+          serverName: config.discordServerName || void 0,
           ownerIds: config.ownerIds,
           enableDMs: config.enableDMs,
           sessionScope: config.memoryScope,
@@ -88559,8 +88886,10 @@ function startControlApi(deps) {
           const requestedChannelName = parsed["channel_name"] == null ? "" : String(parsed["channel_name"]);
           const authorId = String(parsed["author_id"] ?? config.discordAdminId);
           const runOnce = parsed["run_once"] === void 0 ? true : parsed["run_once"] === true;
-          if (!cronExpression || !message) {
-            respond(res, 400, { error: "cron_expression and message are required" });
+          const delayMinutes = parseOptionalNumber(parsed["delay_minutes"]);
+          const deliverAt = parseOptionalTimestamp(parsed["deliver_at"]);
+          if (!message || !cronExpression && delayMinutes === null && deliverAt === null) {
+            respond(res, 400, { error: "message plus cron_expression, delay_minutes, or deliver_at is required" });
             return;
           }
           try {
@@ -88573,12 +88902,24 @@ function startControlApi(deps) {
               }
               channelId = resolved.id;
             }
-            const jobId = scheduleJob({
+            if (!channelId) {
+              respond(res, 400, {
+                error: "No primary Discord channel is configured yet. Provide channel_id/channel_name or let the daemon remember the first owner channel automatically."
+              });
+              return;
+            }
+            const jobId = cronExpression ? scheduleJob({
               cronExpression,
               message,
               channelId,
               authorId,
               runOnce
+            }) : scheduleReminder({
+              message,
+              channelId,
+              authorId,
+              delayMinutes: delayMinutes ?? void 0,
+              runAt: deliverAt ?? void 0
             });
             respond(res, 200, { ok: true, job_id: jobId });
           } catch (err) {
@@ -88617,6 +88958,20 @@ function requireAuth(req, config) {
   if (!header) return false;
   const [scheme, token] = header.split(" ");
   return scheme === "Bearer" && token === config.daemonApiToken;
+}
+function parseOptionalNumber(value) {
+  if (value === void 0 || value === null || value === "") {
+    return null;
+  }
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function parseOptionalTimestamp(value) {
+  if (value === void 0 || value === null || value === "") {
+    return null;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 function resolveConversationSessionKey(config, extensionDir2, channelId, guildId) {
   if (config.memoryScope !== "channel") {
@@ -88818,6 +89173,7 @@ var DISCORD_BRIDGE_TOOLS = [
   "discord_restart",
   "discord_find_images",
   "discord_channels",
+  "schedule_reminder",
   "schedule_cron_job",
   "list_cron_jobs",
   "delete_cron_job"

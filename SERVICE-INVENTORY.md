@@ -23,7 +23,7 @@ This file tracks the real moving parts of `gemini-discord` so future work does n
 | Tool mode resolver | `src/daemon/tool-mode.ts` | Decide when a turn is plain chat vs web vs Discord action vs full tool mode. |
 | Sender | `src/daemon/sender.ts` | Chunk and deliver Discord messages and attachments. |
 | Sanitizer | `src/daemon/sanitizer.ts` | Strip internal reasoning / unsafe output before Discord delivery. |
-| Config loader | `src/shared/config.ts` | Parse `.env` into the typed runtime config. |
+| Config loader | `src/shared/config.ts` | Merge `.env`, install settings, and the managed `.gemini-discord/config.json` file into the typed runtime config. |
 | Shared types | `src/shared/types.ts` | Define cross-process contracts for daemon/API/tool status. |
 
 ## Established Patterns

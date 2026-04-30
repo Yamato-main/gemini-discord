@@ -8,8 +8,13 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { Config, GeminiSessionBindingScope, MemoryScope } from './types.js';
 import { ensureRuntimePaths, resolveRuntimePaths } from './runtime-paths.js';
+import {
+  readManagedConfigFile,
+  updateManagedConfigFile,
+  type ManagedConfigFile,
+  type ManagedDiscordMetadata,
+} from './managed-config.js';
 
-const CONFIG_SNAPSHOT_VERSION = 1;
 const CONFIG_ENV_KEYS = [
   'DISCORD_BOT_TOKEN',
   'DISCORD_CHANNEL_ID',
@@ -47,11 +52,6 @@ const LEGACY_ENV_ALIASES: Partial<Record<ConfigEnvKey, string[]>> = {
 };
 
 type ConfigEnvKey = (typeof CONFIG_ENV_KEYS)[number];
-
-interface ConfigSnapshotFile {
-  version: 1;
-  values: Partial<Record<ConfigEnvKey, string>>;
-}
 
 
 /**
@@ -135,38 +135,18 @@ function resolveAdminId(explicitAdminId: string | undefined, ownerIds: string[])
   return ownerIds[0] ?? '';
 }
 
-function readSnapshot(filePath: string): Record<string, string> {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Partial<ConfigSnapshotFile>;
-    if (parsed.version !== CONFIG_SNAPSHOT_VERSION || typeof parsed.values !== 'object' || parsed.values === null) {
-      return {};
-    }
-
-    const rawValues: Record<string, string> = {};
-    for (const [key, value] of Object.entries(parsed.values)) {
-      if (typeof value === 'string') {
-        rawValues[key] = value;
-      }
-    }
-
-    return normalizeConfigMap(rawValues);
-  } catch {
-    return {};
-  }
-}
-
 function normalizeConfigMap(input: Record<string, string>): Record<string, string> {
   const normalized: Record<string, string> = {};
 
   for (const key of CONFIG_ENV_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(input, key)) {
+    if (Object.prototype.hasOwnProperty.call(input, key) && input[key].trim() !== '') {
       normalized[key] = input[key];
       continue;
     }
 
     const aliases = LEGACY_ENV_ALIASES[key] ?? [];
     for (const alias of aliases) {
-      if (Object.prototype.hasOwnProperty.call(input, alias)) {
+      if (Object.prototype.hasOwnProperty.call(input, alias) && input[alias].trim() !== '') {
         normalized[key] = input[alias];
         break;
       }
@@ -194,35 +174,20 @@ function collectProcessEnv(): Record<string, string> {
   return result;
 }
 
-function writeSnapshot(filePath: string, values: Record<string, string>): void {
-  const payload: ConfigSnapshotFile = {
-    version: CONFIG_SNAPSHOT_VERSION,
-    values: {},
-  };
-
-  for (const key of CONFIG_ENV_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(values, key)) {
-      payload.values[key] = values[key];
-    }
-  }
-
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 0o600 });
-}
-
 export function resolveConfigEnvMap(extensionDir: string): Record<string, string> {
   const runtimePaths = ensureRuntimePaths(extensionDir);
-  const snapshotVars = readSnapshot(runtimePaths.configSnapshotFile);
-  const processVars = collectProcessEnv();
-  const fileVars = parseEnvFile(path.join(extensionDir, '.env'));
-  const resolved = normalizeConfigMap({
+  const managedConfig = readManagedConfigFile(runtimePaths.managedConfigFile);
+  const snapshotVars = normalizeConfigMap(managedConfig.env);
+  const processVars = normalizeConfigMap(collectProcessEnv());
+  const fileVars = normalizeConfigMap(parseEnvFile(path.join(extensionDir, '.env')));
+  const resolved = {
     ...snapshotVars,
     ...processVars,
     ...fileVars,
-  });
+  };
 
   try {
-    writeSnapshot(runtimePaths.configSnapshotFile, resolved);
+    persistManagedConfig(runtimePaths.managedConfigFile, managedConfig, resolved);
   } catch {
     // Best-effort persistence only.
   }
@@ -238,6 +203,7 @@ export function resolveConfigEnvMap(extensionDir: string): Record<string, string
 export function loadConfig(extensionDir: string): Config {
   const envVars = resolveConfigEnvMap(extensionDir);
   const runtimePaths = ensureRuntimePaths(extensionDir);
+  const managedConfig = readManagedConfigFile(runtimePaths.managedConfigFile);
 
   const get = (key: string, fallback = ''): string => {
     const envValue = envVars[key];
@@ -252,6 +218,8 @@ export function loadConfig(extensionDir: string): Config {
   const config: Config = {
     discordBotToken: get('DISCORD_BOT_TOKEN'),
     discordChannelId: primaryChannelId,
+    discordServerId: managedConfig.discord.primaryGuildId ?? '',
+    discordServerName: managedConfig.discord.primaryGuildName ?? '',
     ownerIds,
     discordAdminId: resolveAdminId(get('DISCORD_ADMIN_ID'), ownerIds),
     allowedChannelIds: configuredAllowedChannelIds.length > 0
@@ -334,10 +302,7 @@ export function resolveExtensionDir(fromDir: string): string {
 export async function updateEnvModel(extensionDir: string, model: string): Promise<void> {
   const envPath = path.join(extensionDir, '.env');
   if (!fs.existsSync(envPath)) {
-    const runtimePaths = resolveRuntimePaths(extensionDir);
-    const current = resolveConfigEnvMap(extensionDir);
-    current.GEMINI_MODEL = model;
-    writeSnapshot(runtimePaths.configSnapshotFile, current);
+    persistConfigEnvUpdates(extensionDir, { GEMINI_MODEL: model });
     return;
   }
 
@@ -358,4 +323,56 @@ export async function updateEnvModel(extensionDir: string, model: string): Promi
   }
 
   fs.writeFileSync(envPath, newLines.join('\n'));
+}
+
+export function persistConfigEnvUpdates(
+  extensionDir: string,
+  updates: Partial<Record<ConfigEnvKey, string>>,
+): void {
+  const runtimePaths = ensureRuntimePaths(extensionDir);
+  updateManagedConfigFile(runtimePaths.managedConfigFile, (current) => {
+    const nextEnv = normalizeConfigMap({
+      ...current.env,
+      ...updates,
+    });
+    return {
+      ...current,
+      env: nextEnv,
+    };
+  });
+}
+
+export function persistDiscordMetadata(
+  extensionDir: string,
+  updates: ManagedDiscordMetadata,
+): void {
+  const runtimePaths = ensureRuntimePaths(extensionDir);
+  updateManagedConfigFile(runtimePaths.managedConfigFile, (current) => ({
+    ...current,
+    discord: {
+      ...current.discord,
+      ...filterEmptyMetadata(updates),
+    },
+  }));
+}
+
+function persistManagedConfig(
+  filePath: string,
+  current: ManagedConfigFile,
+  values: Record<string, string>,
+): void {
+  updateManagedConfigFile(filePath, () => ({
+    ...current,
+    env: normalizeConfigMap(values),
+  }));
+}
+
+function filterEmptyMetadata(updates: ManagedDiscordMetadata): ManagedDiscordMetadata {
+  const next: ManagedDiscordMetadata = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (typeof value === 'string' && value.trim()) {
+      next[key as keyof ManagedDiscordMetadata] = value;
+    }
+  }
+  return next;
 }

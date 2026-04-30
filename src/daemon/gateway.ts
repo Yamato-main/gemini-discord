@@ -17,6 +17,10 @@ import type { ExchangeLog } from '../shared/types.js';
 import { initCron } from './cron.js';
 import { resetConversationSession } from './session-reset.js';
 import { ensureOwnerDmPairings, touchDmPairing } from './dm-pairing.js';
+import {
+  bootstrapManagedDiscordConfig,
+  rememberPrimaryChannelFromMessage,
+} from './onboarding.js';
 
 const MAX_AGENT_EXCHANGES = 6;
 
@@ -40,19 +44,27 @@ export async function initGateway(
   client.once('clientReady', async () => {
     log.info('Discord bot connected', { tag: client.user?.tag });
 
-    try {
-      const channel = await client.channels.fetch(config.discordChannelId);
-      if (!channel) {
-        log.error('Could not find configured primary channel', { channelId: config.discordChannelId });
+    await bootstrapManagedDiscordConfig(client, config, extensionDir);
+
+    if (config.discordChannelId) {
+      try {
+        const channel = await client.channels.fetch(config.discordChannelId);
+        if (!channel) {
+          log.error('Could not find configured primary channel', { channelId: config.discordChannelId });
+          process.exit(1);
+        }
+        log.info('Primary channel access verified', { channelId: config.discordChannelId });
+      } catch (err) {
+        log.error('Failed to access configured primary channel', {
+          channelId: config.discordChannelId,
+          error: err instanceof Error ? err.message : String(err),
+        });
         process.exit(1);
       }
-      log.info('Primary channel access verified', { channelId: config.discordChannelId });
-    } catch (err) {
-      log.error('Failed to access configured primary channel', {
-        channelId: config.discordChannelId,
-        error: err instanceof Error ? err.message : String(err),
+    } else {
+      log.info('No primary channel configured yet; the first owner message in an allowed server channel will be remembered automatically.', {
+        guildId: config.discordServerId || undefined,
       });
-      process.exit(1);
     }
 
     await buildGuildChannelMap(client);
@@ -73,6 +85,8 @@ export async function initGateway(
       runtimeStore.lastInteractiveMessageAt = Date.now();
       if (!message.guildId) {
         touchDmPairing(extensionDir, message.author.id, message.channelId);
+      } else if (accepted.speakerKind === 'human') {
+        rememberPrimaryChannelFromMessage(config, extensionDir, message);
       }
       const processingContext = resolveProcessingContext(config, message, accepted, extensionDir);
       const chan = message.channel as TextChannel | DMChannel | NewsChannel;

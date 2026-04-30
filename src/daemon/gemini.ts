@@ -21,6 +21,7 @@ const DISCORD_BRIDGE_TOOLS = [
   'discord_restart',
   'discord_find_images',
   'discord_channels',
+  'schedule_reminder',
   'schedule_cron_job',
   'list_cron_jobs',
   'delete_cron_job',

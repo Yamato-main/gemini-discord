@@ -17,7 +17,7 @@ import type { ConversationMemory } from './memory.js';
 import { resolveSessionKey } from './memory.js';
 import type { ChannelQueue } from './queue.js';
 import { sendDiscordMessage } from './sender.js';
-import { scheduleJob, listJobs, deleteJob } from './cron.js';
+import { scheduleJob, scheduleReminder, listJobs, deleteJob } from './cron.js';
 import { getChannelMapEntries, resolveDiscoveredChannel } from './channels.js';
 import { resetConversationSession } from './session-reset.js';
 import { listGeminiBindingStates } from './binding.js';
@@ -91,6 +91,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           botTag: deps.client?.user?.tag ?? null,
           wsPing: deps.client?.ws?.ping ?? -1,
           channelId: config.discordChannelId,
+          serverId: config.discordServerId || undefined,
+          serverName: config.discordServerName || undefined,
           ownerIds: config.ownerIds,
           enableDMs: config.enableDMs,
           sessionScope: config.memoryScope,
@@ -297,9 +299,11 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
           const authorId = String(parsed['author_id'] ?? config.discordAdminId);
           const runOnce = parsed['run_once'] === undefined ? true : parsed['run_once'] === true;
+          const delayMinutes = parseOptionalNumber(parsed['delay_minutes']);
+          const deliverAt = parseOptionalTimestamp(parsed['deliver_at']);
 
-          if (!cronExpression || !message) {
-            respond(res, 400, { error: 'cron_expression and message are required' });
+          if (!message || (!cronExpression && delayMinutes === null && deliverAt === null)) {
+            respond(res, 400, { error: 'message plus cron_expression, delay_minutes, or deliver_at is required' });
             return;
           }
 
@@ -314,13 +318,28 @@ export function startControlApi(deps: ApiDependencies): http.Server {
               channelId = resolved.id;
             }
 
-            const jobId = scheduleJob({
-              cronExpression,
-              message,
-              channelId,
-              authorId,
-              runOnce,
-            });
+            if (!channelId) {
+              respond(res, 400, {
+                error: 'No primary Discord channel is configured yet. Provide channel_id/channel_name or let the daemon remember the first owner channel automatically.',
+              });
+              return;
+            }
+
+            const jobId = cronExpression
+              ? scheduleJob({
+                cronExpression,
+                message,
+                channelId,
+                authorId,
+                runOnce,
+              })
+              : scheduleReminder({
+                message,
+                channelId,
+                authorId,
+                delayMinutes: delayMinutes ?? undefined,
+                runAt: deliverAt ?? undefined,
+              });
             respond(res, 200, { ok: true, job_id: jobId });
           } catch (err) {
             respond(res, 400, { error: err instanceof Error ? err.message : String(err) });
@@ -366,6 +385,24 @@ function requireAuth(req: http.IncomingMessage, config: Config): boolean {
   if (!header) return false;
   const [scheme, token] = header.split(' ');
   return scheme === 'Bearer' && token === config.daemonApiToken;
+}
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOptionalTimestamp(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function resolveConversationSessionKey(

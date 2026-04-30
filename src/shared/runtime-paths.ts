@@ -4,7 +4,7 @@ import * as path from 'node:path';
 export interface RuntimePaths {
   runtimeDir: string;
   bindingsDir: string;
-  configSnapshotFile: string;
+  managedConfigFile: string;
   daemonTokenFile: string;
   daemonLogFile: string;
   memoryFile: string;
@@ -19,7 +19,7 @@ export function resolveRuntimePaths(extensionDir: string): RuntimePaths {
   return {
     runtimeDir,
     bindingsDir: path.join(runtimeDir, 'bindings'),
-    configSnapshotFile: resolveManagedRuntimePath(extensionDir, 'config.json'),
+    managedConfigFile: resolveManagedRuntimePath(extensionDir, 'config.json'),
     daemonTokenFile: resolveManagedRuntimePath(extensionDir, 'daemon-token', '.daemon-token'),
     daemonLogFile: resolveManagedRuntimePath(extensionDir, 'daemon.log', 'daemon.log'),
     memoryFile: resolveManagedRuntimePath(extensionDir, 'memory.json', '.memory.json'),

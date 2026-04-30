@@ -4,6 +4,8 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
   return {
     discordBotToken: 'test-token',
     discordChannelId: 'channel-1',
+    discordServerId: '',
+    discordServerName: '',
     ownerIds: ['owner-1'],
     discordAdminId: 'owner-1',
     allowedChannelIds: ['channel-1', 'channel-2'],

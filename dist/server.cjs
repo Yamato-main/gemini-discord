@@ -3222,8 +3222,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path4) {
-      let input = path4;
+    function removeDotSegments(path5) {
+      let input = path5;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3422,8 +3422,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path4, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
+        const [path5, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs4, exportName) {
+    function addFormats(ajv, list, fs5, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs4[f]);
+        ajv.addFormat(f, fs5[f]);
     }
     module2.exports = exports2 = formatsPlugin;
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -7276,8 +7276,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path4, errorMaps, issueData } = params;
-  const fullPath = [...path4, ...issueData.path || []];
+  const { data, path: path5, errorMaps, issueData } = params;
+  const fullPath = [...path5, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7393,11 +7393,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path4, key) {
+  constructor(parent, value, path5, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path4;
+    this._path = path5;
     this._key = key;
   }
   get path() {
@@ -11035,10 +11035,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path4) {
-  if (!path4)
+function getElementAtPath(obj, path5) {
+  if (!path5)
     return obj;
-  return path4.reduce((acc, key) => acc?.[key], obj);
+  return path5.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11358,11 +11358,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path4, issues) {
+function prefixIssues(path5, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path4);
+    iss.path.unshift(path5);
     return iss;
   });
 }
@@ -21014,8 +21014,8 @@ var StdioServerTransport = class {
 };
 
 // src/shared/config.ts
-var fs2 = __toESM(require("node:fs"), 1);
-var path2 = __toESM(require("node:path"), 1);
+var fs3 = __toESM(require("node:fs"), 1);
+var path3 = __toESM(require("node:path"), 1);
 var crypto = __toESM(require("node:crypto"), 1);
 
 // src/shared/runtime-paths.ts
@@ -21026,7 +21026,7 @@ function resolveRuntimePaths(extensionDir2) {
   return {
     runtimeDir,
     bindingsDir: path.join(runtimeDir, "bindings"),
-    configSnapshotFile: resolveManagedRuntimePath(extensionDir2, "config.json"),
+    managedConfigFile: resolveManagedRuntimePath(extensionDir2, "config.json"),
     daemonTokenFile: resolveManagedRuntimePath(extensionDir2, "daemon-token", ".daemon-token"),
     daemonLogFile: resolveManagedRuntimePath(extensionDir2, "daemon.log", "daemon.log"),
     memoryFile: resolveManagedRuntimePath(extensionDir2, "memory.json", ".memory.json"),
@@ -21057,8 +21057,92 @@ function resolveManagedRuntimePath(extensionDir2, runtimeRelativePath, legacyFil
   }
 }
 
+// src/shared/managed-config.ts
+var fs2 = __toESM(require("node:fs"), 1);
+var path2 = __toESM(require("node:path"), 1);
+var MANAGED_CONFIG_VERSION = 2;
+function readManagedConfigFile(filePath) {
+  if (!fs2.existsSync(filePath)) {
+    return createManagedConfigFile();
+  }
+  try {
+    const parsed = JSON.parse(fs2.readFileSync(filePath, "utf-8"));
+    if (parsed.version === 1 && typeof parsed.values === "object" && parsed.values !== null) {
+      return createManagedConfigFile(coerceStringMap(parsed.values));
+    }
+    if (parsed.version === MANAGED_CONFIG_VERSION) {
+      return {
+        version: MANAGED_CONFIG_VERSION,
+        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : (/* @__PURE__ */ new Date()).toISOString(),
+        env: coerceStringMap(parsed.env),
+        discord: coerceDiscordMetadata(parsed.discord)
+      };
+    }
+  } catch {
+  }
+  return createManagedConfigFile();
+}
+function writeManagedConfigFile(filePath, config3) {
+  const payload = {
+    version: MANAGED_CONFIG_VERSION,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    env: coerceStringMap(config3.env),
+    discord: coerceDiscordMetadata(config3.discord)
+  };
+  fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
+  fs2.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
+}
+function updateManagedConfigFile(filePath, updater) {
+  const next = updater(readManagedConfigFile(filePath));
+  writeManagedConfigFile(filePath, next);
+  return next;
+}
+function createManagedConfigFile(env = {}) {
+  return {
+    version: MANAGED_CONFIG_VERSION,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    env: coerceStringMap(env),
+    discord: {}
+  };
+}
+function coerceStringMap(input) {
+  if (!input || typeof input !== "object") {
+    return {};
+  }
+  const result = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "string") {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+function coerceDiscordMetadata(input) {
+  if (!input || typeof input !== "object") {
+    return {};
+  }
+  const result = {};
+  const fields = [
+    "primaryGuildId",
+    "primaryGuildName",
+    "primaryChannelId",
+    "primaryChannelName",
+    "botUserId",
+    "botTag",
+    "appOwnerId",
+    "appOwnerTag",
+    "lastConnectedAt"
+  ];
+  for (const field of fields) {
+    const value = input[field];
+    if (typeof value === "string" && value.trim()) {
+      result[field] = value;
+    }
+  }
+  return result;
+}
+
 // src/shared/config.ts
-var CONFIG_SNAPSHOT_VERSION = 1;
 var CONFIG_ENV_KEYS = [
   "DISCORD_BOT_TOKEN",
   "DISCORD_CHANNEL_ID",
@@ -21095,8 +21179,8 @@ var LEGACY_ENV_ALIASES = {
 };
 function parseEnvFile(filePath) {
   const result = {};
-  if (!fs2.existsSync(filePath)) return result;
-  const content = fs2.readFileSync(filePath, "utf-8");
+  if (!fs3.existsSync(filePath)) return result;
+  const content = fs3.readFileSync(filePath, "utf-8");
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -21145,33 +21229,16 @@ function resolveAdminId(explicitAdminId, ownerIds) {
   }
   return ownerIds[0] ?? "";
 }
-function readSnapshot(filePath) {
-  try {
-    const parsed = JSON.parse(fs2.readFileSync(filePath, "utf-8"));
-    if (parsed.version !== CONFIG_SNAPSHOT_VERSION || typeof parsed.values !== "object" || parsed.values === null) {
-      return {};
-    }
-    const rawValues = {};
-    for (const [key, value] of Object.entries(parsed.values)) {
-      if (typeof value === "string") {
-        rawValues[key] = value;
-      }
-    }
-    return normalizeConfigMap(rawValues);
-  } catch {
-    return {};
-  }
-}
 function normalizeConfigMap(input) {
   const normalized = {};
   for (const key of CONFIG_ENV_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(input, key)) {
+    if (Object.prototype.hasOwnProperty.call(input, key) && input[key].trim() !== "") {
       normalized[key] = input[key];
       continue;
     }
     const aliases = LEGACY_ENV_ALIASES[key] ?? [];
     for (const alias of aliases) {
-      if (Object.prototype.hasOwnProperty.call(input, alias)) {
+      if (Object.prototype.hasOwnProperty.call(input, alias) && input[alias].trim() !== "") {
         normalized[key] = input[alias];
         break;
       }
@@ -21196,31 +21263,19 @@ function collectProcessEnv() {
   }
   return result;
 }
-function writeSnapshot(filePath, values) {
-  const payload = {
-    version: CONFIG_SNAPSHOT_VERSION,
-    values: {}
-  };
-  for (const key of CONFIG_ENV_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(values, key)) {
-      payload.values[key] = values[key];
-    }
-  }
-  fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
-  fs2.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
-}
 function resolveConfigEnvMap(extensionDir2) {
   const runtimePaths = ensureRuntimePaths(extensionDir2);
-  const snapshotVars = readSnapshot(runtimePaths.configSnapshotFile);
-  const processVars = collectProcessEnv();
-  const fileVars = parseEnvFile(path2.join(extensionDir2, ".env"));
-  const resolved = normalizeConfigMap({
+  const managedConfig = readManagedConfigFile(runtimePaths.managedConfigFile);
+  const snapshotVars = normalizeConfigMap(managedConfig.env);
+  const processVars = normalizeConfigMap(collectProcessEnv());
+  const fileVars = normalizeConfigMap(parseEnvFile(path3.join(extensionDir2, ".env")));
+  const resolved = {
     ...snapshotVars,
     ...processVars,
     ...fileVars
-  });
+  };
   try {
-    writeSnapshot(runtimePaths.configSnapshotFile, resolved);
+    persistManagedConfig(runtimePaths.managedConfigFile, managedConfig, resolved);
   } catch {
   }
   return resolved;
@@ -21228,6 +21283,7 @@ function resolveConfigEnvMap(extensionDir2) {
 function loadConfig(extensionDir2) {
   const envVars = resolveConfigEnvMap(extensionDir2);
   const runtimePaths = ensureRuntimePaths(extensionDir2);
+  const managedConfig = readManagedConfigFile(runtimePaths.managedConfigFile);
   const get = (key, fallback = "") => {
     const envValue = envVars[key];
     return envValue === void 0 ? fallback : envValue;
@@ -21239,6 +21295,8 @@ function loadConfig(extensionDir2) {
   const config3 = {
     discordBotToken: get("DISCORD_BOT_TOKEN"),
     discordChannelId: primaryChannelId,
+    discordServerId: managedConfig.discord.primaryGuildId ?? "",
+    discordServerName: managedConfig.discord.primaryGuildName ?? "",
     ownerIds,
     discordAdminId: resolveAdminId(get("DISCORD_ADMIN_ID"), ownerIds),
     allowedChannelIds: configuredAllowedChannelIds.length > 0 ? configuredAllowedChannelIds : primaryChannelId ? [primaryChannelId] : [],
@@ -21248,12 +21306,12 @@ function loadConfig(extensionDir2) {
       let token = get("DAEMON_API_TOKEN");
       if (token) return token;
       const tokenPath = runtimePaths.daemonTokenFile;
-      if (fs2.existsSync(tokenPath)) {
-        return fs2.readFileSync(tokenPath, "utf-8").trim();
+      if (fs3.existsSync(tokenPath)) {
+        return fs3.readFileSync(tokenPath, "utf-8").trim();
       }
       token = crypto.randomBytes(32).toString("hex");
       try {
-        fs2.writeFileSync(tokenPath, token, { mode: 384 });
+        fs3.writeFileSync(tokenPath, token, { mode: 384 });
       } catch (e) {
       }
       return token;
@@ -21284,28 +21342,34 @@ function loadConfig(extensionDir2) {
 function resolveExtensionDir(fromDir) {
   let dir = fromDir;
   if (dir.startsWith("file://")) {
-    dir = path2.dirname(new URL(dir).pathname);
+    dir = path3.dirname(new URL(dir).pathname);
   }
-  if (path2.basename(dir) === "dist") {
-    return path2.dirname(dir);
+  if (path3.basename(dir) === "dist") {
+    return path3.dirname(dir);
   }
   let current = dir;
-  while (current !== path2.dirname(current)) {
-    if (fs2.existsSync(path2.join(current, "gemini-extension.json"))) {
+  while (current !== path3.dirname(current)) {
+    if (fs3.existsSync(path3.join(current, "gemini-extension.json"))) {
       return current;
     }
-    current = path2.dirname(current);
+    current = path3.dirname(current);
   }
   return dir;
+}
+function persistManagedConfig(filePath, current, values) {
+  updateManagedConfigFile(filePath, () => ({
+    ...current,
+    env: normalizeConfigMap(values)
+  }));
 }
 
 // src/tools/client.ts
 var http2 = __toESM(require("node:http"), 1);
 
 // src/shared/daemon-runtime.ts
-var fs3 = __toESM(require("node:fs"), 1);
+var fs4 = __toESM(require("node:fs"), 1);
 var http = __toESM(require("node:http"), 1);
-var path3 = __toESM(require("node:path"), 1);
+var path4 = __toESM(require("node:path"), 1);
 var import_node_child_process = require("node:child_process");
 var startupPromise = null;
 var HEALTH_POLL_MS = 500;
@@ -21395,10 +21459,10 @@ async function isDaemonHealthy(port) {
   });
 }
 async function startDaemonProcess(config3, extensionDir2) {
-  const daemonEntry = path3.join(extensionDir2, "dist", "daemon.cjs");
+  const daemonEntry = path4.join(extensionDir2, "dist", "daemon.cjs");
   const logPath = resolveRuntimePaths(extensionDir2).daemonLogFile;
-  const outFd = fs3.openSync(logPath, "a");
-  const errFd = fs3.openSync(logPath, "a");
+  const outFd = fs4.openSync(logPath, "a");
+  const errFd = fs4.openSync(logPath, "a");
   const child = (0, import_node_child_process.spawn)(process.execPath, [daemonEntry], {
     cwd: extensionDir2,
     detached: true,
@@ -21473,18 +21537,18 @@ async function waitForNewStartTime(config3, previousStartedAt, timeoutMs, pollIn
 
 // src/tools/client.ts
 async function daemonRequest(opts) {
-  const { method, path: path4, config: config3, body, timeoutMs } = opts;
+  const { method, path: path5, config: config3, body, timeoutMs } = opts;
   let tmpDir2 = process.cwd();
   try {
     tmpDir2 = __dirname;
   } catch {
   }
   const extensionDir2 = resolveExtensionDir(tmpDir2);
-  let response = await requestOnce({ method, path: path4, config: config3, body, timeoutMs });
+  let response = await requestOnce({ method, path: path5, config: config3, body, timeoutMs });
   if ((response.data["error"] === "daemon_offline" || response.data["error"] === "daemon_timeout") && config3.autoStartDaemon) {
     try {
       await ensureDaemonRunning(config3, extensionDir2);
-      response = await requestOnce({ method, path: path4, config: config3, body, timeoutMs });
+      response = await requestOnce({ method, path: path5, config: config3, body, timeoutMs });
     } catch {
       return { ok: false, status: 0, data: { error: "daemon_offline" } };
     }
@@ -21492,14 +21556,14 @@ async function daemonRequest(opts) {
   return response;
 }
 async function requestOnce(opts) {
-  const { method, path: path4, config: config3, body, timeoutMs } = opts;
+  const { method, path: path5, config: config3, body, timeoutMs } = opts;
   return new Promise((resolve) => {
     const payload = body ? JSON.stringify(body) : void 0;
     const req = http2.request(
       {
         hostname: "127.0.0.1",
         port: config3.daemonPort,
-        path: path4,
+        path: path5,
         method,
         headers: {
           "Content-Type": "application/json",
@@ -21563,6 +21627,8 @@ function registerStatusTool(server2, config3) {
         `**Gemini:** ${s.geminiReachable ? "\u2705 reachable" : "\u274C unreachable"} (${s.geminiVersion})`,
         `**Streaming:** ${s.streaming ? "enabled" : "disabled"}`,
         `**DMs:** ${s.enableDMs ? "enabled" : "disabled"}`,
+        `**Server:** ${s.serverName ?? s.serverId ?? "not yet pinned"}`,
+        `**Primary Channel:** ${s.channelId || "not yet pinned"}`,
         `**Memory Scope:** ${s.sessionScope}`,
         `**Gemini Session Binding Scope:** ${s.geminiSessionBindingScope}`,
         `**Gemini Headless Mode:** ${s.headlessMode ?? "unknown"}`,
@@ -21902,6 +21968,54 @@ You MUST use the 'files' array parameter in the 'discord_send' or 'discord_reply
 
 // src/tools/cron.ts
 function registerCronTools(server2, config3) {
+  server2.tool(
+    "schedule_reminder",
+    {
+      message: external_exports.string().describe('The exact final Discord reminder message to send. Example: "Reminder: join the deploy call now."'),
+      delay_minutes: external_exports.number().positive().optional().describe('Delay in minutes before the reminder fires. Use this for short reminders like "in 15 minutes".'),
+      delay_hours: external_exports.number().positive().optional().describe("Additional delay in hours before the reminder fires."),
+      delay_days: external_exports.number().positive().optional().describe("Additional delay in days before the reminder fires."),
+      deliver_at: external_exports.string().optional().describe("Optional ISO-8601 timestamp for when the reminder should fire. Use this instead of delay fields when the user gives a specific absolute time."),
+      channel_id: external_exports.string().optional().describe("Target Discord channel ID. Prefer this when you already know the exact ID."),
+      channel_name: external_exports.string().optional().describe('Target Discord channel name such as "boardroom" or "#boardroom". Use this when you know the channel by name and want the daemon to resolve it.')
+    },
+    async ({ message, delay_minutes, delay_hours, delay_days, deliver_at, channel_id, channel_name }) => {
+      const totalDelayMinutes = (delay_minutes ?? 0) + (delay_hours ?? 0) * 60 + (delay_days ?? 0) * 24 * 60;
+      if (!deliver_at && totalDelayMinutes <= 0) {
+        return {
+          content: [{ type: "text", text: "Failed to schedule reminder: provide a future `deliver_at` or a positive delay." }],
+          isError: true
+        };
+      }
+      const resp = await fetch(`http://127.0.0.1:${config3.daemonPort}/cron`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config3.daemonApiToken}`
+        },
+        body: JSON.stringify({
+          message,
+          delay_minutes: deliver_at ? void 0 : totalDelayMinutes,
+          deliver_at,
+          channel_id,
+          channel_name,
+          run_once: true
+        })
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        return {
+          content: [{ type: "text", text: `Failed to schedule reminder: ${err.error}` }],
+          isError: true
+        };
+      }
+      const data = await resp.json();
+      const deliveryLabel = deliver_at ? `for ${deliver_at}` : `in ${totalDelayMinutes} minute${totalDelayMinutes === 1 ? "" : "s"}`;
+      return {
+        content: [{ type: "text", text: `Successfully scheduled reminder ${deliveryLabel}. Job ID: ${data.job_id}` }]
+      };
+    }
+  );
   server2.tool(
     "schedule_cron_job",
     {

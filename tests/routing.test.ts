@@ -5,6 +5,8 @@ import { isDirectMessageAuthorAllowed, shouldAcceptMessage } from '../src/daemon
 const baseConfig: Config = {
   discordBotToken: 'token',
   discordChannelId: 'ch1',
+  discordServerId: '',
+  discordServerName: '',
   ownerIds: ['owner-1'],
   discordAdminId: 'owner-1',
   allowedChannelIds: ['ch1', 'ch2'],

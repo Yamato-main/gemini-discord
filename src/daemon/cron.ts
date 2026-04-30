@@ -26,6 +26,16 @@ export interface ScheduleJobInput {
   runOnce?: boolean;
 }
 
+export interface ScheduleReminderInput {
+  message: string;
+  channelId: string;
+  authorId: string;
+  delayMinutes?: number;
+  runAt?: number;
+}
+
+const MIN_REMINDER_DELAY_MS = 60_000;
+
 let jobs: Map<string, CronJob> = new Map();
 let storePath: string = '';
 let discordClient: Client | null = null;
@@ -82,7 +92,7 @@ export function scheduleJob(input: ScheduleJobInput): string {
   try {
     // Validate cron expression
     const interval = CronExpressionParser.parse(input.cronExpression);
-    const id = Math.random().toString(36).substring(2, 10);
+    const id = createJobId();
     const job: CronJob = {
       id,
       cronExpression: input.cronExpression,
@@ -93,18 +103,27 @@ export function scheduleJob(input: ScheduleJobInput): string {
       runOnce: input.runOnce !== false,
     };
     
-    jobs.set(id, job);
-    saveJobs();
-    log.info('Scheduled new cron job', {
-      id,
-      channelId: job.channelId,
-      runOnce: job.runOnce,
-      nextRun: new Date(job.nextRun).toISOString(),
-    });
+    persistJob(job, 'Scheduled new cron job');
     return id;
   } catch (err) {
     throw new Error(`Invalid cron expression: ${err}`);
   }
+}
+
+export function scheduleReminder(input: ScheduleReminderInput): string {
+  const runAt = normalizeReminderRunAt(input);
+  const job: CronJob = {
+    id: createJobId(),
+    cronExpression: `once:${new Date(runAt).toISOString()}`,
+    message: input.message,
+    channelId: input.channelId,
+    authorId: input.authorId,
+    nextRun: runAt,
+    runOnce: true,
+  };
+
+  persistJob(job, 'Scheduled reminder');
+  return job.id;
 }
 
 export function listJobs(): CronJob[] {
@@ -162,6 +181,21 @@ async function checkJobs() {
   }
 }
 
+function createJobId(): string {
+  return Math.random().toString(36).substring(2, 10);
+}
+
+function persistJob(job: CronJob, message: string): void {
+  jobs.set(job.id, job);
+  saveJobs();
+  log.info(message, {
+    id: job.id,
+    channelId: job.channelId,
+    runOnce: job.runOnce,
+    nextRun: new Date(job.nextRun).toISOString(),
+  });
+}
+
 async function deliverCronJob(job: CronJob): Promise<boolean> {
   if (!discordClient) {
     log.warn('Cron delivery skipped: Discord client not ready', { id: job.id });
@@ -213,4 +247,21 @@ function coerceCronJob(value: Record<string, unknown>): CronJob | null {
     nextRun,
     runOnce,
   };
+}
+
+function normalizeReminderRunAt(input: ScheduleReminderInput): number {
+  const requestedAt = typeof input.runAt === 'number'
+    ? input.runAt
+    : Date.now() + Math.round((input.delayMinutes ?? 0) * 60_000);
+
+  if (!Number.isFinite(requestedAt)) {
+    throw new Error('Invalid reminder time.');
+  }
+
+  const roundedUp = Math.ceil(requestedAt / MIN_REMINDER_DELAY_MS) * MIN_REMINDER_DELAY_MS;
+  if (roundedUp < Date.now() + MIN_REMINDER_DELAY_MS) {
+    throw new Error('Reminders must be scheduled at least 1 minute in the future.');
+  }
+
+  return roundedUp;
 }

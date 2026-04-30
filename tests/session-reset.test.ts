@@ -77,6 +77,8 @@ function createConfig(): Config {
   return {
     discordBotToken: '',
     discordChannelId: '',
+    discordServerId: '',
+    discordServerName: '',
     ownerIds: [],
     discordAdminId: '',
     allowedChannelIds: [],

@@ -28,10 +28,19 @@ gemini extensions install /absolute/path/to/gemini-discord
 During install, Gemini CLI asks for:
 
 - `DISCORD_BOT_TOKEN`
-- `DISCORD_CHANNEL_ID`
-- `DISCORD_OWNER_IDS`
+- `DISCORD_CHANNEL_ID` (optional override)
+- `DISCORD_OWNER_IDS` (optional override)
 
 After install, open or restart Gemini CLI once. The MCP server will start the local Discord daemon automatically, and the bot should come online.
+
+If you leave the channel or owner fields blank, `gemini-discord` now auto-manages them for you:
+
+- The effective install/runtime config is written to `.gemini-discord/config.json`
+- The bot tries to infer the Discord application owner automatically
+- If the bot is only in one server, it can prefill that server and its visible text channels
+- The first owner message in a server channel becomes the remembered primary channel
+
+In practice, most GitHub installs only need the bot token plus inviting the bot to your server.
 
 To change settings later:
 
@@ -47,6 +56,7 @@ gemini extensions config gemini-discord
 - Gemini replies stream back into Discord
 - Image attachments are passed to Gemini as local file references
 - `/new` starts a fresh Gemini session for the current Discord binding
+- The agent can schedule both recurring cron jobs and simple "remind me in X minutes/hours/days" reminders
 - The agent can use Discord tools when explicitly asked to send, reply, read history, reset, schedule, or inspect channels
 
 The extension only adds Discord awareness. It tells Gemini that the incoming message is from Discord, that normal text output goes back to the current Discord conversation, and that Discord-compatible Markdown should be used.
@@ -76,12 +86,19 @@ Useful Discord commands:
 - `/pool` shows CLI pool state
 - `/kill` stops a pooled Gemini process
 
+Reminder examples:
+
+- "Remind me in 30 minutes to post the release notes."
+- "Tomorrow at 9am, remind me to check the overnight failures."
+
 ## Optional Settings
 
-Most users only need the three install settings. These optional environment variables can be set for local development or advanced installs:
+Most users only need the bot token, because the bridge can remember the rest in `.gemini-discord/config.json`. These optional environment variables can still be set for local development, explicit overrides, or advanced installs:
 
 | Setting | Purpose |
 | --- | --- |
+| `DISCORD_CHANNEL_ID` | Optional explicit primary channel override. If blank, the first owner channel is remembered automatically. |
+| `DISCORD_OWNER_IDS` | Optional explicit owner override. If blank, the daemon tries to infer the Discord application owner. |
 | `DISCORD_ADMIN_ID` | Primary operator ID; defaults to the first owner |
 | `DISCORD_ALLOWED_CHANNEL_IDS` | Extra channel allowlist; defaults to `DISCORD_CHANNEL_ID` |
 | `DISCORD_ALLOWED_USER_IDS` | Extra allowed human users; defaults to owners |
@@ -99,6 +116,14 @@ Runtime files are ignored by git and live under:
 .gemini-discord/
 ```
 
+The main managed settings file is:
+
+```text
+.gemini-discord/config.json
+```
+
+That file is auto-created and updated by the project. It stores the effective config seen at runtime plus discovered Discord metadata such as the pinned server and primary channel.
+
 Discord bindings store metadata such as session IDs, reset state, and temporary attachments. Gemini itself runs from the normal Gemini project context, so Discord bindings do not become isolated projects or separate agents.
 
 MCP tools exposed to Gemini:
@@ -111,6 +136,7 @@ MCP tools exposed to Gemini:
 - `discord_restart`
 - `discord_find_images`
 - `discord_channels`
+- `schedule_reminder`
 - `schedule_cron_job`
 - `list_cron_jobs`
 - `delete_cron_job`

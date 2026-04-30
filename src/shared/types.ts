@@ -44,6 +44,8 @@ export interface Config {
   // Required
   discordBotToken: string;
   discordChannelId: string;
+  discordServerId: string;
+  discordServerName: string;
   ownerIds: string[];
   discordAdminId: string;
   allowedChannelIds: string[];
@@ -142,6 +144,8 @@ export interface DaemonStatus {
   botTag: string | null;
   wsPing: number;
   channelId: string;
+  serverId?: string;
+  serverName?: string;
   ownerIds: string[];
   enableDMs: boolean;
   sessionScope: MemoryScope;

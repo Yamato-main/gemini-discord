@@ -20,7 +20,7 @@ interface PreflightResult {
  */
 export async function runPreflight(extensionDir: string): Promise<PreflightResult> {
   const envVars = resolveConfigEnvMap(extensionDir);
-  const required = ['DISCORD_BOT_TOKEN', 'DISCORD_CHANNEL_ID', 'DISCORD_OWNER_IDS'];
+  const required = ['DISCORD_BOT_TOKEN'];
   const missing = required.filter((k) => !envVars[k]?.trim());
 
   if (missing.length > 0) {
@@ -30,17 +30,25 @@ export async function runPreflight(extensionDir: string): Promise<PreflightResul
   }
 
   // 4. DISCORD_ALLOWED_CHANNEL_IDS includes DISCORD_CHANNEL_ID when explicitly configured.
-  const allowedIds = (envVars['DISCORD_ALLOWED_CHANNEL_IDS'] || envVars['DISCORD_CHANNEL_ID'] || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const channelId = envVars['DISCORD_CHANNEL_ID']!.trim();
-  if (!allowedIds.includes(channelId)) {
-    log.error('DISCORD_CHANNEL_ID must be in DISCORD_ALLOWED_CHANNEL_IDS', {
-      channelId,
-      allowedIds,
-    });
-    process.exit(1);
+  const channelId = envVars['DISCORD_CHANNEL_ID']?.trim() ?? '';
+  if (channelId) {
+    const allowedIds = (envVars['DISCORD_ALLOWED_CHANNEL_IDS'] || envVars['DISCORD_CHANNEL_ID'] || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!allowedIds.includes(channelId)) {
+      log.error('DISCORD_CHANNEL_ID must be in DISCORD_ALLOWED_CHANNEL_IDS', {
+        channelId,
+        allowedIds,
+      });
+      process.exit(1);
+    }
+  } else {
+    log.info('Primary Discord channel not configured yet; onboarding will auto-manage it after the bot connects.');
+  }
+
+  if (!envVars['DISCORD_OWNER_IDS']?.trim()) {
+    log.info('Discord owners not configured yet; the daemon will try to infer the application owner automatically.');
   }
 
   // 5. Node exists (sanity — we're running in it, logged for diagnostics)

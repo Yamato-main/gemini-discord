@@ -36,6 +36,8 @@ export function registerStatusTool(server: McpServer, config: Config): void {
         `**Gemini:** ${s.geminiReachable ? '✅ reachable' : '❌ unreachable'} (${s.geminiVersion})`,
         `**Streaming:** ${s.streaming ? 'enabled' : 'disabled'}`,
         `**DMs:** ${s.enableDMs ? 'enabled' : 'disabled'}`,
+        `**Server:** ${s.serverName ?? s.serverId ?? 'not yet pinned'}`,
+        `**Primary Channel:** ${s.channelId || 'not yet pinned'}`,
         `**Memory Scope:** ${s.sessionScope}`,
         `**Gemini Session Binding Scope:** ${s.geminiSessionBindingScope}`,
         `**Gemini Headless Mode:** ${s.headlessMode ?? 'unknown'}`,

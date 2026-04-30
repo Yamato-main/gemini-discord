@@ -11,13 +11,13 @@
     },
     {
       "name": "Primary Discord Channel ID",
-      "description": "Default Discord channel ID the agent should listen to and reply in.",
+      "description": "Optional override for the primary Discord channel ID. Leave blank to let the daemon remember the first owner channel automatically.",
       "envVar": "DISCORD_CHANNEL_ID",
       "sensitive": false
     },
     {
       "name": "Owner Discord User IDs",
-      "description": "Comma-separated user IDs with full ownership over the bridge.",
+      "description": "Optional override for bridge owners. Leave blank to let the daemon infer the Discord application owner automatically when possible.",
       "envVar": "DISCORD_OWNER_IDS",
       "sensitive": false
     }
