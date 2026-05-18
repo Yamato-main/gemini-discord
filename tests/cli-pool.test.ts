@@ -38,7 +38,13 @@ describe('CliProcessPool', () => {
       { onToken: vi.fn() },
       {
         cwd: '/tmp/project',
-        isBoss: false,
+        roleContext: {
+          role: 'GUEST',
+          senderDiscordId: '222222222222222222',
+          senderDisplayLabel: 'Guest#0001',
+          bossLabel: 'the boss',
+          bossConfigValid: true,
+        },
         toolMode: 'chat',
       },
     );
@@ -56,6 +62,7 @@ function createConfig(): Config {
     discordChannelId: 'channel-1',
     discordServerId: '',
     discordServerName: '',
+    discordBossUserId: '111111111111111111',
     ownerIds: ['owner-1'],
     discordAdminId: 'owner-1',
     allowedChannelIds: ['channel-1'],
@@ -82,6 +89,7 @@ function createConfig(): Config {
     useGeminiCliSessions: true,
     geminiSessionBindingScope: 'global',
     cliIdleTimeoutMs: 300000,
+    setupValidationPending: false,
   };
 }
 

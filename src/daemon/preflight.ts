@@ -8,6 +8,8 @@ import * as net from 'node:net';
 import { execSync } from 'node:child_process';
 import { log } from './log.js';
 import { resolveConfigEnvMap } from '../shared/config.js';
+import { ENV, REQUIRED_DAEMON_ENV_KEYS } from '../shared/config-vars.js';
+import { validateBossConfig } from './permissions.js';
 
 interface PreflightResult {
   geminiReachable: boolean;
@@ -20,19 +22,19 @@ interface PreflightResult {
  */
 export async function runPreflight(extensionDir: string): Promise<PreflightResult> {
   const envVars = resolveConfigEnvMap(extensionDir);
-  const required = ['DISCORD_BOT_TOKEN'];
+  const required = REQUIRED_DAEMON_ENV_KEYS;
   const missing = required.filter((k) => !envVars[k]?.trim());
 
   if (missing.length > 0) {
     log.error('Missing required extension settings', { missing });
-    log.error('Run `gemini extensions config gemini-discord` or create a local `.env` file for development.');
+    log.error('Run `npm run setup` or create a local `.env` file for development.');
     process.exit(1);
   }
 
   // 4. DISCORD_ALLOWED_CHANNEL_IDS includes DISCORD_CHANNEL_ID when explicitly configured.
-  const channelId = envVars['DISCORD_CHANNEL_ID']?.trim() ?? '';
+  const channelId = envVars[ENV.DISCORD_CHANNEL_ID]?.trim() ?? '';
   if (channelId) {
-    const allowedIds = (envVars['DISCORD_ALLOWED_CHANNEL_IDS'] || envVars['DISCORD_CHANNEL_ID'] || '')
+    const allowedIds = (envVars[ENV.DISCORD_ALLOWED_CHANNEL_IDS] || envVars[ENV.DISCORD_CHANNEL_ID] || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
@@ -47,15 +49,22 @@ export async function runPreflight(extensionDir: string): Promise<PreflightResul
     log.info('Primary Discord channel not configured yet; onboarding will auto-manage it after the bot connects.');
   }
 
-  if (!envVars['DISCORD_OWNER_IDS']?.trim()) {
+  if (!envVars[ENV.DISCORD_OWNER_IDS]?.trim()) {
     log.info('Discord owners not configured yet; the daemon will try to infer the application owner automatically.');
+  }
+
+  const bossConfig = validateBossConfig(envVars[ENV.DISCORD_BOSS_USER_ID]);
+  if (!bossConfig.valid) {
+    log.warn('DISCORD_BOSS_USER_ID is missing or malformed; privileged Discord actions will fail closed.', {
+      reason: bossConfig.reason,
+    });
   }
 
   // 5. Node exists (sanity — we're running in it, logged for diagnostics)
   log.info('Node version', { version: process.version });
 
   // 6. gemini resolves in PATH.
-  const geminiPath = envVars['GEMINI_PATH']?.trim() || 'gemini';
+  const geminiPath = envVars[ENV.GEMINI_PATH]?.trim() || 'gemini';
   try {
     execSync(`command -v ${shellEscape(geminiPath)}`, { stdio: 'pipe', shell: '/bin/sh' });
   } catch {
@@ -65,7 +74,7 @@ export async function runPreflight(extensionDir: string): Promise<PreflightResul
   }
 
   // 7. DAEMON_PORT is not already bound
-  const port = parseInt(envVars['DAEMON_PORT'] ?? '18790', 10);
+  const port = parseInt(envVars[ENV.DAEMON_PORT] ?? '18790', 10);
   const portInUse = await checkPortInUse(port);
   if (portInUse) {
     log.error('Port in use. Is the daemon already running?', { port });

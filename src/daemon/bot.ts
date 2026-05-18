@@ -11,29 +11,44 @@ import {
 } from 'discord.js';
 import type { Config } from '../shared/types.js';
 import { log } from './log.js';
+import { getSupportedAttachmentMetadata } from './attachments.js';
 import { isDirectMessageAuthorAllowed, shouldAcceptMessage } from './routing.js';
+import { isBoss, resolveDiscordRole, type RoleContext } from './permissions.js';
 
 export interface AcceptedDiscordMessage {
   content: string;
   speakerKind: 'human' | 'agent';
   trigger: string;
+  origin: DiscordOriginContext;
   channelName: string;
   guildName: string | null;
   replyToMessageId: string | null;
   replyToAuthorId: string | null;
   replyToAuthorName: string | null;
-  isBoss: boolean;
+  replyToContent: string | null;
+  replyToAttachments: ReturnType<typeof getSupportedAttachmentMetadata>;
+  roleContext: RoleContext;
+}
+
+export interface DiscordOriginContext {
+  guildId: string | null;
+  channelId: string;
+  threadId: string | null;
+  targetChannelId: string;
+  messageId: string;
+  userId: string;
 }
 
 export interface BotCallbacks {
   onMessage: (message: Message, accepted: AcceptedDiscordMessage) => void;
-  onIgnoredMessage?: (message: Message, trackOnlyContext: Omit<AcceptedDiscordMessage, 'trigger' | 'isBoss'>) => void;
+  onIgnoredMessage?: (message: Message, trackOnlyContext: Omit<AcceptedDiscordMessage, 'trigger' | 'roleContext'>) => void;
 }
 
 export function createClient(config: Config): Client {
-  log.info('Client creating', { enableDMs: config.enableDMs, adminId: config.discordAdminId });
+  log.info('Client creating', { enableDMs: config.enableDMs, bossConfigured: Boolean(config.discordBossUserId) });
   const intents = [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildIntegrations,
     GatewayIntentBits.MessageContent,
@@ -114,6 +129,7 @@ export function setupMessageHandler(
       const isSelf = message.author.id === client.user?.id;
       const channelName = getChannelName(message);
       const guildName = message.guild?.name ?? null;
+      const origin = getDiscordOrigin(message);
 
       // Fast-fail routing checks to avoid expensive Discord API calls
       const isCronTrigger = isSelf && message.content.startsWith('[CRON]');
@@ -129,12 +145,11 @@ export function setupMessageHandler(
         log.info('DM rejected: Author not allowlisted', {
           author: message.author.tag,
           id: message.author.id,
-          adminId: config.discordAdminId,
         });
         return;
       }
     } else {
-      if (!config.allowedChannelIds.includes(message.channelId)) return;
+      if (!isAllowedGuildChannel(message, config)) return;
       // In servers, we let all messages pass to routing so the bot has context.
     }
 
@@ -146,6 +161,10 @@ export function setupMessageHandler(
     const repliedToBot = (mentionedBot || hasPrefixTrigger || isCronTrigger)
       ? false
       : config.respondToReplies && replyContext?.authorId === (client.user?.id ?? null);
+    const roleContext = resolveDiscordRole(config, {
+      discordUserId: message.author.id,
+      displayLabel: message.author.tag,
+    });
 
     const decision = shouldAcceptMessage({
       authorId: message.author.id,
@@ -169,11 +188,14 @@ export function setupMessageHandler(
         callbacks.onIgnoredMessage(message, {
           content: decision.content,
           speakerKind: decision.speakerKind as 'human' | 'agent',
+          origin,
           channelName,
           guildName,
           replyToMessageId: replyToMessageId,
           replyToAuthorId: replyContext?.authorId ?? null,
           replyToAuthorName: replyContext?.authorName ?? null,
+          replyToContent: replyContext?.content ?? null,
+          replyToAttachments: isBoss(roleContext) ? replyContext?.attachments ?? [] : [],
         });
       }
       return;
@@ -193,18 +215,20 @@ export function setupMessageHandler(
       guildId: message.guildId ?? null,
     });
 
-    const isBoss = message.author.id === config.discordAdminId || decision.trigger === 'cron';
     if (callbacks.onMessage) {
         callbacks.onMessage(message, {
           content: decision.content,
           speakerKind: decision.speakerKind as 'human' | 'agent',
           trigger: decision.trigger,
+          origin,
           channelName,
           guildName,
-          replyToMessageId: decision.trigger === 'reply' ? replyToMessageId : null,
-          replyToAuthorId: decision.trigger === 'reply' ? (replyContext?.authorId ?? null) : null,
-          replyToAuthorName: decision.trigger === 'reply' ? (replyContext?.authorName ?? null) : null,
-          isBoss,
+          replyToMessageId,
+          replyToAuthorId: replyContext?.authorId ?? null,
+          replyToAuthorName: replyContext?.authorName ?? null,
+          replyToContent: replyContext?.content ?? null,
+          replyToAttachments: isBoss(roleContext) ? replyContext?.attachments ?? [] : [],
+          roleContext,
         });
       }
     } catch (err) {
@@ -213,10 +237,33 @@ export function setupMessageHandler(
   });
 }
 
+function getDiscordOrigin(message: Message): DiscordOriginContext {
+  const threadId = isThreadChannel(message.channel) ? message.channelId : null;
+  const parentChannelId = threadId
+    ? ((message.channel as { parentId?: string | null }).parentId ?? message.channelId)
+    : message.channelId;
+
+  return {
+    guildId: message.guildId ?? null,
+    channelId: parentChannelId,
+    threadId,
+    targetChannelId: message.channelId,
+    messageId: message.id,
+    userId: message.author.id,
+  };
+}
+
+function isThreadChannel(channel: Message['channel']): boolean {
+  return typeof (channel as { isThread?: () => boolean }).isThread === 'function'
+    && (channel as { isThread: () => boolean }).isThread();
+}
+
 interface ReplyContext {
   messageId: string;
   authorId: string;
   authorName: string;
+  content: string;
+  attachments: ReturnType<typeof getSupportedAttachmentMetadata>;
 }
 
 async function getReplyContext(
@@ -232,6 +279,8 @@ async function getReplyContext(
       messageId: cachedRef.id,
       authorId: cachedRef.author.id,
       authorName: cachedRef.author.tag,
+      content: cachedRef.content.slice(0, 2000),
+      attachments: getSupportedAttachmentMetadata(cachedRef),
     };
   }
 
@@ -241,6 +290,8 @@ async function getReplyContext(
       messageId: reference.id,
       authorId: reference.author.id,
       authorName: reference.author.tag,
+      content: reference.content.slice(0, 2000),
+      attachments: getSupportedAttachmentMetadata(reference),
     };
   } catch {
     return null;
@@ -267,4 +318,14 @@ async function notifyOwner(client: Client, config: Config, message: string): Pro
   } catch {
     // DM failed — error already logged elsewhere.
   }
+}
+
+function isAllowedGuildChannel(message: Message, config: Config): boolean {
+  if (config.allowedChannelIds.includes(message.channelId)) {
+    return true;
+  }
+
+  return config.allowedChannelIds.length === 0
+    && Boolean(config.discordServerId)
+    && message.guildId === config.discordServerId;
 }

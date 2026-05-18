@@ -16,9 +16,9 @@ export function resetConversationSession(
   context: { channelId: string; guildId: string | null; authorId?: string | null },
 ): SessionResetResult {
   const dmUserId = context.guildId ? null : (context.authorId ?? null);
-  const sessionKey = resolveSessionKey(config.memoryScope, context.channelId, dmUserId);
+  const sessionKey = resolveSessionKey('channel', context.channelId, dmUserId);
 
-  const bindingKey = resolveGeminiBindingKey(config.geminiSessionBindingScope, {
+  const bindingKey = resolveGeminiBindingKey('channel', {
     guildId: context.guildId,
     channelId: context.channelId,
     dmUserId,

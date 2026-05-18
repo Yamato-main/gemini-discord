@@ -107,6 +107,7 @@ describe('ConversationMemory', () => {
       messageId: 'm3',
       replyToMessageId: 'r1',
       replyToAuthorName: 'Assistant#0001',
+      replyToContent: 'hi',
       trigger: 'reply',
     });
 
@@ -114,6 +115,33 @@ describe('ConversationMemory', () => {
     expect(prompt).toContain('User#0001');
     expect(prompt).toContain('OtherAgent#9999');
     expect(prompt).toContain('Reply to Assistant#0001');
+    expect(prompt).toContain('[Replied Message]');
+    expect(prompt).toContain('hi');
+  });
+
+  it('quotes the replied-to message even when the current content is ambiguous', () => {
+    const mem = new ConversationMemory(tmpDir, 10);
+
+    const prompt = mem.buildPrompt('global', {
+      content: 'THIS ONE',
+      speakerKind: 'human',
+      authorId: 'u1',
+      authorName: 'User#0001',
+      channelId: 'ch1',
+      channelName: 'bridge-channel',
+      guildId: 'g1',
+      guildName: 'Test Guild',
+      messageId: 'm-current',
+      replyToMessageId: 'm-original',
+      replyToAuthorName: 'Assistant#0001',
+      replyToContent: '### Titanite Scale Locations (Progression Order)\n1. **Cemetery of Ash:** Dropped by Ravenous Crystal Lizard.',
+      trigger: 'reply',
+    });
+
+    expect(prompt).toContain('[Replied Message]');
+    expect(prompt).toContain('message m-original');
+    expect(prompt).toContain('Titanite Scale Locations');
+    expect(prompt).toContain('THIS ONE');
   });
 
   it('caps prompt history without dropping stored memory', () => {
@@ -279,8 +307,43 @@ describe('buildDiscordPrompt', () => {
     expect(prompt).toContain('Use Discord-compatible Markdown.');
     expect(prompt).toContain('The incoming message is from Discord.');
     expect(prompt).toContain('Do not call Discord send/reply tools for an ordinary response to the current message.');
+    expect(prompt).toContain('troubleshooting is not completion.');
+    expect(prompt).toContain('any requested Discord action');
+    expect(prompt).toContain('automatically retry the original pending action');
     expect(prompt).toContain('[Message]');
     expect(prompt).toContain('hey');
+  });
+
+  it('keeps permission metadata from becoming a form of address', () => {
+    const prompt = buildSessionModePrompt({
+      incoming: {
+        content: 'hi',
+        speakerKind: 'human',
+        authorId: '111111111111111111',
+        authorName: 'Yamato#0001',
+        channelId: 'ch1',
+        channelName: 'bridge-channel',
+        guildId: 'g1',
+        guildName: 'Test Guild',
+        messageId: 'm-role',
+        trigger: 'mention',
+        roleContext: {
+          role: 'BOSS',
+          senderDiscordId: '111111111111111111',
+          senderDisplayLabel: 'Yamato#0001',
+          bossLabel: 'the boss',
+          bossConfigValid: true,
+        },
+      },
+      bossUserId: '111111111111111111',
+    });
+
+    expect(prompt).toContain('same agent and same Gemini CLI persona as the local CLI');
+    expect(prompt).toContain('Permission tier: privileged Discord actions authorized');
+    expect(prompt).toContain('human; privileged Discord actions authorized');
+    expect(prompt).toContain('Do not call the user "boss"');
+    expect(prompt).not.toContain('BOSS — full authority');
+    expect(prompt).not.toContain('Boss label');
   });
 
   it('includes background operations context when provided', () => {
@@ -440,12 +503,39 @@ describe('buildSessionModePrompt', () => {
     // Has runtime header
     expect(prompt).toContain('[Runtime: Discord group]');
     expect(prompt).toContain('Use Discord-compatible Markdown.');
-    expect(prompt).toContain('Your normal text response is sent back to the current Discord conversation.');
+    expect(prompt).toContain('Your normal text response is sent back only to the exact origin Discord channel or thread.');
     // Has current message
     expect(prompt).toContain('[Message]');
     expect(prompt).toContain('who is this?');
     expect(prompt).toContain('tifa.png');
     // Does NOT have history replay sections (CLI session handles these)
+    expect(prompt).not.toContain('[History]');
+    expect(prompt).not.toContain('[Participants]');
+  });
+
+  it('includes replied-to message context without replaying full history', () => {
+    const prompt = buildSessionModePrompt({
+      incoming: {
+        content: 'send me this exact copyable block',
+        speakerKind: 'human',
+        authorId: 'u1',
+        authorName: 'User#0001',
+        channelId: 'ch1',
+        channelName: 'bridge-channel',
+        guildId: 'g1',
+        guildName: 'Test Guild',
+        messageId: 'm-current',
+        replyToMessageId: 'm-table',
+        replyToAuthorName: 'Assistant#0001',
+        replyToContent: '```md\n### Titanite Scale Locations (Progression Order)\n1. **Cemetery of Ash:** Dropped by Ravenous Crystal Lizard.\n```',
+        trigger: 'reply',
+      },
+    });
+
+    expect(prompt).toContain('[Replied Message]');
+    expect(prompt).toContain('message m-table');
+    expect(prompt).toContain('Titanite Scale Locations');
+    expect(prompt).toContain('send me this exact copyable block');
     expect(prompt).not.toContain('[History]');
     expect(prompt).not.toContain('[Participants]');
   });

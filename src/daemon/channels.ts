@@ -6,19 +6,20 @@
  * processCrossChannelSends() for parsing/executing cross-channel directives.
  */
 
-import type { Client, TextChannel } from 'discord.js';
+import type { Client, Guild } from 'discord.js';
 import { ChannelType } from 'discord.js';
+import type { Config } from '../shared/types.js';
 import { log } from './log.js';
-import { chunkMessage } from '../shared/chunker.js';
-import { sendDiscordMessage } from './sender.js';
 
 export interface DiscoveredChannelTarget {
   id: string;
   name: string;
+  guildId: string;
+  guildName?: string;
 }
 
 /** Alias lookup for ids, names, mentions, and #name handles. */
-const channelAliasMap = new Map<string, DiscoveredChannelTarget>();
+const channelAliasMap = new Map<string, Set<string>>();
 /** Unique discovered channels keyed by id for prompt/status rendering. */
 const discoveredChannels = new Map<string, DiscoveredChannelTarget>();
 let lastChannelMapRefresh = 0;
@@ -34,22 +35,16 @@ export interface CrossChannelDirective {
  * Discover all text channels visible to the bot and store them.
  * Called once on clientReady.
  */
-export async function buildGuildChannelMap(client: Client): Promise<void> {
-  const now = Date.now();
-  if (now - lastChannelMapRefresh < 5000) {
-    return; // debounce rapid requests
-  }
-
+export async function buildGuildChannelMap(client: Client, config?: Config): Promise<void> {
   channelAliasMap.clear();
   discoveredChannels.clear();
-  const guilds = await client.guilds.fetch();
 
-  for (const [guildId] of guilds) {
+  for (const guild of await resolveGuilds(client, config)) {
     try {
-      const guild = await client.guilds.fetch(guildId);
       const channels = await guild.channels.fetch();
       for (const [channelId, channel] of channels) {
         if (!channel) continue;
+        if (!isDiscoverableChannel(channelId, channel, config, guild.id)) continue;
         if (
           channel.type === ChannelType.GuildText ||
           channel.type === ChannelType.GuildAnnouncement ||
@@ -58,12 +53,14 @@ export async function buildGuildChannelMap(client: Client): Promise<void> {
           registerDiscoveredChannel({
             id: channelId,
             name: channel.name,
+            guildId: guild.id,
+            guildName: guild.name,
           });
         }
       }
     } catch (err) {
       log.error('Failed to fetch channels for guild', {
-        guildId,
+        guildId: guild.id,
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -88,14 +85,15 @@ export function getChannelMapEntries(): Array<[string, DiscoveredChannelTarget]>
 export function getChannelMapContext(): string {
   if (discoveredChannels.size === 0) return '';
   const lines = getChannelMapEntries().map(
-    ([name, { id }]) => `- #${name} → <#${id}>`,
+    ([name, { id, guildName }]) => `- #${name}${guildName ? ` (${guildName})` : ''} → <#${id}>`,
   );
-  return `\n## Server Channels\nYou can send messages to other channels using the cross-channel directive.\nFormat: [SEND:#channel-name]your message here[/SEND]\nThe daemon will intercept this and post the message in the target channel.\nAvailable channels:\n${lines.join('\n')}`;
+  return `\n## Server Channels\nAvailable channels for explicit Discord tool calls:\n${lines.join('\n')}`;
 }
 
 export async function resolveDiscoveredChannel(
   query: string,
   client?: Client | null,
+  config?: Config,
 ): Promise<DiscoveredChannelTarget | null> {
   const cached = resolveChannelFromCache(query);
   if (cached) {
@@ -106,7 +104,7 @@ export async function resolveDiscoveredChannel(
     return null;
   }
 
-  await buildGuildChannelMap(client);
+  await buildGuildChannelMap(client, config);
   return resolveChannelFromCache(query);
 }
 
@@ -134,65 +132,19 @@ export function extractCrossChannelSends(response: string): { cleanedResponse: s
 
 export async function processCrossChannelSends(
   response: string,
-  client: Client,
-  options: { allowPrivileged?: boolean } = {},
+  _client: Client,
+  _options: { allowPrivileged?: boolean } = {},
 ): Promise<{ cleanedResponse: string; messageIds: string[] }> {
   const { cleanedResponse, directives } = extractCrossChannelSends(response);
   if (directives.length === 0) {
     return { cleanedResponse: response, messageIds: [] };
   }
 
-  const allowPrivileged = options.allowPrivileged ?? true;
-  const notices: string[] = [];
-  const messageIds: string[] = [];
-
-  if (!allowPrivileged) {
-    notices.push('*(Blocked privileged send: only the primary operator may send messages to other channels.)*');
-    return {
-      cleanedResponse: appendNotices(cleanedResponse, notices),
-      messageIds,
-    };
-  }
-
-  for (const directive of directives) {
-    let target = await resolveDiscoveredChannel(directive.target, client);
-
-    // Lazy refresh on TTL expiration even when cache hit, so channel list stays fresh.
-    if (target && Date.now() - lastChannelMapRefresh > CHANNEL_MAP_TTL_MS) {
-      await buildGuildChannelMap(client);
-      target = await resolveDiscoveredChannel(directive.target, client);
-    }
-
-    if (!target) {
-      log.warn('Cross-channel send target not found', { target: directive.target });
-      notices.push(`*(Could not find channel #${directive.target})*`);
-      continue;
-    }
-
-    try {
-      const channel = await client.channels.fetch(target.id);
-      if (channel && 'send' in channel && typeof channel.send === 'function') {
-        const sentIds = await sendDiscordMessage(channel as TextChannel, directive.content, chunkMessage);
-        messageIds.push(...sentIds);
-        log.info('Cross-channel message sent', {
-          targetChannel: target.name,
-          targetId: target.id,
-          contentLength: directive.content.length,
-        });
-        notices.push(`*(Message sent to <#${target.id}>)*`);
-      }
-    } catch (err) {
-      log.error('Cross-channel send failed', {
-        target: directive.target,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      notices.push(`*(Failed to send to #${directive.target})*`);
-    }
-  }
-
   return {
-    cleanedResponse: appendNotices(cleanedResponse, notices),
-    messageIds,
+    cleanedResponse: appendNotices(cleanedResponse, [
+      '*(Ignored legacy cross-channel send directive. Use the Discord message tool with an explicit channel_id.)*',
+    ]),
+    messageIds: [],
   };
 }
 
@@ -220,20 +172,26 @@ function registerDiscoveredChannel(channel: DiscoveredChannelTarget): void {
   ]);
 
   for (const alias of aliases) {
-    channelAliasMap.set(alias, channel);
+    addAlias(alias, channel.id);
   }
 }
 
 function resolveChannelFromCache(query: string): DiscoveredChannelTarget | null {
   const normalized = normalizeChannelQuery(query);
   for (const candidate of normalized) {
-    const target = channelAliasMap.get(candidate);
-    if (target) {
-      return target;
-    }
+    const ids = channelAliasMap.get(candidate);
+    if (!ids || ids.size !== 1) continue;
+    const [id] = ids;
+    return discoveredChannels.get(id) ?? null;
   }
 
   return null;
+}
+
+function addAlias(alias: string, id: string): void {
+  const existing = channelAliasMap.get(alias) ?? new Set<string>();
+  existing.add(id);
+  channelAliasMap.set(alias, existing);
 }
 
 function normalizeChannelQuery(query: string): string[] {
@@ -253,4 +211,30 @@ function normalizeChannelQuery(query: string): string[] {
   }
 
   return [...values];
+}
+
+async function resolveGuilds(client: Client, config?: Config): Promise<Guild[]> {
+  if (config?.discordServerId) {
+    return [await client.guilds.fetch(config.discordServerId)];
+  }
+
+  const refs = await client.guilds.fetch();
+  const guilds: Guild[] = [];
+  for (const [guildId] of refs) {
+    guilds.push(await client.guilds.fetch(guildId));
+  }
+  return guilds;
+}
+
+function isDiscoverableChannel(
+  channelId: string,
+  _channel: { type: ChannelType },
+  config: Config | undefined,
+  guildId: string,
+): boolean {
+  if (!config) return true;
+  if (config.allowedChannelIds.includes(channelId)) return true;
+  return config.allowedChannelIds.length === 0
+    && Boolean(config.discordServerId)
+    && guildId === config.discordServerId;
 }

@@ -46,6 +46,7 @@ export interface Config {
   discordChannelId: string;
   discordServerId: string;
   discordServerName: string;
+  discordBossUserId: string;
   ownerIds: string[];
   discordAdminId: string;
   allowedChannelIds: string[];
@@ -78,6 +79,7 @@ export interface Config {
   useGeminiCliSessions: boolean;
   geminiSessionBindingScope: GeminiSessionBindingScope;
   cliIdleTimeoutMs: number;
+  setupValidationPending: boolean;
 }
 
 /** A single conversation message stored in persistent memory */
@@ -90,12 +92,15 @@ export interface ConversationMessage {
   authorName?: string;
   channelId?: string;
   channelName?: string;
+  threadId?: string | null;
   guildId?: string | null;
   guildName?: string | null;
   messageId?: string;
   replyToMessageId?: string | null;
   replyToAuthorId?: string | null;
   replyToAuthorName?: string | null;
+  replyToContent?: string | null;
+  replyToAttachments?: ConversationAttachment[];
   trigger?: string;
   createdAt?: string;
 }
@@ -108,6 +113,7 @@ export interface ExchangeLog {
   authorType: SpeakerKind;
   channelId: string;
   channelName: string;
+  threadId?: string | null;
   guildId: string | null;
   guildName: string | null;
   requestMessageId: string;

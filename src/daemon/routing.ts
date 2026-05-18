@@ -1,4 +1,5 @@
 import type { Config, SpeakerKind } from '../shared/types.js';
+import { isConfiguredBossDiscordId } from './permissions.js';
 
 export interface RoutingInput {
   authorId: string;
@@ -26,7 +27,7 @@ export interface RoutingDecision {
 }
 
 export function isDirectMessageAuthorAllowed(authorId: string, config: Config): boolean {
-  return authorId === config.discordAdminId
+  return isConfiguredBossDiscordId(config, authorId)
     || config.ownerIds.includes(authorId)
     || config.allowedUserIds.includes(authorId);
 }
@@ -42,16 +43,14 @@ export function shouldAcceptMessage(input: RoutingInput, config: Config): Routin
     return finalizeRoute(input, config, 'dm');
   }
 
-  if (!config.allowedChannelIds.includes(input.channelId)) {
+  if (!isAllowedGuildChannel(input, config)) {
     return reject();
   }
 
   const isSelf = input.authorId === input.botUserId;
 
-  // Humans must be in the allowlist
-  if (!input.isBot && !config.allowedUserIds.includes(input.authorId)) {
-    return reject();
-  }
+  // Guild humans may talk in allowed channels. Role/permission checks happen
+  // later so allowlists do not grant BOSS authority.
 
   // Agents are strictly blocked unless they are the bot itself (CRON) or in allowed list.
   if (input.isBot && !isSelf && !config.allowedAgentIds.includes(input.authorId)) {
@@ -148,8 +147,8 @@ function finalizeRoute(
     return reject();
   }
 
-  // We allow all humans in the routing decision now.
-  // Guests are handled by the trigger logic in shouldAcceptMessage.
+  // We allow all humans in the routing decision here. Role/permission checks
+  // happen after stable Discord ID based role resolution.
 
   const stripped = stripLeadingBotMention(stripPrefix(input.content, config.discordPrefix), input.botUserId);
   const normalized = stripped.content.trim();
@@ -167,4 +166,14 @@ function finalizeRoute(
 
 function reject(): RoutingDecision {
   return { accept: false, content: '' };
+}
+
+function isAllowedGuildChannel(input: RoutingInput, config: Config): boolean {
+  if (config.allowedChannelIds.includes(input.channelId)) {
+    return true;
+  }
+
+  return config.allowedChannelIds.length === 0
+    && Boolean(config.discordServerId)
+    && input.guildId === config.discordServerId;
 }

@@ -12,6 +12,7 @@ This file tracks the real moving parts of `gemini-discord` so future work does n
 | CLI pool | `src/daemon/cli-pool.ts` | Run headless Gemini CLI turns with tool gating and session resume. | `CliProcessPool.send()`, `kill()`, `status()` |
 | Binding manager | `src/daemon/binding.ts` | Map Discord scope to stable Gemini workspaces and persist session ids. | `ensureGeminiBindingWorkspace()`, `loadGeminiBindingState()`, `saveGeminiBindingState()` |
 | Cron scheduler | `src/daemon/cron.ts` | Persist and deliver exact-message Discord cron jobs. | `initCron()`, `scheduleJob()`, `listJobs()`, `deleteJob()` |
+| Discovery maps | `src/daemon/channels.ts`, `src/daemon/users.ts` | Keep guild-scoped channel/user metadata for explicit lookups without granting authority. | `buildGuildChannelMap()`, `buildGuildUserMap()` |
 | MCP server | `src/server.ts` | Register Discord bridge tools for Gemini CLI and wake the daemon on demand. | `main()` |
 
 ## Shared Modules
@@ -29,6 +30,8 @@ This file tracks the real moving parts of `gemini-discord` so future work does n
 ## Established Patterns
 
 - Discord bindings store metadata under `.gemini-discord/bindings/...`; Gemini still runs from the normal Gemini project context.
-- Headless Gemini turns resume explicit stored session ids so Discord does not become a separate project or persona.
+- Headless Gemini turns resume explicit stored session ids for privileged channel/DM bindings so Discord does not become a separate project or persona.
+- Guest turns do not persist privileged memory and cannot use MCP tools, local files, shell, admin actions, Discord sends, history, or discovery metadata.
+- Discord sends, resets, history reads, and scheduled messages require explicit proven targets; the bridge does not fall back to a primary channel.
 - Scheduled jobs do not write into normal Discord memory; they send exact final messages at delivery time.
 - Tool access is intentionally narrowed per turn: plain chat stays light, research gets web tools, Discord actions get bridge tools, and full tools are explicit.

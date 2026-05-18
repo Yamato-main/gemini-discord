@@ -7,6 +7,7 @@ import * as http from 'node:http';
 import type { Config } from '../shared/types.js';
 import { resolveExtensionDir } from '../shared/config.js';
 import { ensureDaemonRunning } from '../shared/daemon-runtime.js';
+import { resolveMcpRoleContextFromEnv } from '../daemon/permissions.js';
 
 interface RequestOptions {
   method: 'GET' | 'POST';
@@ -58,6 +59,7 @@ async function requestOnce(opts: RequestOptions): Promise<DaemonResponse> {
         method,
         headers: {
           'Content-Type': 'application/json',
+          ...discordRoleHeaders(config),
           ...(method === 'POST' && config.daemonApiToken
             ? { Authorization: `Bearer ${config.daemonApiToken}` }
             : {}),
@@ -92,6 +94,19 @@ async function requestOnce(opts: RequestOptions): Promise<DaemonResponse> {
     if (payload) req.write(payload);
     req.end();
   });
+}
+
+function discordRoleHeaders(config: Config): Record<string, string> {
+  const roleContext = resolveMcpRoleContextFromEnv(process.env, config);
+  if (!roleContext) {
+    return {};
+  }
+
+  return {
+    'X-Gemini-Discord-Role': roleContext.role,
+    'X-Gemini-Discord-Sender-Id': roleContext.senderDiscordId,
+    'X-Gemini-Discord-Sender-Label': roleContext.senderDisplayLabel,
+  };
 }
 
 /**

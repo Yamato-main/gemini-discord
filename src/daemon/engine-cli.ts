@@ -14,13 +14,19 @@ import { type ConversationMemory, buildDiscordPrompt, buildSessionModePrompt, re
 import { Semaphore } from './semaphore.js';
 import { retrySend } from './retry.js';
 import { LiveEditor } from './editor.js';
-import { downloadImageAttachments, getImageAttachmentMetadata } from './attachments.js';
+import { downloadSupportedAttachments, getSupportedAttachmentMetadata } from './attachments.js';
 import { type ToolMode } from './tool-mode.js';
 import { processCrossChannelSends } from './channels.js';
 import { sanitizeFullResponse } from './sanitizer.js';
 import { getBackgroundOperationsContext } from './background-context.js';
 import { runtimeStore } from './runtime.js';
 import { log } from './log.js';
+import { callGeminiStreaming } from './gemini.js';
+import {
+  authorizeAction,
+  formatPermissionDenial,
+  isBoss,
+} from './permissions.js';
 import {
   ensureGeminiBindingWorkspace,
   loadGeminiBindingState,
@@ -57,7 +63,7 @@ export async function processViaCli(
 
   // If the current message has no attachments, but it's a reply to another message,
   // we should check the replied-to message for attachments to provide them as context.
-  if (message.attachments.size === 0 && message.reference?.messageId) {
+  if (isBoss(accepted.roleContext) && message.attachments.size === 0 && message.reference?.messageId) {
     try {
       const repliedTo = await message.channel.messages.fetch(message.reference.messageId);
       if (repliedTo && repliedTo.attachments.size > 0) {
@@ -68,16 +74,26 @@ export async function processViaCli(
     }
   }
 
-  const attachmentMetadata = getImageAttachmentMetadata(targetMessage);
+  const attachmentMetadata = isBoss(accepted.roleContext) ? getSupportedAttachmentMetadata(targetMessage) : [];
+  if ((targetMessage.attachments.size > 0 || attachmentMetadata.length > 0) && !isBoss(accepted.roleContext)) {
+    const decision = authorizeAction('attachment_processing', accepted.roleContext);
+    const responseText = formatPermissionDenial(decision);
+    const messageIds = await sendPreparedDisplayText(channel, responseText);
+    return { response: responseText, messageIds, attachments: [], sessionId: undefined };
+  }
+
+  const allowPersistentSession = isBoss(accepted.roleContext) && config.useGeminiCliSessions;
   const bindingState = loadGeminiBindingState(processingContext.bindingDir);
-  const resumeSessionId = config.useGeminiCliSessions
+  const resumeSessionId = allowPersistentSession
     ? resolveBindingResumeSessionId(bindingState)
     : null;
-  const downloadedAttachments = await downloadImageAttachments(
-    targetMessage,
-    processingContext.attachmentsDir,
-    processingContext.geminiProjectDir,
-  );
+  const downloadedAttachments = isBoss(accepted.roleContext)
+    ? await downloadSupportedAttachments(
+      targetMessage,
+      processingContext.attachmentsDir,
+      processingContext.geminiProjectDir,
+    )
+    : [];
 
   const incomingPrompt = {
     content: accepted.content,
@@ -87,13 +103,17 @@ export async function processViaCli(
     authorName: message.author.tag,
     channelId: message.channelId,
     channelName: accepted.channelName,
+    threadId: accepted.origin.threadId,
     guildId: message.guildId ?? null,
     guildName: accepted.guildName,
     messageId: message.id,
     replyToMessageId: accepted.replyToMessageId,
     replyToAuthorId: accepted.replyToAuthorId,
     replyToAuthorName: accepted.replyToAuthorName,
+    replyToContent: accepted.replyToContent,
+    replyToAttachments: accepted.replyToAttachments,
     trigger: accepted.trigger,
+    roleContext: accepted.roleContext,
   } as const;
 
   // Session mode: The CLI IS the agent. Its own session file is the conversation.
@@ -102,15 +122,17 @@ export async function processViaCli(
   //
   // Non-session mode: Full history replay with image URL grounding (fallback).
   let prompt: string;
-  const backgroundContext = getBackgroundOperationsContext({
-    channelId: message.channelId,
-    channelName: accepted.channelName,
-  });
+  const backgroundContext = isBoss(accepted.roleContext)
+    ? getBackgroundOperationsContext({
+      channelId: message.channelId,
+      channelName: accepted.channelName,
+    })
+    : undefined;
 
-  if (config.useGeminiCliSessions) {
+  if (allowPersistentSession) {
     prompt = buildSessionModePrompt({
       incoming: incomingPrompt,
-      bossUserId: config.discordAdminId,
+      bossUserId: config.discordBossUserId,
       ownerIds: config.ownerIds,
       backgroundContext,
     });
@@ -118,7 +140,7 @@ export async function processViaCli(
     const historySnapshot = memory.snapshot(processingContext.sessionKey);
     prompt = buildDiscordPrompt({
       history: historySnapshot,
-      bossUserId: config.discordAdminId,
+      bossUserId: config.discordBossUserId,
       ownerIds: config.ownerIds,
       promptHistoryMessageLimit: config.promptHistoryMessageLimit,
       promptHistoryCharBudget: config.promptHistoryCharBudget,
@@ -142,30 +164,36 @@ export async function processViaCli(
   });
 
   try {
+    const useHeadlessAttachmentPrompt = shouldUseHeadlessForAttachmentInjection(attachmentMetadata);
     const cliPool = runtimeStore.cliPool;
-    if (!cliPool) {
+    if (!useHeadlessAttachmentPrompt && !cliPool) {
       throw new Error('CLI pool not initialized');
     }
 
     const sendViaCli = async (callbacks: { onToken: (token: string) => void; onThought: () => void }): Promise<string> => {
       const baseOptions = {
         cwd: processingContext.geminiProjectDir,
-        resumeSessionId,
-        isBoss: accepted.isBoss,
+        useResume: useHeadlessAttachmentPrompt ? false : allowPersistentSession,
+        resumeSessionId: useHeadlessAttachmentPrompt ? null : resumeSessionId,
+        roleContext: accepted.roleContext,
         toolMode,
         attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
+        attachments: downloadedAttachments,
         onSessionId: (sessionId: string) => { currentSessionId = sessionId; },
       } as const;
 
       try {
-        return await cliPool.send(
-          processingContext.bindingKey,
-          prompt,
-          callbacks,
-          baseOptions,
-        );
+        if (useHeadlessAttachmentPrompt) {
+          log.info('Using fresh headless Gemini CLI prompt for attachment injection', {
+            bindingKey: processingContext.bindingKey,
+            attachmentCount: downloadedAttachments.length,
+          });
+          return await callGeminiStreaming(prompt, config, callbacks, baseOptions);
+        }
+
+        return await cliPool!.send(processingContext.bindingKey, prompt, callbacks, baseOptions);
       } catch (error) {
-        if (!shouldRetryWithFreshSession(error, resumeSessionId)) {
+        if (!shouldRetryWithFreshSession(error, baseOptions.resumeSessionId)) {
           throw error;
         }
 
@@ -178,15 +206,16 @@ export async function processViaCli(
         resetGeminiBindingSession(processingContext.bindingDir);
         currentSessionId = null;
 
-        return cliPool.send(
-          processingContext.bindingKey,
-          prompt,
-          callbacks,
-          {
-            ...baseOptions,
-            resumeSessionId: null,
-          },
-        );
+        const freshOptions = {
+          ...baseOptions,
+          resumeSessionId: null,
+        };
+
+        if (useHeadlessAttachmentPrompt) {
+          return callGeminiStreaming(prompt, config, callbacks, freshOptions);
+        }
+
+        return cliPool!.send(processingContext.bindingKey, prompt, callbacks, freshOptions);
       }
     };
 
@@ -198,14 +227,14 @@ export async function processViaCli(
         },
       );
 
-      const prepared = await finalizeAssistantResponse(response, message, accepted.isBoss);
+      const prepared = await finalizeAssistantResponse(response, message, isBoss(accepted.roleContext));
       response = prepared.responseText;
       responseMessageIds = await editor.finalize(prepared.displayText, chunkMessage, {
         allowEmpty: prepared.allowEmpty,
         rawText: response,
       });
       responseMessageIds.push(...prepared.actionMessageIds);
-      if (config.useGeminiCliSessions) {
+      if (allowPersistentSession) {
         recordGeminiBindingSession(processingContext.bindingDir, currentSessionId ?? bindingState.lastSessionId);
       }
       return {
@@ -230,11 +259,11 @@ export async function processViaCli(
         );
         clearInterval(typingInterval);
 
-        const prepared = await finalizeAssistantResponse(response, message, accepted.isBoss);
+        const prepared = await finalizeAssistantResponse(response, message, isBoss(accepted.roleContext));
         response = prepared.responseText;
         responseMessageIds = await sendPreparedDisplayText(channel, prepared.displayText);
         responseMessageIds.push(...prepared.actionMessageIds);
-        if (config.useGeminiCliSessions) {
+        if (allowPersistentSession) {
           recordGeminiBindingSession(processingContext.bindingDir, currentSessionId ?? bindingState.lastSessionId);
         }
         return {
@@ -323,7 +352,21 @@ export function resolveProcessingContext(
   accepted: AcceptedDiscordMessage,
   extensionDir: string,
 ): ProcessingContext {
-  const bindingKey = resolveGeminiBindingKey(config.geminiSessionBindingScope, {
+  if (!isBoss(accepted.roleContext)) {
+    const guestKey = message.guildId
+      ? `guest:${message.author.id}:channel:${message.channelId}:message:${message.id}`
+      : `guest:${message.author.id}:dm:${message.channelId}:message:${message.id}`;
+    const bindingWorkspace = ensureGeminiBindingWorkspace(extensionDir, guestKey);
+    return {
+      sessionKey: guestKey,
+      bindingKey: guestKey,
+      bindingDir: bindingWorkspace.bindingDir,
+      attachmentsDir: bindingWorkspace.attachmentsDir,
+      geminiProjectDir: resolveGeminiProjectDir(extensionDir),
+    };
+  }
+
+  const bindingKey = resolveGeminiBindingKey('channel', {
     guildId: message.guildId ?? null,
     channelId: message.channelId,
     dmUserId: message.guildId ? null : message.author.id,
@@ -333,7 +376,7 @@ export function resolveProcessingContext(
   const geminiProjectDir = resolveGeminiProjectDir(extensionDir);
 
   return {
-    sessionKey: resolveSessionKey(config.memoryScope, message.channelId, message.guildId ? null : message.author.id),
+    sessionKey: resolveSessionKey('channel', message.channelId, message.guildId ? null : message.author.id),
     bindingKey,
     bindingDir: bindingWorkspace.bindingDir,
     attachmentsDir: bindingWorkspace.attachmentsDir,
@@ -388,4 +431,8 @@ function shouldRetryWithFreshSession(error: unknown, resumeSessionId: string | n
   return message.includes('exited with code')
     || message.includes('returned no assistant output')
     || message.includes('resume_session_unavailable');
+}
+
+export function shouldUseHeadlessForAttachmentInjection(attachments: ConversationAttachment[]): boolean {
+  return false;
 }

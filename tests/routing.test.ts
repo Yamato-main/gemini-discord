@@ -7,6 +7,7 @@ const baseConfig: Config = {
   discordChannelId: 'ch1',
   discordServerId: '',
   discordServerName: '',
+  discordBossUserId: '111111111111111111',
   ownerIds: ['owner-1'],
   discordAdminId: 'owner-1',
   allowedChannelIds: ['ch1', 'ch2'],
@@ -33,6 +34,7 @@ const baseConfig: Config = {
   useGeminiCliSessions: true,
   geminiSessionBindingScope: 'server',
   cliIdleTimeoutMs: 300000,
+  setupValidationPending: false,
 };
 
 function route(overrides: Partial<Parameters<typeof shouldAcceptMessage>[0]> = {}, config: Config = baseConfig) {
@@ -73,8 +75,13 @@ describe('shouldAcceptMessage', () => {
     });
   });
 
-  it('rejects humans outside the allowlist', () => {
-    expect(route({ authorId: 'stranger' })).toMatchObject({ accept: false });
+  it('accepts non-allowlisted humans in allowed guild channels as guests', () => {
+    expect(route({ authorId: '222222222222222222' })).toMatchObject({
+      accept: true,
+      speakerKind: 'human',
+      trigger: 'channel',
+      content: 'hello',
+    });
   });
 
   it('requires explicit triggers for peer agents', () => {
@@ -154,7 +161,7 @@ describe('shouldAcceptMessage', () => {
     expect(isDirectMessageAuthorAllowed('stranger', baseConfig)).toBe(false);
   });
 
-  it('accepts image-only messages', () => {
+  it('accepts attachment-only messages', () => {
     expect(route({ content: '', attachmentCount: 1 })).toMatchObject({
       accept: true,
       content: '',
@@ -169,6 +176,27 @@ describe('shouldAcceptMessage', () => {
       accept: true,
       trigger: 'mention',
       content: 'hello',
+    });
+  });
+
+  it('allows setup-only server routing before channel discovery has populated channels', () => {
+    const config: Config = {
+      ...baseConfig,
+      discordChannelId: '',
+      discordServerId: 'g1',
+      allowedChannelIds: [],
+      requireMention: true,
+    };
+
+    expect(route({
+      channelId: 'new-channel',
+      guildId: 'g1',
+      mentionedBot: true,
+      content: '<@bot1> hello from setup server',
+    }, config)).toMatchObject({
+      accept: true,
+      trigger: 'mention',
+      content: 'hello from setup server',
     });
   });
 });

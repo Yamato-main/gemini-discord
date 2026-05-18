@@ -3222,8 +3222,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path5) {
-      let input = path5;
+    function removeDotSegments(path6) {
+      let input = path6;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3422,8 +3422,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path5, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
+        const [path6, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path6 && path6 !== "/" ? path6 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -4224,7 +4224,7 @@ var require_core = __commonJS({
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
         if (!errors || errors.length === 0)
           return "No errors";
-        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text7, msg) => text7 + separator + msg);
+        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text4, msg) => text4 + separator + msg);
       }
       $dataMetaSchema(metaSchema, keywordsJsonPointers) {
         const rules = this.RULES.all;
@@ -7276,8 +7276,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path5, errorMaps, issueData } = params;
-  const fullPath = [...path5, ...issueData.path || []];
+  const { data, path: path6, errorMaps, issueData } = params;
+  const fullPath = [...path6, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7393,11 +7393,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path5, key) {
+  constructor(parent, value, path6, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path5;
+    this._path = path6;
     this._key = key;
   }
   get path() {
@@ -11035,10 +11035,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path5) {
-  if (!path5)
+function getElementAtPath(obj, path6) {
+  if (!path6)
     return obj;
-  return path5.reduce((acc, key) => acc?.[key], obj);
+  return path6.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11358,11 +11358,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path5, issues) {
+function prefixIssues(path6, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path5);
+    iss.path.unshift(path6);
     return iss;
   });
 }
@@ -21142,40 +21142,100 @@ function coerceDiscordMetadata(input) {
   return result;
 }
 
-// src/shared/config.ts
+// src/shared/config-vars.ts
+var ENV = {
+  DISCORD_BOT_TOKEN: "DISCORD_BOT_TOKEN",
+  DISCORD_SERVER_ID: "DISCORD_SERVER_ID",
+  DISCORD_CHANNEL_ID: "DISCORD_CHANNEL_ID",
+  DISCORD_BOSS_USER_ID: "DISCORD_BOSS_USER_ID",
+  DISCORD_OWNER_IDS: "DISCORD_OWNER_IDS",
+  DISCORD_ADMIN_ID: "DISCORD_ADMIN_ID",
+  DISCORD_ALLOWED_CHANNEL_IDS: "DISCORD_ALLOWED_CHANNEL_IDS",
+  DISCORD_ALLOWED_USER_IDS: "DISCORD_ALLOWED_USER_IDS",
+  DISCORD_ALLOWED_AGENT_IDS: "DISCORD_ALLOWED_AGENT_IDS",
+  DAEMON_API_TOKEN: "DAEMON_API_TOKEN",
+  DISCORD_PREFIX: "DISCORD_PREFIX",
+  DISCORD_RESET_CMD: "DISCORD_RESET_CMD",
+  DAEMON_PORT: "DAEMON_PORT",
+  GEMINI_PATH: "GEMINI_PATH",
+  GEMINI_MODEL: "GEMINI_MODEL",
+  GEMINI_TIMEOUT_MS: "GEMINI_TIMEOUT_MS",
+  GEMINI_MAX_CONCURRENT: "GEMINI_MAX_CONCURRENT",
+  CONVERSATION_HISTORY_LENGTH: "CONVERSATION_HISTORY_LENGTH",
+  PROMPT_HISTORY_MAX_MESSAGES: "PROMPT_HISTORY_MAX_MESSAGES",
+  PROMPT_HISTORY_MAX_CHARS: "PROMPT_HISTORY_MAX_CHARS",
+  STREAMING: "STREAMING",
+  QUEUE_MAX_DEPTH: "QUEUE_MAX_DEPTH",
+  ENABLE_DMS: "ENABLE_DMS",
+  REQUIRE_MENTION: "REQUIRE_MENTION",
+  RESPOND_TO_REPLIES: "RESPOND_TO_REPLIES",
+  MEMORY_SCOPE: "MEMORY_SCOPE",
+  AUTO_START_DAEMON: "AUTO_START_DAEMON",
+  USE_GEMINI_CLI_SESSIONS: "USE_GEMINI_CLI_SESSIONS",
+  GEMINI_SESSION_BINDING_SCOPE: "GEMINI_SESSION_BINDING_SCOPE",
+  CLI_IDLE_TIMEOUT_MS: "CLI_IDLE_TIMEOUT_MS",
+  SETUP_VALIDATION_PENDING: "SETUP_VALIDATION_PENDING"
+};
 var CONFIG_ENV_KEYS = [
-  "DISCORD_BOT_TOKEN",
-  "DISCORD_CHANNEL_ID",
-  "DISCORD_OWNER_IDS",
-  "DISCORD_ADMIN_ID",
-  "DISCORD_ALLOWED_CHANNEL_IDS",
-  "DISCORD_ALLOWED_USER_IDS",
-  "DISCORD_ALLOWED_AGENT_IDS",
-  "DAEMON_API_TOKEN",
-  "DISCORD_PREFIX",
-  "DISCORD_RESET_CMD",
-  "DAEMON_PORT",
-  "GEMINI_PATH",
-  "GEMINI_MODEL",
-  "GEMINI_TIMEOUT_MS",
-  "GEMINI_MAX_CONCURRENT",
-  "CONVERSATION_HISTORY_LENGTH",
-  "PROMPT_HISTORY_MAX_MESSAGES",
-  "PROMPT_HISTORY_MAX_CHARS",
-  "STREAMING",
-  "QUEUE_MAX_DEPTH",
-  "ENABLE_DMS",
-  "REQUIRE_MENTION",
-  "RESPOND_TO_REPLIES",
-  "MEMORY_SCOPE",
-  "AUTO_START_DAEMON",
-  "USE_GEMINI_CLI_SESSIONS",
-  "GEMINI_SESSION_BINDING_SCOPE",
-  "CLI_IDLE_TIMEOUT_MS"
+  ENV.DISCORD_BOT_TOKEN,
+  ENV.DISCORD_SERVER_ID,
+  ENV.DISCORD_CHANNEL_ID,
+  ENV.DISCORD_BOSS_USER_ID,
+  ENV.DISCORD_OWNER_IDS,
+  ENV.DISCORD_ADMIN_ID,
+  ENV.DISCORD_ALLOWED_CHANNEL_IDS,
+  ENV.DISCORD_ALLOWED_USER_IDS,
+  ENV.DISCORD_ALLOWED_AGENT_IDS,
+  ENV.DAEMON_API_TOKEN,
+  ENV.DISCORD_PREFIX,
+  ENV.DISCORD_RESET_CMD,
+  ENV.DAEMON_PORT,
+  ENV.GEMINI_PATH,
+  ENV.GEMINI_MODEL,
+  ENV.GEMINI_TIMEOUT_MS,
+  ENV.GEMINI_MAX_CONCURRENT,
+  ENV.CONVERSATION_HISTORY_LENGTH,
+  ENV.PROMPT_HISTORY_MAX_MESSAGES,
+  ENV.PROMPT_HISTORY_MAX_CHARS,
+  ENV.STREAMING,
+  ENV.QUEUE_MAX_DEPTH,
+  ENV.ENABLE_DMS,
+  ENV.REQUIRE_MENTION,
+  ENV.RESPOND_TO_REPLIES,
+  ENV.MEMORY_SCOPE,
+  ENV.AUTO_START_DAEMON,
+  ENV.USE_GEMINI_CLI_SESSIONS,
+  ENV.GEMINI_SESSION_BINDING_SCOPE,
+  ENV.CLI_IDLE_TIMEOUT_MS,
+  ENV.SETUP_VALIDATION_PENDING
 ];
+var INSTALL_SETTING_ENV_KEYS = [
+  ENV.DISCORD_BOT_TOKEN,
+  ENV.DISCORD_BOSS_USER_ID,
+  ENV.DISCORD_OWNER_IDS,
+  ENV.DISCORD_SERVER_ID
+];
+var REQUIRED_DAEMON_ENV_KEYS = [
+  ENV.DISCORD_BOT_TOKEN,
+  ENV.DISCORD_OWNER_IDS,
+  ENV.DISCORD_SERVER_ID
+];
+var SETUP_ENV_KEYS_TO_CLEAR = [
+  ENV.DISCORD_CHANNEL_ID,
+  ENV.DISCORD_ALLOWED_CHANNEL_IDS
+];
+var SETUP_RUNTIME_DEFAULTS = {
+  [ENV.ENABLE_DMS]: "true",
+  [ENV.REQUIRE_MENTION]: "false",
+  [ENV.AUTO_START_DAEMON]: "true",
+  [ENV.MEMORY_SCOPE]: "channel",
+  [ENV.GEMINI_SESSION_BINDING_SCOPE]: "channel",
+  [ENV.SETUP_VALIDATION_PENDING]: "true"
+};
+
+// src/shared/config.ts
 var LEGACY_ENV_ALIASES = {
-  DISCORD_ADMIN_ID: ["DISCORD_BOSS_ID"],
-  DISCORD_ALLOWED_CHANNEL_IDS: ["ALLOWED_CHANNEL_IDS"]
+  [ENV.DISCORD_ALLOWED_CHANNEL_IDS]: ["ALLOWED_CHANNEL_IDS"]
 };
 function parseEnvFile(filePath) {
   const result = {};
@@ -21270,9 +21330,9 @@ function resolveConfigEnvMap(extensionDir2) {
   const processVars = normalizeConfigMap(collectProcessEnv());
   const fileVars = normalizeConfigMap(parseEnvFile(path3.join(extensionDir2, ".env")));
   const resolved = {
+    ...fileVars,
     ...snapshotVars,
-    ...processVars,
-    ...fileVars
+    ...processVars
   };
   try {
     persistManagedConfig(runtimePaths.managedConfigFile, managedConfig, resolved);
@@ -21288,22 +21348,27 @@ function loadConfig(extensionDir2) {
     const envValue = envVars[key];
     return envValue === void 0 ? fallback : envValue;
   };
-  const ownerIds = splitIds(get("DISCORD_OWNER_IDS"));
-  const primaryChannelId = get("DISCORD_CHANNEL_ID");
-  const configuredAllowedChannelIds = splitIds(get("DISCORD_ALLOWED_CHANNEL_IDS"));
-  const allowedUserIds = splitIds(get("DISCORD_ALLOWED_USER_IDS"));
+  const ownerIds = splitIds(get(ENV.DISCORD_OWNER_IDS));
+  const primaryChannelId = get(ENV.DISCORD_CHANNEL_ID);
+  const configuredServerId = get(ENV.DISCORD_SERVER_ID);
+  const configuredAllowedChannelIds = splitIds(get(ENV.DISCORD_ALLOWED_CHANNEL_IDS));
+  const allowedUserIds = splitIds(get(ENV.DISCORD_ALLOWED_USER_IDS));
+  const hasInstallSettings = Boolean(
+    get(ENV.DISCORD_BOT_TOKEN).trim() && get(ENV.DISCORD_OWNER_IDS).trim() && get(ENV.DISCORD_SERVER_ID).trim()
+  );
   const config3 = {
-    discordBotToken: get("DISCORD_BOT_TOKEN"),
+    discordBotToken: get(ENV.DISCORD_BOT_TOKEN),
     discordChannelId: primaryChannelId,
-    discordServerId: managedConfig.discord.primaryGuildId ?? "",
+    discordServerId: configuredServerId || managedConfig.discord.primaryGuildId || "",
     discordServerName: managedConfig.discord.primaryGuildName ?? "",
+    discordBossUserId: get(ENV.DISCORD_BOSS_USER_ID).trim(),
     ownerIds,
-    discordAdminId: resolveAdminId(get("DISCORD_ADMIN_ID"), ownerIds),
+    discordAdminId: resolveAdminId(get(ENV.DISCORD_ADMIN_ID), ownerIds),
     allowedChannelIds: configuredAllowedChannelIds.length > 0 ? configuredAllowedChannelIds : primaryChannelId ? [primaryChannelId] : [],
     allowedUserIds: allowedUserIds.length > 0 ? allowedUserIds : ownerIds,
-    allowedAgentIds: splitIds(get("DISCORD_ALLOWED_AGENT_IDS")),
+    allowedAgentIds: splitIds(get(ENV.DISCORD_ALLOWED_AGENT_IDS)),
     daemonApiToken: (() => {
-      let token = get("DAEMON_API_TOKEN");
+      let token = get(ENV.DAEMON_API_TOKEN);
       if (token) return token;
       const tokenPath = runtimePaths.daemonTokenFile;
       if (fs3.existsSync(tokenPath)) {
@@ -21316,26 +21381,30 @@ function loadConfig(extensionDir2) {
       }
       return token;
     })(),
-    discordPrefix: get("DISCORD_PREFIX"),
-    discordResetCmd: get("DISCORD_RESET_CMD", "!reset"),
-    daemonPort: parseInt(get("DAEMON_PORT", "18790"), 10),
-    geminiPath: get("GEMINI_PATH", "gemini"),
-    geminiModel: get("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"),
-    geminiTimeoutMs: parseInt(get("GEMINI_TIMEOUT_MS", "300000"), 10),
-    geminiMaxConcurrent: parseInt(get("GEMINI_MAX_CONCURRENT", "3"), 10),
-    conversationHistoryLength: parseInt(get("CONVERSATION_HISTORY_LENGTH", "30"), 10),
-    promptHistoryMessageLimit: parseInt(get("PROMPT_HISTORY_MAX_MESSAGES", "12"), 10),
-    promptHistoryCharBudget: parseInt(get("PROMPT_HISTORY_MAX_CHARS", "6000"), 10),
-    streaming: parseBoolean(get("STREAMING", "true"), true),
-    queueMaxDepth: parseInt(get("QUEUE_MAX_DEPTH", "20"), 10),
-    enableDMs: parseBoolean(get("ENABLE_DMS", "true"), true),
-    requireMention: parseBoolean(get("REQUIRE_MENTION", "true"), true),
-    respondToReplies: parseBoolean(get("RESPOND_TO_REPLIES", "true"), true),
-    memoryScope: parseMemoryScope(get("MEMORY_SCOPE", "global")),
-    autoStartDaemon: parseBoolean(get("AUTO_START_DAEMON", "true"), true),
-    useGeminiCliSessions: parseBoolean(get("USE_GEMINI_CLI_SESSIONS", "true"), true),
-    geminiSessionBindingScope: parseGeminiSessionBindingScope(get("GEMINI_SESSION_BINDING_SCOPE", "global")),
-    cliIdleTimeoutMs: parseInt(get("CLI_IDLE_TIMEOUT_MS", "300000"), 10)
+    discordPrefix: get(ENV.DISCORD_PREFIX),
+    discordResetCmd: get(ENV.DISCORD_RESET_CMD, "!reset"),
+    daemonPort: parseInt(get(ENV.DAEMON_PORT, "18790"), 10),
+    geminiPath: get(ENV.GEMINI_PATH, "gemini"),
+    geminiModel: get(ENV.GEMINI_MODEL, "gemini-3.1-flash-lite-preview"),
+    geminiTimeoutMs: parseInt(get(ENV.GEMINI_TIMEOUT_MS, "900000"), 10),
+    geminiMaxConcurrent: parseInt(get(ENV.GEMINI_MAX_CONCURRENT, "3"), 10),
+    conversationHistoryLength: parseInt(get(ENV.CONVERSATION_HISTORY_LENGTH, "30"), 10),
+    promptHistoryMessageLimit: parseInt(get(ENV.PROMPT_HISTORY_MAX_MESSAGES, "12"), 10),
+    promptHistoryCharBudget: parseInt(get(ENV.PROMPT_HISTORY_MAX_CHARS, "6000"), 10),
+    streaming: parseBoolean(get(ENV.STREAMING, "true"), true),
+    queueMaxDepth: parseInt(get(ENV.QUEUE_MAX_DEPTH, "20"), 10),
+    enableDMs: parseBoolean(get(ENV.ENABLE_DMS, "true"), true),
+    requireMention: parseBoolean(get(ENV.REQUIRE_MENTION, "true"), true),
+    respondToReplies: parseBoolean(get(ENV.RESPOND_TO_REPLIES, "true"), true),
+    memoryScope: parseMemoryScope(get(ENV.MEMORY_SCOPE, "channel")),
+    autoStartDaemon: parseBoolean(get(ENV.AUTO_START_DAEMON, "true"), true),
+    useGeminiCliSessions: parseBoolean(get(ENV.USE_GEMINI_CLI_SESSIONS, "true"), true),
+    geminiSessionBindingScope: parseGeminiSessionBindingScope(get(ENV.GEMINI_SESSION_BINDING_SCOPE, "channel")),
+    cliIdleTimeoutMs: parseInt(get(ENV.CLI_IDLE_TIMEOUT_MS, "300000"), 10),
+    setupValidationPending: parseBoolean(
+      get(ENV.SETUP_VALIDATION_PENDING, hasInstallSettings ? "true" : "false"),
+      false
+    )
   };
   return config3;
 }
@@ -21535,20 +21604,130 @@ async function waitForNewStartTime(config3, previousStartedAt, timeoutMs, pollIn
   return false;
 }
 
+// src/shared/tool-names.ts
+var DISCORD_BRIDGE_TOOL_NAMES = [
+  "discord_message",
+  "discord_admin",
+  "discord_history",
+  "discord_cron",
+  "discord_find_media"
+];
+var DISCORD_BRIDGE_TOOLS = DISCORD_BRIDGE_TOOL_NAMES.join(",");
+
+// src/daemon/permissions.ts
+var GUEST_PERMISSION_REFUSAL = "I can only do that with approval from the authorized Discord user.";
+var DISCORD_SNOWFLAKE_RE = /^\d{15,25}$/;
+function validateBossConfig(configOrBossUserId) {
+  const raw = typeof configOrBossUserId === "string" ? configOrBossUserId : configOrBossUserId?.discordBossUserId;
+  const bossUserId = raw?.trim() ?? "";
+  if (!bossUserId) {
+    return { valid: false, bossUserId: "", reason: "missing" };
+  }
+  if (!DISCORD_SNOWFLAKE_RE.test(bossUserId)) {
+    return { valid: false, bossUserId, reason: "malformed" };
+  }
+  return { valid: true, bossUserId };
+}
+function resolveDiscordRole(config3, sender) {
+  const validation = validateBossConfig(config3);
+  const senderDiscordId = sender.discordUserId.trim();
+  const role = validation.valid && senderDiscordId === validation.bossUserId ? "BOSS" : "GUEST";
+  return {
+    role,
+    senderDiscordId,
+    senderDisplayLabel: sender.displayLabel?.trim() || senderDiscordId || "unknown Discord user",
+    bossLabel: "the boss",
+    bossConfigValid: validation.valid,
+    bossConfigReason: validation.reason
+  };
+}
+function isBoss(roleContext) {
+  return roleContext.role === "BOSS";
+}
+function authorizeAction(action, roleContext) {
+  if (action === "safe_chat" || action === "public_web_search") {
+    return { decision: "allow", action, reason: action };
+  }
+  if (isBoss(roleContext)) {
+    return { decision: "allow", action, reason: "boss" };
+  }
+  return {
+    decision: "deny",
+    action,
+    reason: roleContext.bossConfigValid ? "guest_requires_boss" : `boss_config_${roleContext.bossConfigReason ?? "invalid"}`
+  };
+}
+function formatPermissionDenial(_decision) {
+  switch (_decision.action) {
+    case "outbound_discord":
+      return "I can answer here, but I cannot send, edit, or manage Discord messages for guests.";
+    case "attachment_processing":
+    case "media_search":
+    case "local_file":
+      return "I can chat here, but I cannot read, create, attach, or manage files for guests.";
+    case "shell":
+    case "repo_inspection":
+    case "gemini_tools":
+      return "I can help conceptually, but I cannot use tools, shell, repo, or local files for guests.";
+    case "history":
+    case "status":
+    case "bot_introspection":
+    case "user_discovery":
+      return "I cannot expose bridge internals, history, or server metadata to guests.";
+    case "cron":
+      return "I cannot schedule reminders or background Discord actions for guests.";
+    case "moderation":
+    case "admin_command":
+    case "session_reset":
+    case "model_config":
+      return GUEST_PERMISSION_REFUSAL;
+    default:
+      return GUEST_PERMISSION_REFUSAL;
+  }
+}
+function resolveMcpRoleContextFromEnv(env = process.env, config3) {
+  const role = env.GEMINI_DISCORD_ROLE;
+  if (role !== "BOSS" && role !== "GUEST") {
+    return null;
+  }
+  const senderDiscordId = env.GEMINI_DISCORD_SENDER_ID?.trim() || "unknown";
+  if (config3) {
+    return resolveDiscordRole(config3, {
+      discordUserId: senderDiscordId,
+      displayLabel: env.GEMINI_DISCORD_SENDER_LABEL
+    });
+  }
+  return {
+    role: "GUEST",
+    senderDiscordId,
+    senderDisplayLabel: env.GEMINI_DISCORD_SENDER_LABEL?.trim() || senderDiscordId,
+    bossLabel: "the boss",
+    bossConfigValid: false,
+    bossConfigReason: "missing"
+  };
+}
+function authorizeMcpToolAction(action, config3) {
+  const roleContext = resolveMcpRoleContextFromEnv(process.env, config3);
+  if (!roleContext) {
+    return { decision: "deny", action, reason: "missing_discord_role_context" };
+  }
+  return authorizeAction(action, roleContext);
+}
+
 // src/tools/client.ts
 async function daemonRequest(opts) {
-  const { method, path: path5, config: config3, body, timeoutMs } = opts;
+  const { method, path: path6, config: config3, body, timeoutMs } = opts;
   let tmpDir2 = process.cwd();
   try {
     tmpDir2 = __dirname;
   } catch {
   }
   const extensionDir2 = resolveExtensionDir(tmpDir2);
-  let response = await requestOnce({ method, path: path5, config: config3, body, timeoutMs });
+  let response = await requestOnce({ method, path: path6, config: config3, body, timeoutMs });
   if ((response.data["error"] === "daemon_offline" || response.data["error"] === "daemon_timeout") && config3.autoStartDaemon) {
     try {
       await ensureDaemonRunning(config3, extensionDir2);
-      response = await requestOnce({ method, path: path5, config: config3, body, timeoutMs });
+      response = await requestOnce({ method, path: path6, config: config3, body, timeoutMs });
     } catch {
       return { ok: false, status: 0, data: { error: "daemon_offline" } };
     }
@@ -21556,17 +21735,18 @@ async function daemonRequest(opts) {
   return response;
 }
 async function requestOnce(opts) {
-  const { method, path: path5, config: config3, body, timeoutMs } = opts;
+  const { method, path: path6, config: config3, body, timeoutMs } = opts;
   return new Promise((resolve) => {
     const payload = body ? JSON.stringify(body) : void 0;
     const req = http2.request(
       {
         hostname: "127.0.0.1",
         port: config3.daemonPort,
-        path: path5,
+        path: path6,
         method,
         headers: {
           "Content-Type": "application/json",
+          ...discordRoleHeaders(config3),
           ...method === "POST" && config3.daemonApiToken ? { Authorization: `Bearer ${config3.daemonApiToken}` } : {},
           ...payload ? { "Content-Length": Buffer.byteLength(payload) } : {}
         },
@@ -21597,78 +21777,385 @@ async function requestOnce(opts) {
     req.end();
   });
 }
-async function isDaemonOnline(config3) {
-  const res = await daemonRequest({ method: "GET", path: "/health", config: config3 });
-  return res.ok;
+function discordRoleHeaders(config3) {
+  const roleContext = resolveMcpRoleContextFromEnv(process.env, config3);
+  if (!roleContext) {
+    return {};
+  }
+  return {
+    "X-Gemini-Discord-Role": roleContext.role,
+    "X-Gemini-Discord-Sender-Id": roleContext.senderDiscordId,
+    "X-Gemini-Discord-Sender-Label": roleContext.senderDisplayLabel
+  };
 }
 
-// src/tools/status.ts
-function registerStatusTool(server2, config3) {
+// src/tools/pending-delivery.ts
+var MAX_PENDING_DELIVERIES = 5;
+var pendingDeliveries = [];
+function recordPendingDelivery(kind, body, failureReason, path6 = pathForKind(kind)) {
+  const normalized = normalizeDeliveryBody(body);
+  const id = deliveryId(kind, path6, normalized);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const existing = pendingDeliveries.find((delivery2) => delivery2.id === id);
+  if (existing) {
+    existing.lastFailureAt = now;
+    existing.lastError = failureReason;
+    existing.attempts += 1;
+    return existing;
+  }
+  const delivery = {
+    id,
+    kind,
+    path: path6,
+    body: normalized,
+    firstFailureAt: now,
+    lastFailureAt: now,
+    lastError: failureReason,
+    attempts: 1
+  };
+  pendingDeliveries.push(delivery);
+  if (pendingDeliveries.length > MAX_PENDING_DELIVERIES) {
+    pendingDeliveries.shift();
+  }
+  return delivery;
+}
+function clearPendingDelivery(kind, body) {
+  const id = deliveryId(kind, pathForKind(kind), normalizeDeliveryBody(body));
+  clearPendingDeliveryById(id);
+}
+function clearPendingDeliveryById(id) {
+  const index = pendingDeliveries.findIndex((delivery) => delivery.id === id);
+  if (index !== -1) {
+    pendingDeliveries.splice(index, 1);
+  }
+}
+function hasPendingDeliveries() {
+  return pendingDeliveries.length > 0;
+}
+async function retryPendingDeliveries(config3, requester = daemonRequest) {
+  const deliveries = [...pendingDeliveries];
+  const delivered = [];
+  const failed = [];
+  for (const delivery of deliveries) {
+    const res = await requester({
+      method: "POST",
+      path: delivery.path,
+      config: config3,
+      body: delivery.body,
+      timeoutMs: 6e4
+    });
+    if (res.ok) {
+      clearPendingDelivery(delivery.kind, delivery.body);
+      delivered.push(delivery);
+      continue;
+    }
+    const error2 = formatDaemonError(res.data);
+    recordPendingDelivery(delivery.kind, delivery.body, error2);
+    const latest = pendingDeliveries.find((pending) => pending.id === delivery.id);
+    failed.push(latest ?? delivery);
+  }
+  return {
+    attempted: deliveries.length,
+    delivered,
+    failed
+  };
+}
+function formatPendingDeliveryRetryResult(result) {
+  if (result.attempted === 0) {
+    return null;
+  }
+  if (result.failed.length === 0) {
+    return `\u2705 Retried and delivered ${formatCount(result.delivered.length, "pending Discord delivery", "pending Discord deliveries")}.`;
+  }
+  const deliveredPart = result.delivered.length > 0 ? ` Delivered ${formatCount(result.delivered.length, "pending Discord delivery", "pending Discord deliveries")}.` : "";
+  const failedDetails = result.failed.map((delivery) => `${describeDelivery(delivery)} failed: ${delivery.lastError}`).join("; ");
+  return `\u26A0\uFE0F${deliveredPart} ${formatCount(result.failed.length, "Discord action remains", "Discord actions remain")} pending: ${failedDetails}. Troubleshooting is not completion; retry again after the bridge, permission, or environment issue is fixed.`;
+}
+function pendingDeliveryFailureText(action, error2) {
+  return pendingActionFailureText(action, error2);
+}
+function pendingActionFailureText(action, error2) {
+  return `\u274C ${action} failed: ${error2}
+
+The original Discord action is still pending. Do not say it is complete. Troubleshooting is not completion; after fixing the bridge, permission, or environment issue, retry this same action before calling the task complete.`;
+}
+function normalizeDeliveryBody(body) {
+  const normalized = {};
+  for (const key of ["channel_id", "channel_name", "message_id", "content", "files", "guild_id", "message", "delay_minutes", "deliver_at", "cron_expression", "run_once", "job_id"]) {
+    const value = body[key];
+    if (value == null) continue;
+    if (key === "files" && Array.isArray(value)) {
+      normalized[key] = value.map(String);
+    } else if (typeof value === "string") {
+      normalized[key] = value;
+    } else {
+      normalized[key] = String(value);
+    }
+  }
+  return normalized;
+}
+function deliveryId(kind, path6, body) {
+  return `${kind}:${path6}:${JSON.stringify(body)}`;
+}
+function formatDaemonError(data) {
+  const error2 = data["error"];
+  return typeof error2 === "string" && error2.trim() ? error2 : "unknown error";
+}
+function describeDelivery(delivery) {
+  const files = Array.isArray(delivery.body["files"]) ? delivery.body["files"].length : 0;
+  const target = delivery.body["channel_id"] ?? delivery.body["channel_name"] ?? "current conversation";
+  const filePart = files > 0 ? ` with ${formatCount(files, "file", "files")}` : "";
+  return `${delivery.kind} action to ${target}${filePart}`;
+}
+function formatCount(count, singular, plural) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+function pathForKind(kind) {
+  switch (kind) {
+    case "reply":
+      return "/reply";
+    case "reset":
+      return "/reset";
+    case "schedule":
+      return "/cron";
+    case "delete":
+      return "/cron/delete";
+    case "send":
+    default:
+      return "/send";
+  }
+}
+
+// src/tools/admin.ts
+function registerAdminTool(server2, config3) {
   server2.tool(
-    "discord_status",
-    "Check the Discord daemon health, connection state, and bot info. Call this first when troubleshooting.",
-    {},
-    async () => {
-      const res = await daemonRequest({ method: "GET", path: "/status", config: config3 });
-      if (res.data["error"] === "daemon_offline") {
-        return text("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
+    "discord_admin",
+    [
+      "Administrative actions for the Discord bridge. Actions:",
+      '\u2022 "status" \u2014 check health, config, and connected channels',
+      '\u2022 "restart" \u2014 restart the daemon process',
+      '\u2022 "reset" \u2014 clear the current conversation and archive the session',
+      '\u2022 "channels" \u2014 list discovered channels (optional query filter)',
+      '\u2022 "users" \u2014 list discovered server users or resolve a user lookup hint',
+      `\u2022 "set_presence" \u2014 change the bot's online status and activity`,
+      '\u2022 "kick" \u2014 remove a member from the server',
+      '\u2022 "timeout" \u2014 apply a communication timeout (up to 28 days)',
+      '\u2022 "remove_timeout" \u2014 remove an active timeout from a member'
+    ].join("\n"),
+    {
+      action: external_exports.enum(["status", "restart", "reset", "channels", "users", "set_presence", "kick", "timeout", "remove_timeout"]).describe("The administrative action to perform."),
+      query: external_exports.string().optional().describe("Optional channel/user name, mention, ID, or partial string to filter discovery actions."),
+      channel_id: external_exports.string().optional().describe("Explicit Discord channel ID for reset actions."),
+      status: external_exports.enum(["online", "idle", "dnd", "invisible"]).optional().describe("Bot online status (only for set_presence)."),
+      activity_type: external_exports.enum(["playing", "watching", "listening", "competing"]).optional().describe("Activity type (only for set_presence)."),
+      activity_name: external_exports.string().optional().describe('Activity name, e.g. "with fire" (only for set_presence).'),
+      user_id: external_exports.string().optional().describe("Stable numeric Discord user ID of the member to moderate (required for kick/timeout/remove_timeout). Use users discovery to resolve names or mentions first."),
+      guild_id: external_exports.string().optional().describe("Discord server/guild ID. Defaults to the configured server (only for kick/timeout/remove_timeout)."),
+      reason: external_exports.string().optional().describe("Optional audit-log reason (only for kick/timeout/remove_timeout)."),
+      duration_minutes: external_exports.number().optional().describe("Timeout duration in minutes. Required for timeout. Maximum 40320 (28 days).")
+    },
+    async ({ action, query, channel_id, status, activity_type, activity_name, user_id, guild_id, reason, duration_minutes }) => {
+      const permAction = action === "status" ? "status" : action === "users" ? "user_discovery" : ["kick", "timeout", "remove_timeout"].includes(action) ? "moderation" : "admin_command";
+      const gate = authorizeMcpToolAction(permAction, config3);
+      if (gate.decision !== "allow") {
+        return text(formatPermissionDenial(gate), true);
       }
-      if (res.data["error"] === "daemon_timeout") {
-        return text("\u23F3 Daemon is not responding. It may be starting up. Try again in a few seconds.");
+      if (action === "status") {
+        const res = await daemonRequest({ method: "GET", path: "/status", config: config3 });
+        if (res.data["error"] === "daemon_offline") {
+          return text("\u274C Daemon is offline. Reopen Gemini CLI or run `npm run setup` in the extension directory if setup is incomplete.", hasPendingDeliveries());
+        }
+        if (res.data["error"] === "daemon_timeout") {
+          return text("\u23F3 Daemon is not responding. It may be starting up. Try again in a few seconds.", hasPendingDeliveries());
+        }
+        if (!res.ok) {
+          return text(`\u274C Daemon error: ${JSON.stringify(res.data)}.`, hasPendingDeliveries());
+        }
+        const s = res.data;
+        const lines = [
+          `**Status:** ${statusEmoji(s.status)} ${s.status}`,
+          `**Bot:** ${s.botTag ?? "not connected"}`,
+          `**WebSocket Ping:** ${s.wsPing}ms`,
+          `**Gemini:** ${s.geminiReachable ? "\u2705 reachable" : "\u274C unreachable"} (${s.geminiVersion})`,
+          `**Streaming:** ${s.streaming ? "enabled" : "disabled"}`,
+          `**DMs:** ${s.enableDMs ? "enabled" : "disabled"}`,
+          `**Server:** ${s.serverName ?? s.serverId ?? "not yet pinned"}`,
+          `**Primary Channel:** ${s.channelId || "not yet pinned"}`,
+          `**Memory Scope:** ${s.sessionScope}`,
+          `**Gemini Session Binding Scope:** ${s.geminiSessionBindingScope}`,
+          `**Gemini Headless Mode:** ${s.headlessMode ?? "unknown"}`,
+          `**Require Mention:** ${s.requireMention ? "yes" : "no"}`,
+          `**Allowlisted Humans:** ${s.allowlistedUsers}`,
+          `**Allowlisted Agents:** ${s.allowlistedAgents}`,
+          `**Messages Handled:** ${s.messagesHandled}`,
+          `**Last Message:** ${s.lastMessageAt ?? "none"}`,
+          `**Queue Depth:** ${s.queueDepth}`,
+          `**Uptime Since:** ${s.startedAt}`
+        ];
+        if (s.channels && s.channels.length > 0) {
+          lines.push("", "### Discovered Channels");
+          s.channels.forEach((c) => lines.push(`- **#${c.name}**: \`${c.id}\``));
+        }
+        if (s.cronJobs && s.cronJobs.length > 0) {
+          lines.push("", "### Cron Jobs");
+          for (const job of s.cronJobs) {
+            lines.push(`- **${job.id}:** ${job.runOnce ? "one-time" : "recurring"} | next ${new Date(job.nextRun).toISOString()} | <#${job.channelId}> | ${job.message}`);
+          }
+        }
+        if (s.dmPairings && s.dmPairings.length > 0) {
+          lines.push("", "### DM Pairings");
+          for (const pairing of s.dmPairings) {
+            lines.push(`- **${pairing.userId}:** channel ${pairing.channelId} | last seen ${pairing.lastSeenAt}`);
+          }
+        }
+        if (s.bindings && s.bindings.length > 0) {
+          lines.push("", "### Gemini Bindings");
+          for (const binding of s.bindings) {
+            const sessionSummary = binding.hasSession ? `session ${binding.lastSessionId ?? "(unknown id)"}` : "no active session";
+            lines.push(`- **${binding.workspace}:** ${sessionSummary} | archived ${binding.archivedSessions} | last reset ${binding.lastResetAt ?? "never"}`);
+          }
+        }
+        if (s.lastError) lines.push(`**Last Error:** ${s.lastError}`);
+        if (hasPendingDeliveries()) {
+          const retryResult = await retryPendingDeliveries(config3);
+          const retryMessage = formatPendingDeliveryRetryResult(retryResult);
+          if (retryMessage) {
+            lines.push("", "### Pending Delivery Retry", retryMessage);
+            return text(lines.join("\n"), retryResult.failed.length > 0);
+          }
+        }
+        return text(lines.join("\n"));
       }
-      if (!res.ok) {
-        return text(`\u274C Daemon error: ${JSON.stringify(res.data)}`);
+      if (action === "restart") {
+        try {
+          let tmpDir2 = process.cwd();
+          try {
+            tmpDir2 = __dirname;
+          } catch {
+          }
+          const extensionDir2 = resolveExtensionDir(tmpDir2);
+          await restartDaemon(config3, extensionDir2);
+          if (hasPendingDeliveries()) {
+            const retryResult = await retryPendingDeliveries(config3);
+            const retryMessage = formatPendingDeliveryRetryResult(retryResult);
+            return {
+              isError: retryResult.failed.length > 0,
+              content: [{ type: "text", text: `\u2705 Discord daemon restarted successfully.${retryMessage ? `
+
+${retryMessage}` : ""}` }]
+            };
+          }
+          return text("\u2705 Discord daemon restarted successfully.");
+        } catch (err) {
+          return text(`\u274C Failed to restart Discord daemon: ${err instanceof Error ? err.message : String(err)}`, true);
+        }
       }
-      const s = res.data;
-      const lines = [
-        `**Status:** ${statusEmoji(s.status)} ${s.status}`,
-        `**Bot:** ${s.botTag ?? "not connected"}`,
-        `**WebSocket Ping:** ${s.wsPing}ms`,
-        `**Gemini:** ${s.geminiReachable ? "\u2705 reachable" : "\u274C unreachable"} (${s.geminiVersion})`,
-        `**Streaming:** ${s.streaming ? "enabled" : "disabled"}`,
-        `**DMs:** ${s.enableDMs ? "enabled" : "disabled"}`,
-        `**Server:** ${s.serverName ?? s.serverId ?? "not yet pinned"}`,
-        `**Primary Channel:** ${s.channelId || "not yet pinned"}`,
-        `**Memory Scope:** ${s.sessionScope}`,
-        `**Gemini Session Binding Scope:** ${s.geminiSessionBindingScope}`,
-        `**Gemini Headless Mode:** ${s.headlessMode ?? "unknown"}`,
-        `**Require Mention:** ${s.requireMention ? "yes" : "no"}`,
-        `**Allowlisted Humans:** ${s.allowlistedUsers}`,
-        `**Allowlisted Agents:** ${s.allowlistedAgents}`,
-        `**Messages Handled:** ${s.messagesHandled}`,
-        `**Last Message:** ${s.lastMessageAt ?? "none"}`,
-        `**Queue Depth:** ${s.queueDepth}`,
-        `**Uptime Since:** ${s.startedAt}`
-      ];
-      if (s.channels && s.channels.length > 0) {
-        lines.push("", "### Discovered Channels");
-        s.channels.forEach((c) => {
-          lines.push(`- **#${c.name}**: \`${c.id}\``);
+      if (action === "reset") {
+        if (!channel_id) {
+          return text("\u274C Error: channel_id is required for reset.", true);
+        }
+        const body = { channel_id };
+        if (guild_id) body["guild_id"] = guild_id;
+        const res = await daemonRequest({ method: "POST", path: "/reset", config: config3, body });
+        if (!res.ok) {
+          const error2 = String(res.data["error"] ?? "unknown error");
+          recordPendingDelivery("reset", body, error2);
+          return text(pendingActionFailureText("Reset", error2), true);
+        }
+        clearPendingDelivery("reset", body);
+        return text("\u2705 Started a fresh conversation. The active Discord transcript was archived and the bound Gemini CLI session was restarted for the current channel.");
+      }
+      if (action === "channels") {
+        const res = await daemonRequest({ method: "GET", path: "/status", config: config3 });
+        if (res.data["error"] === "daemon_offline") {
+          return text("\u274C Daemon is offline. Reopen Gemini CLI or run `npm run setup` in the extension directory if setup is incomplete.");
+        }
+        if (!res.ok) {
+          return text(`\u274C Failed to fetch channels: ${JSON.stringify(res.data)}`);
+        }
+        const status2 = res.data;
+        const channels = status2.channels ?? [];
+        const needle = query?.trim().toLowerCase();
+        const filtered = needle ? channels.filter((c) => c.name.toLowerCase().includes(needle) || c.id.includes(needle)) : channels;
+        if (filtered.length === 0) {
+          return text(needle ? `No discovered channels matched "${query}".` : "No channels have been discovered yet.");
+        }
+        const lines = filtered.map((c) => `- #${c.name} \u2192 ${c.id}`);
+        return text(lines.join("\n"));
+      }
+      if (action === "users") {
+        const params = new URLSearchParams();
+        if (query?.trim()) params.set("query", query.trim());
+        const res = await daemonRequest({
+          method: "GET",
+          path: params.size > 0 ? `/users?${params.toString()}` : "/users",
+          config: config3
         });
-      }
-      if (s.cronJobs && s.cronJobs.length > 0) {
-        lines.push("", "### Cron Jobs");
-        for (const job of s.cronJobs) {
-          lines.push(`- **${job.id}:** ${job.runOnce ? "one-time" : "recurring"} | next ${new Date(job.nextRun).toISOString()} | <#${job.channelId}> | ${job.message}`);
+        if (!res.ok) {
+          return text(`\u274C Failed to fetch users: ${res.data["error"] ?? "unknown error"}`, true);
         }
-      }
-      if (s.dmPairings && s.dmPairings.length > 0) {
-        lines.push("", "### DM Pairings");
-        for (const pairing of s.dmPairings) {
-          lines.push(`- **${pairing.userId}:** channel ${pairing.channelId} | last seen ${pairing.lastSeenAt}`);
+        const users = res.data["users"] ?? [];
+        const resolved = res.data["resolved"];
+        if (users.length === 0) {
+          return text(query ? `No discovered users matched "${query}".` : "No users have been discovered yet.");
         }
-      }
-      if (s.bindings && s.bindings.length > 0) {
-        lines.push("", "### Gemini Bindings");
-        for (const binding of s.bindings) {
-          const sessionSummary = binding.hasSession ? `session ${binding.lastSessionId ?? "(unknown id)"}` : "no active session";
-          lines.push(`- **${binding.workspace}:** ${sessionSummary} | archived ${binding.archivedSessions} | last reset ${binding.lastResetAt ?? "never"}`);
+        const lines = [];
+        if (resolved?.id) {
+          lines.push(`Resolved stable user ID: \`${resolved.id}\``, "");
         }
+        for (const user of users) {
+          const label = user.displayName || user.globalName || user.username;
+          const bot = user.bot ? " bot" : "";
+          lines.push(`- **${label}**${bot}: \`${user.id}\`${user.tag ? ` (${user.tag})` : ""}`);
+        }
+        return text(lines.join("\n"));
       }
-      if (s.lastError) {
-        lines.push(`**Last Error:** ${s.lastError}`);
+      if (action === "set_presence") {
+        const body = {};
+        if (status) body["status"] = status;
+        if (activity_type) body["activity_type"] = activity_type;
+        if (activity_name) body["activity_name"] = activity_name;
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/presence",
+          config: config3,
+          body
+        });
+        if (!res.ok) {
+          return text(`\u274C Failed to set presence: ${res.data["error"] ?? "unknown error"}`, true);
+        }
+        const parts = [];
+        if (status) parts.push(`Status: ${status}`);
+        if (activity_name) parts.push(`Activity: ${activity_type ?? "playing"} ${activity_name}`);
+        return text(`\u2705 Presence updated. ${parts.join(" | ")}`);
       }
-      return text(lines.join("\n"));
+      if (action === "kick" || action === "timeout" || action === "remove_timeout") {
+        if (!user_id?.trim()) {
+          return text("\u274C Error: user_id is required for moderation actions.", true);
+        }
+        if (action === "timeout" && (duration_minutes === void 0 || duration_minutes <= 0)) {
+          return text("\u274C Error: duration_minutes must be greater than 0 for timeout.", true);
+        }
+        const body = { action, user_id };
+        if (guild_id) body["guild_id"] = guild_id;
+        if (reason) body["reason"] = reason;
+        if (duration_minutes !== void 0) body["duration_minutes"] = duration_minutes;
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/moderation",
+          config: config3,
+          body,
+          timeoutMs: 6e4
+        });
+        if (!res.ok) {
+          return text(`\u274C Moderation failed: ${res.data["error"] ?? "unknown error"}`, true);
+        }
+        const target = String(res.data["user_id"] ?? user_id);
+        if (action === "kick") return text(`\u2705 Kicked user ${target}.`);
+        if (action === "timeout") return text(`\u2705 Timed out user ${target} for ${duration_minutes} minute${duration_minutes === 1 ? "" : "s"}.`);
+        return text(`\u2705 Removed timeout for user ${target}.`);
+      }
+      return text(`\u274C Error: Unknown action ${action}`, true);
     }
   );
 }
@@ -21684,84 +22171,226 @@ function statusEmoji(status) {
       return "\u26AA";
   }
 }
-function text(content) {
-  return { content: [{ type: "text", text: content }] };
+function text(content, isError = false) {
+  return { isError, content: [{ type: "text", text: content }] };
 }
 
-// src/tools/send.ts
-function registerSendTool(server2, config3) {
+// src/tools/message.ts
+function registerMessageTool(server2, config3) {
   server2.tool(
-    "discord_send",
-    "Send a message to a Discord channel. Defaults to the primary channel if channel_id is not specified.",
+    "discord_message",
+    [
+      "Interact with Discord messages. Actions:",
+      '\u2022 "send" \u2014 send a new message to an explicit channel_id or channel_name (use silent:true to suppress notifications)',
+      '\u2022 "reply" \u2014 reply to a specific message ID',
+      '\u2022 "edit" \u2014 edit a bot-owned message',
+      '\u2022 "delete" \u2014 delete a bot-owned message',
+      '\u2022 "react" \u2014 add a reaction (only when the reaction conveys specific meaning: acknowledgment, approval, flagging. Do not react for decoration)',
+      '\u2022 "unreact" \u2014 remove own reaction(s)',
+      '\u2022 "fetch_reactions" \u2014 list reactions on a message',
+      '\u2022 "pin" \u2014 pin a message',
+      '\u2022 "unpin" \u2014 unpin a message',
+      '\u2022 "list_pins" \u2014 list pinned messages in a channel'
+    ].join("\n"),
     {
-      content: external_exports.string().optional().describe("Optional text to accompany attached files. DO NOT use this for your normal conversational response, as your standard text output is automatically streamed to Discord."),
-      channel_id: external_exports.string().optional().describe("Target channel ID. Defaults to the primary channel."),
-      channel_name: external_exports.string().optional().describe('Target channel name such as "boardroom" or "#boardroom". Use this when you want the daemon to resolve a discovered channel by name.'),
-      files: external_exports.array(external_exports.string()).optional().describe("Optional array of absolute file paths to attach")
+      action: external_exports.enum([
+        "send",
+        "reply",
+        "edit",
+        "delete",
+        "react",
+        "unreact",
+        "fetch_reactions",
+        "pin",
+        "unpin",
+        "list_pins"
+      ]).describe("Action to perform"),
+      content: external_exports.string().optional().describe('Message text. For "send"/"reply": optional text to accompany files (your normal conversational response streams automatically). For "edit": the new message content.'),
+      channel_id: external_exports.string().optional().describe("Target channel ID. Required for send unless channel_name is provided. Required for most other actions."),
+      channel_name: external_exports.string().optional().describe('Target channel name (only used for "send").'),
+      message_id: external_exports.string().optional().describe("Message ID (required for reply/edit/delete/react/unreact/fetch_reactions/pin/unpin)."),
+      files: external_exports.array(external_exports.string()).optional().describe("Optional array of absolute file paths to attach (send/reply only)"),
+      emoji: external_exports.string().optional().describe('Emoji for react/unreact (e.g. "\u2705", "\u{1F44D}", "\u{1F525}"). Omit emoji on unreact to remove all own reactions.'),
+      silent: external_exports.boolean().optional().default(false).describe("If true, suppress Discord push notifications for this message. Off by default.")
     },
-    async ({ content = "", channel_id, channel_name, files }) => {
-      const body = { content, files };
-      if (channel_id) {
-        body["channel_id"] = channel_id;
-      } else if (channel_name) {
-        body["channel_name"] = channel_name;
-      } else {
-        body["channel_id"] = config3.discordChannelId;
+    async ({ action, content = "", channel_id, channel_name, message_id, files, emoji: emoji2, silent }) => {
+      const gate = authorizeMcpToolAction("outbound_discord", config3);
+      if (gate.decision !== "allow") {
+        return text2(formatPermissionDenial(gate), true);
       }
-      if (!await isDaemonOnline(config3)) {
-        return text2("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
+      if (action === "send") {
+        if (!channel_id && !channel_name) {
+          return text2("\u274C Error: channel_id or channel_name is required for send action.", true);
+        }
+        const body = { content, files };
+        if (channel_id) body["channel_id"] = channel_id;
+        if (channel_name) body["channel_name"] = channel_name;
+        if (silent) body["silent"] = true;
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/send",
+          config: config3,
+          body,
+          timeoutMs: 6e4
+        });
+        if (!res.ok) {
+          const error2 = String(res.data["error"] ?? "unknown error");
+          recordPendingDelivery("send", pendingSendBody(body, res.data), error2);
+          return text2(pendingDeliveryFailureText("Send", error2), true);
+        }
+        clearPendingDelivery("send", body);
+        clearPendingDelivery("send", pendingSendBody(body, res.data));
+        const chunks = res.data["chunks"] ?? 1;
+        const resolvedChannel = String(res.data["channel_id"] ?? channel_id ?? channel_name ?? "current conversation");
+        return text2(`\u2705 Sent (${chunks} chunk${chunks > 1 ? "s" : ""}) to channel ${resolvedChannel}.`);
       }
-      const res = await daemonRequest({
-        method: "POST",
-        path: "/send",
-        config: config3,
-        body,
-        timeoutMs: 6e4
-      });
-      if (!res.ok) {
-        return text2(`\u274C Send failed: ${res.data["error"] ?? "unknown error"}`);
+      if (action === "reply") {
+        if (!channel_id || !message_id) {
+          return text2("\u274C Error: channel_id and message_id are required for reply action.", true);
+        }
+        const body = { content, channel_id, message_id, files };
+        if (silent) body["silent"] = true;
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/reply",
+          config: config3,
+          body,
+          timeoutMs: 6e4
+        });
+        if (!res.ok) {
+          const error2 = String(res.data["error"] ?? "unknown error");
+          recordPendingDelivery("reply", body, error2);
+          return text2(pendingDeliveryFailureText("Reply", error2), true);
+        }
+        clearPendingDelivery("reply", body);
+        return text2("\u2705 Reply sent with the attached content/files.");
       }
-      const chunks = res.data["chunks"] ?? 1;
-      const resolvedChannel = String(res.data["channel_id"] ?? channel_id ?? channel_name ?? config3.discordChannelId);
-      return text2(`\u2705 Sent (${chunks} chunk${chunks > 1 ? "s" : ""}) to channel ${resolvedChannel}.`);
+      if (action === "edit") {
+        if (!channel_id || !message_id || !content.trim()) {
+          return text2("\u274C Error: channel_id, message_id, and content are required for edit.", true);
+        }
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/edit",
+          config: config3,
+          body: { channel_id, message_id, content }
+        });
+        if (!res.ok) return text2(`\u274C Edit failed: ${res.data["error"] ?? "unknown error"}`, true);
+        return text2("\u2705 Message edited.");
+      }
+      if (action === "delete") {
+        if (!channel_id || !message_id) {
+          return text2("\u274C Error: channel_id and message_id are required for delete.", true);
+        }
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/delete",
+          config: config3,
+          body: { channel_id, message_id }
+        });
+        if (!res.ok) return text2(`\u274C Delete failed: ${res.data["error"] ?? "unknown error"}`, true);
+        return text2("\u2705 Message deleted.");
+      }
+      if (action === "react") {
+        if (!channel_id || !message_id || !emoji2) {
+          return text2("\u274C Error: channel_id, message_id, and emoji are required for react.", true);
+        }
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/react",
+          config: config3,
+          body: { channel_id, message_id, emoji: emoji2 }
+        });
+        if (!res.ok) return text2(`\u274C React failed: ${res.data["error"] ?? "unknown error"}`, true);
+        return text2(`\u2705 Reacted with ${emoji2}.`);
+      }
+      if (action === "unreact") {
+        if (!channel_id || !message_id) {
+          return text2("\u274C Error: channel_id and message_id are required for unreact.", true);
+        }
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/unreact",
+          config: config3,
+          body: { channel_id, message_id, ...emoji2 ? { emoji: emoji2 } : {} }
+        });
+        if (!res.ok) return text2(`\u274C Unreact failed: ${res.data["error"] ?? "unknown error"}`, true);
+        return text2(emoji2 ? `\u2705 Removed ${emoji2} reaction.` : "\u2705 Removed all own reactions.");
+      }
+      if (action === "fetch_reactions") {
+        if (!channel_id || !message_id) {
+          return text2("\u274C Error: channel_id and message_id are required.", true);
+        }
+        const params = new URLSearchParams({ channel_id, message_id });
+        if (emoji2) params.set("emoji", emoji2);
+        const res = await daemonRequest({
+          method: "GET",
+          path: `/reactions?${params.toString()}`,
+          config: config3
+        });
+        if (!res.ok) return text2(`\u274C Fetch reactions failed: ${res.data["error"] ?? "unknown error"}`, true);
+        const reactions = res.data["reactions"];
+        if (!reactions || reactions.length === 0) return text2("No reactions on this message.");
+        const lines = reactions.map((r) => `${r.emoji} \xD7 ${r.count} \u2014 users: ${r.users.join(", ")}`);
+        return text2(lines.join("\n"));
+      }
+      if (action === "pin") {
+        if (!channel_id || !message_id) {
+          return text2("\u274C Error: channel_id and message_id are required for pin.", true);
+        }
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/pin",
+          config: config3,
+          body: { channel_id, message_id }
+        });
+        if (!res.ok) return text2(`\u274C Pin failed: ${res.data["error"] ?? "unknown error"}`, true);
+        return text2("\u2705 Message pinned.");
+      }
+      if (action === "unpin") {
+        if (!channel_id || !message_id) {
+          return text2("\u274C Error: channel_id and message_id are required for unpin.", true);
+        }
+        const res = await daemonRequest({
+          method: "POST",
+          path: "/unpin",
+          config: config3,
+          body: { channel_id, message_id }
+        });
+        if (!res.ok) return text2(`\u274C Unpin failed: ${res.data["error"] ?? "unknown error"}`, true);
+        return text2("\u2705 Message unpinned.");
+      }
+      if (action === "list_pins") {
+        if (!channel_id) {
+          return text2("\u274C Error: channel_id is required for list_pins.", true);
+        }
+        const res = await daemonRequest({
+          method: "GET",
+          path: `/pins?channel_id=${encodeURIComponent(channel_id)}`,
+          config: config3
+        });
+        if (!res.ok) return text2(`\u274C List pins failed: ${res.data["error"] ?? "unknown error"}`, true);
+        const pins = res.data["pins"];
+        if (!pins || pins.length === 0) return text2("No pinned messages in this channel.");
+        const lines = pins.map((p) => `\u{1F4CC} **${p.author}** (${p.pinnedAt}): ${p.content}`);
+        return text2(lines.join("\n"));
+      }
+      return text2(`\u274C Error: Unknown action ${action}`, true);
     }
   );
 }
-function text2(content) {
-  return { content: [{ type: "text", text: content }] };
+function text2(content, isError = false) {
+  return { isError, content: [{ type: "text", text: content }] };
 }
-
-// src/tools/reply.ts
-function registerReplyTool(server2, config3) {
-  server2.tool(
-    "discord_reply",
-    "Reply to a specific Discord message by ID, creating a threaded reply. Get message IDs from discord_history.",
-    {
-      channel_id: external_exports.string().describe("The channel ID containing the message"),
-      message_id: external_exports.string().describe("The message ID to reply to (get from discord_history)"),
-      content: external_exports.string().optional().describe("Optional text to accompany attached files. DO NOT use this for your normal conversational response, as your standard text output is automatically streamed to Discord."),
-      files: external_exports.array(external_exports.string()).optional().describe("Optional array of absolute file paths to attach")
-    },
-    async ({ channel_id, message_id, content = "", files }) => {
-      if (!await isDaemonOnline(config3)) {
-        return text3("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
-      }
-      const res = await daemonRequest({
-        method: "POST",
-        path: "/reply",
-        config: config3,
-        body: { channel_id, message_id, content, files },
-        timeoutMs: 6e4
-      });
-      if (!res.ok) {
-        return text3(`\u274C Reply failed: ${res.data["error"] ?? "unknown error"}`);
-      }
-      return text3("\u2705 Reply sent with the attached content/files.");
-    }
-  );
-}
-function text3(content) {
-  return { content: [{ type: "text", text: content }] };
+function pendingSendBody(body, responseData) {
+  if (body["channel_id"] || body["channel_name"]) {
+    return body;
+  }
+  const resolvedChannelId = responseData["channel_id"];
+  if (typeof resolvedChannelId === "string" && resolvedChannelId.trim()) {
+    return { ...body, channel_id: resolvedChannelId };
+  }
+  return body;
 }
 
 // src/tools/history.ts
@@ -21771,23 +22400,28 @@ function registerHistoryTool(server2, config3) {
     "Read recent Discord message exchanges and the conversation memory buffer. Use this to see what has been discussed.",
     {
       limit: external_exports.number().min(1).max(30).default(10).optional().describe("Number of recent exchanges to return (1-30, default 10)"),
-      channel_id: external_exports.string().optional().describe("Channel ID to get history for. Omit for primary channel. DM channel IDs work here too."),
+      channel_id: external_exports.string().describe("Explicit channel ID to get history for. DM channel IDs work here too."),
       scope: external_exports.enum(["current", "archived", "all"]).default("current").optional().describe("Whether to read only the active conversation, only archived sessions, or both.")
     },
     async ({ limit, channel_id, scope = "current" }) => {
-      const queryLimit = limit ?? 10;
-      const params = new URLSearchParams();
-      if (channel_id) {
-        params.set("channel_id", channel_id);
+      const gate = authorizeMcpToolAction("history", config3);
+      if (gate.decision !== "allow") {
+        return text3(formatPermissionDenial(gate));
       }
+      const queryLimit = limit ?? 10;
+      if (!channel_id) {
+        return text3("\u274C Error: channel_id is required for history.");
+      }
+      const params = new URLSearchParams();
+      params.set("channel_id", channel_id);
       params.set("scope", scope);
       const queryPath = params.size > 0 ? `/history?${params.toString()}` : "/history";
       const res = await daemonRequest({ method: "GET", path: queryPath, config: config3 });
       if (res.data["error"] === "daemon_offline") {
-        return text4("\u274C Daemon is offline. No history available. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
+        return text3("\u274C Daemon is offline. No history available. Reopen Gemini CLI or run `npm run setup` in the extension directory if setup is incomplete.");
       }
       if (!res.ok) {
-        return text4(`\u274C History error: ${res.data["error"] ?? "unknown error"}`);
+        return text3(`\u274C History error: ${res.data["error"] ?? "unknown error"}`);
       }
       const history = res.data;
       const messages = (history.messages ?? []).slice(-queryLimit);
@@ -21811,7 +22445,7 @@ function registerHistoryTool(server2, config3) {
           const m = msg;
           const replyIds = m.responseMessageIds.length > 0 ? m.responseMessageIds.join(", ") : "none";
           lines.push(`- **${m.author}** (${m.authorType}) in \`${m.channelName}\` at ${m.at} [${m.elapsedMs}ms]`);
-          lines.push(`  request: \`${m.requestMessageId}\` | replies: \`${replyIds}\` | trigger: \`${m.trigger}\` | images: ${m.attachmentCount}`);
+          lines.push(`  request: \`${m.requestMessageId}\` | replies: \`${replyIds}\` | trigger: \`${m.trigger}\` | attachments: ${m.attachmentCount}`);
           lines.push(`  > ${truncate(m.prompt, 150)}`);
           lines.push(`  \u2192 ${truncate(m.response, 150)}`);
         }
@@ -21825,7 +22459,7 @@ function registerHistoryTool(server2, config3) {
           const c = entry;
           const label = c.role === "user" ? `\u{1F464} ${c.authorName ?? "User"} (${c.speakerKind ?? "human"})` : `\u{1F916} ${c.authorName ?? "Assistant"}`;
           const location = c.channelName ? ` in ${c.channelName}` : "";
-          const attachments = c.attachments && c.attachments.length > 0 ? ` [images: ${c.attachments.map((attachment) => attachment.name).join(", ")}]` : "";
+          const attachments = c.attachments && c.attachments.length > 0 ? ` [attachments: ${c.attachments.map((attachment) => attachment.name).join(", ")}]` : "";
           lines.push(`${label}${location}: ${truncate(c.content || "(no text provided)", 200)}${attachments}`);
         }
       }
@@ -21836,13 +22470,13 @@ function registerHistoryTool(server2, config3) {
           renderArchive(lines, archive);
         }
       }
-      return text4(lines.join("\n"));
+      return text3(lines.join("\n"));
     }
   );
 }
-function truncate(text7, max) {
-  if (text7.length <= max) return text7;
-  return text7.slice(0, max) + "...";
+function truncate(text4, max) {
+  if (text4.length <= max) return text4;
+  return text4.slice(0, max) + "...";
 }
 function renderArchive(lines, archive) {
   const header = archive.lastSessionId ? `- Archived at ${archive.archivedAt} | Gemini session ${archive.lastSessionId}` : `- Archived at ${archive.archivedAt}`;
@@ -21852,111 +22486,59 @@ function renderArchive(lines, archive) {
     lines.push(`${label}: ${truncate(entry.content || "(no text provided)", 160)}`);
   }
 }
-function text4(content) {
+function text3(content) {
   return { content: [{ type: "text", text: content }] };
 }
 
-// src/tools/reset.ts
-function registerResetTool(server2, config3) {
-  server2.tool(
-    "discord_reset",
-    "Start a fresh Discord conversation by archiving the active Discord transcript and starting a brand new Gemini CLI session for the current channel.",
-    {},
-    async () => {
-      if (!await isDaemonOnline(config3)) {
-        return text5("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
-      }
-      const res = await daemonRequest({
-        method: "POST",
-        path: "/reset",
-        config: config3,
-        body: {}
-      });
-      if (!res.ok) {
-        return text5(`\u274C Reset failed: ${res.data["error"] ?? "unknown error"}`);
-      }
-      return text5("\u2705 Started a fresh conversation. The active Discord transcript was archived and the bound Gemini CLI session was restarted for the current channel.");
-    }
-  );
-}
-function text5(content) {
-  return { content: [{ type: "text", text: content }] };
-}
-
-// src/tools/restart.ts
-function registerRestartTool(server2, config3) {
-  server2.tool(
-    "discord_restart",
-    "Restart the Discord bridge daemon. Use this after changing configuration or if the daemon is unresponsive.",
-    {},
-    async () => {
-      try {
-        let tmpDir2 = process.cwd();
-        try {
-          tmpDir2 = __dirname;
-        } catch {
-        }
-        const extensionDir2 = resolveExtensionDir(tmpDir2);
-        await restartDaemon(config3, extensionDir2);
-        return {
-          content: [{ type: "text", text: "\u2705 Discord daemon restarted successfully." }]
-        };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `\u274C Failed to restart Discord daemon: ${err instanceof Error ? err.message : String(err)}`
-            }
-          ]
-        };
-      }
-    }
-  );
-}
-
-// src/tools/find-images.ts
+// src/tools/find-media.ts
 var import_node_child_process2 = require("node:child_process");
 var import_node_util = require("node:util");
 var import_promises = require("node:fs/promises");
-var execAsync = (0, import_node_util.promisify)(import_node_child_process2.exec);
-function registerFindImagesTool(server2) {
+var path5 = __toESM(require("node:path"), 1);
+var execFileAsync = (0, import_node_util.promisify)(import_node_child_process2.execFile);
+function registerFindMediaTool(server2, config3) {
   server2.tool(
-    "discord_find_images",
-    "Find local image files on the host machine using mdfind (macOS). Use this when the user asks for images from their device.",
+    "discord_find_media",
+    "Find local media files on the host machine using mdfind (macOS). Use this when the user asks for images, videos, audio, screenshots, or other media from their device.",
     {
       query: external_exports.string().describe('Search query (e.g. "luffy", "screenshot")'),
       limit: external_exports.number().optional().describe("Maximum results to return. Default 15.")
     },
     async ({ query, limit = 15 }) => {
+      const gate = authorizeMcpToolAction("media_search", config3);
+      if (gate.decision !== "allow") {
+        return { content: [{ type: "text", text: formatPermissionDenial(gate) }], isError: true };
+      }
       try {
         const os = await import("node:os");
         const homedir = os.homedir();
         const entries = await (0, import_promises.readdir)(homedir, { withFileTypes: true });
-        const searchDirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "Library").map((e) => `-onlyin "${homedir}/${e.name}"`).join(" ");
-        const cmd = `mdfind "kMDItemContentTypeTree == 'public.image' && kMDItemDisplayName == '*${query}*'cd" ${searchDirs}`;
-        const { stdout } = await execAsync(cmd, { timeout: 1e4 });
+        const searchDirArgs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "Library").flatMap((e) => ["-onlyin", path5.join(homedir, e.name)]);
+        const search = normalizeMediaSearch(query);
+        const mediaPredicate = "(kMDItemContentTypeTree == 'public.image' || kMDItemContentTypeTree == 'public.movie' || kMDItemContentTypeTree == 'public.audio' || kMDItemContentTypeTree == 'public.audiovisual-content')";
+        const predicate = search.meaningfulQuery ? `${mediaPredicate} && kMDItemDisplayName == '*${search.meaningfulQuery}*'cd` : mediaPredicate;
+        const { stdout } = await execFileAsync("mdfind", [predicate, ...searchDirArgs], { timeout: 1e4 });
         const files = stdout.split("\n").filter(Boolean).filter((f) => !f.includes("MacDroid"));
         if (files.length === 0) {
-          return { content: [{ type: "text", text: "No images found on the device matching that query." }] };
+          return { content: [{ type: "text", text: "No media files found on the device matching that query." }] };
         }
-        const priorityFolders = ["/Desktop", "/Downloads", "/Pictures"];
-        const sorted = files.sort((a, b) => {
+        const priorityFolders = ["/Desktop", "/Downloads", "/Pictures", "/Movies", "/Music"];
+        const sorted = [...files].sort((a, b) => {
           const aPriority = priorityFolders.some((f) => a.includes(f));
           const bPriority = priorityFolders.some((f) => b.includes(f));
           if (aPriority && !bPriority) return -1;
           if (!aPriority && bPriority) return 1;
           return 0;
         });
-        const topFiles = sorted.slice(0, limit);
+        const topFiles = (search.random ? shuffle(sorted) : sorted).slice(0, limit);
+        const label = search.random ? "for a random local media request" : `matching query '${query}'`;
         return {
           content: [{
             type: "text",
-            text: `Found ${topFiles.length} local images matching query '${query}':
+            text: `Found ${topFiles.length} local media files ${label}:
 ${topFiles.join("\n")}
 
-You MUST use the 'files' array parameter in the 'discord_send' or 'discord_reply' tools to attach the image. Select ONLY ONE path from this list to attach, unless the user explicitly requested multiple images. Do NOT use markdown image syntax (![alt](/path)). If you provide your text reply within the tool call, you may leave your final response empty.`
+Finding a file is not completion. You MUST use the 'files' array parameter in the 'discord_send' or 'discord_reply' tools to attach the requested media, and the task is complete only after that tool reports a successful send/reply. Select ONLY ONE path from this list to attach, unless the user explicitly requested multiple files. Do NOT use markdown media syntax instead of attaching the file. If you provide your text reply within the tool call, you may leave your final response empty.`
           }]
         };
       } catch (err) {
@@ -21965,184 +22547,120 @@ You MUST use the 'files' array parameter in the 'discord_send' or 'discord_reply
     }
   );
 }
+function normalizeMediaSearch(query) {
+  const trimmed = query.trim();
+  const meaningfulQuery = trimmed.replace(/\b(random|any|local|media|file|files|image|images|photo|photos|picture|pictures|screenshot|screenshots|video|videos|movie|movies|audio|sound|song|songs|music|clip|clips|gif|gifs|from|on|my|the|a|an|device|computer|mac|machine)\b/gi, " ").replace(/\s+/g, " ").trim();
+  return {
+    meaningfulQuery,
+    random: meaningfulQuery.length === 0
+  };
+}
+function shuffle(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
 
 // src/tools/cron.ts
 function registerCronTools(server2, config3) {
   server2.tool(
-    "schedule_reminder",
+    "discord_cron",
+    'Manage scheduled messages and reminders. Actions: "schedule_reminder", "schedule_cron", "list", "delete".',
     {
-      message: external_exports.string().describe('The exact final Discord reminder message to send. Example: "Reminder: join the deploy call now."'),
-      delay_minutes: external_exports.number().positive().optional().describe('Delay in minutes before the reminder fires. Use this for short reminders like "in 15 minutes".'),
-      delay_hours: external_exports.number().positive().optional().describe("Additional delay in hours before the reminder fires."),
-      delay_days: external_exports.number().positive().optional().describe("Additional delay in days before the reminder fires."),
-      deliver_at: external_exports.string().optional().describe("Optional ISO-8601 timestamp for when the reminder should fire. Use this instead of delay fields when the user gives a specific absolute time."),
-      channel_id: external_exports.string().optional().describe("Target Discord channel ID. Prefer this when you already know the exact ID."),
-      channel_name: external_exports.string().optional().describe('Target Discord channel name such as "boardroom" or "#boardroom". Use this when you know the channel by name and want the daemon to resolve it.')
+      action: external_exports.enum(["schedule_reminder", "schedule_cron", "list", "delete"]).describe("The cron action to perform."),
+      message: external_exports.string().optional().describe("The exact final Discord message to send (required for schedule actions)."),
+      cron_expression: external_exports.string().optional().describe('The cron schedule expression, e.g. "0 9 * * *" (required for schedule_cron).'),
+      delay_minutes: external_exports.number().positive().optional().describe("Delay in minutes before reminder fires."),
+      delay_hours: external_exports.number().positive().optional().describe("Additional delay in hours."),
+      delay_days: external_exports.number().positive().optional().describe("Additional delay in days."),
+      deliver_at: external_exports.string().optional().describe("Optional ISO-8601 timestamp for when to fire."),
+      channel_id: external_exports.string().optional().describe("Explicit target Discord channel ID. Required for schedule actions unless channel_name is provided."),
+      channel_name: external_exports.string().optional().describe("Explicit target Discord channel name. Required for schedule actions unless channel_id is provided."),
+      run_once: external_exports.boolean().optional().describe("Whether this job should delete itself after first run. Defaults to true for reminders."),
+      job_id: external_exports.string().optional().describe("The ID of the job to delete (required for delete).")
     },
-    async ({ message, delay_minutes, delay_hours, delay_days, deliver_at, channel_id, channel_name }) => {
-      const totalDelayMinutes = (delay_minutes ?? 0) + (delay_hours ?? 0) * 60 + (delay_days ?? 0) * 24 * 60;
-      if (!deliver_at && totalDelayMinutes <= 0) {
-        return {
-          content: [{ type: "text", text: "Failed to schedule reminder: provide a future `deliver_at` or a positive delay." }],
-          isError: true
-        };
+    async ({ action, message, cron_expression, delay_minutes, delay_hours, delay_days, deliver_at, channel_id, channel_name, run_once, job_id }) => {
+      const gate = authorizeMcpToolAction("cron", config3);
+      if (gate.decision !== "allow") {
+        return { content: [{ type: "text", text: formatPermissionDenial(gate) }], isError: true };
       }
-      const resp = await fetch(`http://127.0.0.1:${config3.daemonPort}/cron`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${config3.daemonApiToken}`
-        },
-        body: JSON.stringify({
-          message,
-          delay_minutes: deliver_at ? void 0 : totalDelayMinutes,
-          deliver_at,
-          channel_id,
-          channel_name,
-          run_once: true
-        })
-      });
-      if (!resp.ok) {
-        const err = await resp.json();
-        return {
-          content: [{ type: "text", text: `Failed to schedule reminder: ${err.error}` }],
-          isError: true
-        };
-      }
-      const data = await resp.json();
-      const deliveryLabel = deliver_at ? `for ${deliver_at}` : `in ${totalDelayMinutes} minute${totalDelayMinutes === 1 ? "" : "s"}`;
-      return {
-        content: [{ type: "text", text: `Successfully scheduled reminder ${deliveryLabel}. Job ID: ${data.job_id}` }]
-      };
-    }
-  );
-  server2.tool(
-    "schedule_cron_job",
-    {
-      cron_expression: external_exports.string().describe('The cron schedule expression (e.g. "0 9 * * *" for 9am daily).'),
-      message: external_exports.string().describe('The exact final Discord message to send when the job fires. Write the message itself, not instructions for another agent. Example: "Update: drink water."'),
-      channel_id: external_exports.string().optional().describe("Target Discord channel ID. Prefer this when you already know the exact ID."),
-      channel_name: external_exports.string().optional().describe('Target Discord channel name such as "boardroom" or "#boardroom". Use this when you know the channel by name and want the daemon to resolve it.'),
-      run_once: external_exports.boolean().optional().describe("Whether this job should delete itself after the first successful send. Defaults to true for reminder-style jobs.")
-    },
-    async ({ cron_expression, message, channel_id, channel_name, run_once }) => {
-      const resp = await fetch(`http://127.0.0.1:${config3.daemonPort}/cron`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${config3.daemonApiToken}`
-        },
-        body: JSON.stringify({
-          cron_expression,
-          message,
-          channel_id,
-          channel_name,
-          run_once
-        })
-      });
-      if (!resp.ok) {
-        const err = await resp.json();
-        return {
-          content: [{ type: "text", text: `Failed to schedule job: ${err.error}` }],
-          isError: true
-        };
-      }
-      const data = await resp.json();
-      return {
-        content: [{ type: "text", text: `Successfully scheduled job ID: ${data.job_id}` }]
-      };
-    }
-  );
-  server2.tool(
-    "list_cron_jobs",
-    {},
-    async () => {
-      const resp = await fetch(`http://127.0.0.1:${config3.daemonPort}/cron`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${config3.daemonApiToken}`
+      if (action === "list") {
+        const roleContext = resolveMcpRoleContextFromEnv(process.env, config3);
+        const resp = await fetch(`http://127.0.0.1:${config3.daemonPort}/cron`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${config3.daemonApiToken}`,
+            ...roleContext ? {
+              "X-Gemini-Discord-Role": roleContext.role,
+              "X-Gemini-Discord-Sender-Id": roleContext.senderDiscordId,
+              "X-Gemini-Discord-Sender-Label": roleContext.senderDisplayLabel
+            } : {}
+          }
+        });
+        if (!resp.ok) {
+          return { content: [{ type: "text", text: "Failed to fetch cron jobs" }], isError: true };
         }
-      });
-      if (!resp.ok) {
-        return {
-          content: [{ type: "text", text: "Failed to fetch cron jobs" }],
-          isError: true
-        };
+        const data = await resp.json();
+        const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+        if (jobs.length === 0) {
+          return { content: [{ type: "text", text: "No cron jobs are currently scheduled." }] };
+        }
+        const lines = jobs.map((job) => {
+          const nextRun = typeof job.nextRun === "number" ? new Date(job.nextRun).toISOString() : "unknown";
+          const mode = job.runOnce === false ? "recurring" : "run-once";
+          return `- ${job.id} | ${mode} | channel ${job.channelId} | next ${nextRun} | ${job.message}`;
+        });
+        return { content: [{ type: "text", text: lines.join("\n") }] };
       }
-      const data = await resp.json();
-      const jobs = Array.isArray(data.jobs) ? data.jobs : [];
-      if (jobs.length === 0) {
-        return {
-          content: [{ type: "text", text: "No cron jobs are currently scheduled." }]
-        };
+      if (action === "delete") {
+        if (!job_id) return { content: [{ type: "text", text: "job_id is required" }], isError: true };
+        const body = { job_id };
+        const resp = await daemonRequest({ method: "POST", path: "/cron/delete", config: config3, body });
+        if (!resp.ok) {
+          const error2 = String(resp.data["error"] ?? "unknown error");
+          recordPendingDelivery("delete", body, error2);
+          return { content: [{ type: "text", text: pendingActionFailureText("Delete cron job", error2) }], isError: true };
+        }
+        clearPendingDelivery("delete", body);
+        return { content: [{ type: "text", text: resp.data.ok ? "Job deleted successfully" : "Job not found" }] };
       }
-      const lines = jobs.map((job) => {
-        const nextRun = typeof job.nextRun === "number" ? new Date(job.nextRun).toISOString() : "unknown";
-        const mode = job.runOnce === false ? "recurring" : "run-once";
-        return `- ${job.id} | ${mode} | channel ${job.channelId} | next ${nextRun} | ${job.message}`;
-      });
-      return {
-        content: [{ type: "text", text: lines.join("\n") }]
-      };
+      if (action === "schedule_reminder") {
+        if (!message) return { content: [{ type: "text", text: "message is required" }], isError: true };
+        if (!channel_id && !channel_name) return { content: [{ type: "text", text: "channel_id or channel_name is required" }], isError: true };
+        const totalDelayMinutes = (delay_minutes ?? 0) + (delay_hours ?? 0) * 60 + (delay_days ?? 0) * 24 * 60;
+        if (!deliver_at && totalDelayMinutes <= 0) {
+          return { content: [{ type: "text", text: "Failed to schedule reminder: provide a future `deliver_at` or a positive delay." }], isError: true };
+        }
+        const body = { message, delay_minutes: deliver_at ? void 0 : totalDelayMinutes, deliver_at, channel_id, channel_name, run_once: true };
+        const resp = await daemonRequest({ method: "POST", path: "/cron", config: config3, body });
+        if (!resp.ok) {
+          const error2 = String(resp.data["error"] ?? "unknown error");
+          recordPendingDelivery("schedule", body, error2);
+          return { content: [{ type: "text", text: pendingActionFailureText("Schedule reminder", error2) }], isError: true };
+        }
+        clearPendingDelivery("schedule", body);
+        const deliveryLabel = deliver_at ? `for ${deliver_at}` : `in ${totalDelayMinutes} minute${totalDelayMinutes === 1 ? "" : "s"}`;
+        return { content: [{ type: "text", text: `Successfully scheduled reminder ${deliveryLabel}. Job ID: ${resp.data.job_id}` }] };
+      }
+      if (action === "schedule_cron") {
+        if (!message || !cron_expression) return { content: [{ type: "text", text: "message and cron_expression are required" }], isError: true };
+        if (!channel_id && !channel_name) return { content: [{ type: "text", text: "channel_id or channel_name is required" }], isError: true };
+        const body = { cron_expression, message, channel_id, channel_name, run_once };
+        const resp = await daemonRequest({ method: "POST", path: "/cron", config: config3, body });
+        if (!resp.ok) {
+          const error2 = String(resp.data["error"] ?? "unknown error");
+          recordPendingDelivery("schedule", body, error2);
+          return { content: [{ type: "text", text: pendingActionFailureText("Schedule job", error2) }], isError: true };
+        }
+        clearPendingDelivery("schedule", body);
+        return { content: [{ type: "text", text: `Successfully scheduled job ID: ${resp.data.job_id}` }] };
+      }
+      return { content: [{ type: "text", text: `Unknown action: ${action}` }], isError: true };
     }
   );
-  server2.tool(
-    "delete_cron_job",
-    {
-      job_id: external_exports.string().describe("The ID of the job to delete")
-    },
-    async ({ job_id }) => {
-      const resp = await fetch(`http://127.0.0.1:${config3.daemonPort}/cron/delete`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${config3.daemonApiToken}`
-        },
-        body: JSON.stringify({ job_id })
-      });
-      if (!resp.ok) {
-        return {
-          content: [{ type: "text", text: "Failed to delete cron job" }],
-          isError: true
-        };
-      }
-      const data = await resp.json();
-      return {
-        content: [{ type: "text", text: data.ok ? "Job deleted successfully" : "Job not found" }]
-      };
-    }
-  );
-}
-
-// src/tools/channels.ts
-function registerChannelsTool(server2, config3) {
-  server2.tool(
-    "discord_channels",
-    {
-      query: external_exports.string().optional().describe("Optional channel name or partial string to filter discovered channels.")
-    },
-    async ({ query }) => {
-      const res = await daemonRequest({ method: "GET", path: "/status", config: config3 });
-      if (res.data["error"] === "daemon_offline") {
-        return text6("\u274C Daemon is offline. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.");
-      }
-      if (!res.ok) {
-        return text6(`\u274C Failed to fetch channels: ${JSON.stringify(res.data)}`);
-      }
-      const status = res.data;
-      const channels = status.channels ?? [];
-      const needle = query?.trim().toLowerCase();
-      const filtered = needle ? channels.filter((channel) => channel.name.toLowerCase().includes(needle) || channel.id.includes(needle)) : channels;
-      if (filtered.length === 0) {
-        return text6(needle ? `No discovered channels matched "${query}".` : "No channels have been discovered yet.");
-      }
-      const lines = filtered.map((channel) => `- #${channel.name} \u2192 ${channel.id}`);
-      return text6(lines.join("\n"));
-    }
-  );
-}
-function text6(content) {
-  return { content: [{ type: "text", text: content }] };
 }
 
 // src/server.ts
@@ -22157,15 +22675,11 @@ var server = new McpServer({
   name: "discord-bridge",
   version: "0.1.0"
 });
-registerStatusTool(server, config2);
-registerSendTool(server, config2);
-registerReplyTool(server, config2);
+registerAdminTool(server, config2);
+registerMessageTool(server, config2);
 registerHistoryTool(server, config2);
-registerResetTool(server, config2);
-registerRestartTool(server, config2);
-registerFindImagesTool(server);
+registerFindMediaTool(server, config2);
 registerCronTools(server, config2);
-registerChannelsTool(server, config2);
 async function main() {
   if (config2.autoStartDaemon) {
     try {

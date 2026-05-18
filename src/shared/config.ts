@@ -14,44 +14,11 @@ import {
   type ManagedConfigFile,
   type ManagedDiscordMetadata,
 } from './managed-config.js';
-
-const CONFIG_ENV_KEYS = [
-  'DISCORD_BOT_TOKEN',
-  'DISCORD_CHANNEL_ID',
-  'DISCORD_OWNER_IDS',
-  'DISCORD_ADMIN_ID',
-  'DISCORD_ALLOWED_CHANNEL_IDS',
-  'DISCORD_ALLOWED_USER_IDS',
-  'DISCORD_ALLOWED_AGENT_IDS',
-  'DAEMON_API_TOKEN',
-  'DISCORD_PREFIX',
-  'DISCORD_RESET_CMD',
-  'DAEMON_PORT',
-  'GEMINI_PATH',
-  'GEMINI_MODEL',
-  'GEMINI_TIMEOUT_MS',
-  'GEMINI_MAX_CONCURRENT',
-  'CONVERSATION_HISTORY_LENGTH',
-  'PROMPT_HISTORY_MAX_MESSAGES',
-  'PROMPT_HISTORY_MAX_CHARS',
-  'STREAMING',
-  'QUEUE_MAX_DEPTH',
-  'ENABLE_DMS',
-  'REQUIRE_MENTION',
-  'RESPOND_TO_REPLIES',
-  'MEMORY_SCOPE',
-  'AUTO_START_DAEMON',
-  'USE_GEMINI_CLI_SESSIONS',
-  'GEMINI_SESSION_BINDING_SCOPE',
-  'CLI_IDLE_TIMEOUT_MS',
-] as const;
+import { CONFIG_ENV_KEYS, ENV, type ConfigEnvKey } from './config-vars.js';
 
 const LEGACY_ENV_ALIASES: Partial<Record<ConfigEnvKey, string[]>> = {
-  DISCORD_ADMIN_ID: ['DISCORD_BOSS_ID'],
-  DISCORD_ALLOWED_CHANNEL_IDS: ['ALLOWED_CHANNEL_IDS'],
+  [ENV.DISCORD_ALLOWED_CHANNEL_IDS]: ['ALLOWED_CHANNEL_IDS'],
 };
-
-type ConfigEnvKey = (typeof CONFIG_ENV_KEYS)[number];
 
 
 /**
@@ -181,9 +148,9 @@ export function resolveConfigEnvMap(extensionDir: string): Record<string, string
   const processVars = normalizeConfigMap(collectProcessEnv());
   const fileVars = normalizeConfigMap(parseEnvFile(path.join(extensionDir, '.env')));
   const resolved = {
+    ...fileVars,
     ...snapshotVars,
     ...processVars,
-    ...fileVars,
   };
 
   try {
@@ -210,27 +177,34 @@ export function loadConfig(extensionDir: string): Config {
     return envValue === undefined ? fallback : envValue;
   };
 
-  const ownerIds = splitIds(get('DISCORD_OWNER_IDS'));
-  const primaryChannelId = get('DISCORD_CHANNEL_ID');
-  const configuredAllowedChannelIds = splitIds(get('DISCORD_ALLOWED_CHANNEL_IDS'));
-  const allowedUserIds = splitIds(get('DISCORD_ALLOWED_USER_IDS'));
+  const ownerIds = splitIds(get(ENV.DISCORD_OWNER_IDS));
+  const primaryChannelId = get(ENV.DISCORD_CHANNEL_ID);
+  const configuredServerId = get(ENV.DISCORD_SERVER_ID);
+  const configuredAllowedChannelIds = splitIds(get(ENV.DISCORD_ALLOWED_CHANNEL_IDS));
+  const allowedUserIds = splitIds(get(ENV.DISCORD_ALLOWED_USER_IDS));
+  const hasInstallSettings = Boolean(
+    get(ENV.DISCORD_BOT_TOKEN).trim()
+    && get(ENV.DISCORD_OWNER_IDS).trim()
+    && get(ENV.DISCORD_SERVER_ID).trim(),
+  );
 
   const config: Config = {
-    discordBotToken: get('DISCORD_BOT_TOKEN'),
+    discordBotToken: get(ENV.DISCORD_BOT_TOKEN),
     discordChannelId: primaryChannelId,
-    discordServerId: managedConfig.discord.primaryGuildId ?? '',
+    discordServerId: configuredServerId || managedConfig.discord.primaryGuildId || '',
     discordServerName: managedConfig.discord.primaryGuildName ?? '',
+    discordBossUserId: get(ENV.DISCORD_BOSS_USER_ID).trim(),
     ownerIds,
-    discordAdminId: resolveAdminId(get('DISCORD_ADMIN_ID'), ownerIds),
+    discordAdminId: resolveAdminId(get(ENV.DISCORD_ADMIN_ID), ownerIds),
     allowedChannelIds: configuredAllowedChannelIds.length > 0
       ? configuredAllowedChannelIds
       : (primaryChannelId ? [primaryChannelId] : []),
 
     allowedUserIds: allowedUserIds.length > 0 ? allowedUserIds : ownerIds,
-    allowedAgentIds: splitIds(get('DISCORD_ALLOWED_AGENT_IDS')),
+    allowedAgentIds: splitIds(get(ENV.DISCORD_ALLOWED_AGENT_IDS)),
 
     daemonApiToken: (() => {
-      let token = get('DAEMON_API_TOKEN');
+      let token = get(ENV.DAEMON_API_TOKEN);
       if (token) return token;
 
       const tokenPath = runtimePaths.daemonTokenFile;
@@ -246,26 +220,30 @@ export function loadConfig(extensionDir: string): Config {
       return token;
     })(),
 
-    discordPrefix: get('DISCORD_PREFIX'),
-    discordResetCmd: get('DISCORD_RESET_CMD', '!reset'),
-    daemonPort: parseInt(get('DAEMON_PORT', '18790'), 10),
-    geminiPath: get('GEMINI_PATH', 'gemini'),
-    geminiModel: get('GEMINI_MODEL', 'gemini-3.1-flash-lite-preview'),
-    geminiTimeoutMs: parseInt(get('GEMINI_TIMEOUT_MS', '300000'), 10),
-    geminiMaxConcurrent: parseInt(get('GEMINI_MAX_CONCURRENT', '3'), 10),
-    conversationHistoryLength: parseInt(get('CONVERSATION_HISTORY_LENGTH', '30'), 10),
-    promptHistoryMessageLimit: parseInt(get('PROMPT_HISTORY_MAX_MESSAGES', '12'), 10),
-    promptHistoryCharBudget: parseInt(get('PROMPT_HISTORY_MAX_CHARS', '6000'), 10),
-    streaming: parseBoolean(get('STREAMING', 'true'), true),
-    queueMaxDepth: parseInt(get('QUEUE_MAX_DEPTH', '20'), 10),
-    enableDMs: parseBoolean(get('ENABLE_DMS', 'true'), true),
-    requireMention: parseBoolean(get('REQUIRE_MENTION', 'true'), true),
-    respondToReplies: parseBoolean(get('RESPOND_TO_REPLIES', 'true'), true),
-    memoryScope: parseMemoryScope(get('MEMORY_SCOPE', 'global')),
-    autoStartDaemon: parseBoolean(get('AUTO_START_DAEMON', 'true'), true),
-    useGeminiCliSessions: parseBoolean(get('USE_GEMINI_CLI_SESSIONS', 'true'), true),
-    geminiSessionBindingScope: parseGeminiSessionBindingScope(get('GEMINI_SESSION_BINDING_SCOPE', 'global')),
-    cliIdleTimeoutMs: parseInt(get('CLI_IDLE_TIMEOUT_MS', '300000'), 10),
+    discordPrefix: get(ENV.DISCORD_PREFIX),
+    discordResetCmd: get(ENV.DISCORD_RESET_CMD, '!reset'),
+    daemonPort: parseInt(get(ENV.DAEMON_PORT, '18790'), 10),
+    geminiPath: get(ENV.GEMINI_PATH, 'gemini'),
+    geminiModel: get(ENV.GEMINI_MODEL, 'gemini-3.1-flash-lite-preview'),
+    geminiTimeoutMs: parseInt(get(ENV.GEMINI_TIMEOUT_MS, '900000'), 10),
+    geminiMaxConcurrent: parseInt(get(ENV.GEMINI_MAX_CONCURRENT, '3'), 10),
+    conversationHistoryLength: parseInt(get(ENV.CONVERSATION_HISTORY_LENGTH, '30'), 10),
+    promptHistoryMessageLimit: parseInt(get(ENV.PROMPT_HISTORY_MAX_MESSAGES, '12'), 10),
+    promptHistoryCharBudget: parseInt(get(ENV.PROMPT_HISTORY_MAX_CHARS, '6000'), 10),
+    streaming: parseBoolean(get(ENV.STREAMING, 'true'), true),
+    queueMaxDepth: parseInt(get(ENV.QUEUE_MAX_DEPTH, '20'), 10),
+    enableDMs: parseBoolean(get(ENV.ENABLE_DMS, 'true'), true),
+    requireMention: parseBoolean(get(ENV.REQUIRE_MENTION, 'true'), true),
+    respondToReplies: parseBoolean(get(ENV.RESPOND_TO_REPLIES, 'true'), true),
+    memoryScope: parseMemoryScope(get(ENV.MEMORY_SCOPE, 'channel')),
+    autoStartDaemon: parseBoolean(get(ENV.AUTO_START_DAEMON, 'true'), true),
+    useGeminiCliSessions: parseBoolean(get(ENV.USE_GEMINI_CLI_SESSIONS, 'true'), true),
+    geminiSessionBindingScope: parseGeminiSessionBindingScope(get(ENV.GEMINI_SESSION_BINDING_SCOPE, 'channel')),
+    cliIdleTimeoutMs: parseInt(get(ENV.CLI_IDLE_TIMEOUT_MS, '300000'), 10),
+    setupValidationPending: parseBoolean(
+      get(ENV.SETUP_VALIDATION_PENDING, hasInstallSettings ? 'true' : 'false'),
+      false,
+    ),
   };
 
   return config;
@@ -302,7 +280,7 @@ export function resolveExtensionDir(fromDir: string): string {
 export async function updateEnvModel(extensionDir: string, model: string): Promise<void> {
   const envPath = path.join(extensionDir, '.env');
   if (!fs.existsSync(envPath)) {
-    persistConfigEnvUpdates(extensionDir, { GEMINI_MODEL: model });
+    persistConfigEnvUpdates(extensionDir, { [ENV.GEMINI_MODEL]: model });
     return;
   }
 
@@ -311,15 +289,15 @@ export async function updateEnvModel(extensionDir: string, model: string): Promi
   let found = false;
 
   const newLines = lines.map((line) => {
-    if (line.trim().startsWith('GEMINI_MODEL=')) {
+    if (line.trim().startsWith(`${ENV.GEMINI_MODEL}=`)) {
       found = true;
-      return `GEMINI_MODEL=${model}`;
+      return `${ENV.GEMINI_MODEL}=${model}`;
     }
     return line;
   });
 
   if (!found) {
-    newLines.push(`GEMINI_MODEL=${model}`);
+    newLines.push(`${ENV.GEMINI_MODEL}=${model}`);
   }
 
   fs.writeFileSync(envPath, newLines.join('\n'));

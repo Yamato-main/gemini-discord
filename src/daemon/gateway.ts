@@ -6,17 +6,26 @@ import { type ChannelQueue } from './queue.js';
 import { log } from './log.js';
 import { registerGuildCommands, setupInteractionHandler } from './commands.js';
 import { buildGuildChannelMap } from './channels.js';
+import { buildGuildUserMap } from './users.js';
 import { processViaCli, resolveProcessingContext, formatError, type ProcessingContext } from './engine-cli.js';
 import { retrySend } from './retry.js';
 import { resolveToolMode } from './tool-mode.js';
-import { getImageAttachmentMetadata } from './attachments.js';
-import { type loadConfig } from '../shared/config.js';
+import { getSupportedAttachmentMetadata } from './attachments.js';
+import { persistConfigEnvUpdates, type loadConfig } from '../shared/config.js';
+import { ENV } from '../shared/config-vars.js';
 import { runtimeStore } from './runtime.js';
 import { type Semaphore } from './semaphore.js';
 import type { ExchangeLog } from '../shared/types.js';
 import { initCron } from './cron.js';
 import { resetConversationSession } from './session-reset.js';
 import { ensureOwnerDmPairings, touchDmPairing } from './dm-pairing.js';
+import {
+  authorizeAction,
+  authorizeGuestRequest,
+  formatPermissionDenial,
+  isBoss,
+  resolveDiscordRole,
+} from './permissions.js';
 import {
   bootstrapManagedDiscordConfig,
   rememberPrimaryChannelFromMessage,
@@ -67,7 +76,8 @@ export async function initGateway(
       });
     }
 
-    await buildGuildChannelMap(client);
+    await buildGuildChannelMap(client, config);
+    await buildGuildUserMap(client, config);
 
     if (state.status !== 'degraded') {
       state.status = 'ready';
@@ -76,6 +86,7 @@ export async function initGateway(
 
     initCron(config, client, extensionDir);
     await ensureOwnerDmPairings(client, config, extensionDir);
+    await sendSetupValidationMessage(client, config, extensionDir);
 
     await registerGuildCommands(client, config);
   });
@@ -85,13 +96,18 @@ export async function initGateway(
       runtimeStore.lastInteractiveMessageAt = Date.now();
       if (!message.guildId) {
         touchDmPairing(extensionDir, message.author.id, message.channelId);
-      } else if (accepted.speakerKind === 'human') {
+      } else if (accepted.speakerKind === 'human' && isBoss(accepted.roleContext)) {
         rememberPrimaryChannelFromMessage(config, extensionDir, message);
       }
       const processingContext = resolveProcessingContext(config, message, accepted, extensionDir);
       const chan = message.channel as TextChannel | DMChannel | NewsChannel;
 
       if (isResetCommand(message.content, accepted.content, config.discordResetCmd, config.discordPrefix)) {
+        const resetDecision = authorizeAction('session_reset', accepted.roleContext);
+        if (resetDecision.decision !== 'allow') {
+          retrySend(() => chan.send(formatPermissionDenial(resetDecision))).catch(() => {});
+          return;
+        }
         resetConversationSession(config, memory, extensionDir, {
           channelId: message.channelId,
           guildId: message.guildId ?? null,
@@ -139,8 +155,19 @@ export async function initGateway(
       }
     },
     onIgnoredMessage: (message: Message, trackOnlyContext) => {
-      const sessionKey = resolveSessionKey(config.memoryScope, message.channelId, message.guildId ? null : message.author.id);
-      const attachmentMetadata = getImageAttachmentMetadata(message);
+      const roleContext = resolveDiscordRole(config, {
+        discordUserId: message.author.id,
+        displayLabel: message.author.tag,
+      });
+      const sessionKey = isBoss(roleContext)
+        ? resolveSessionKey('channel', message.channelId, message.guildId ? null : message.author.id)
+        : (message.guildId
+          ? `guest:${message.author.id}:channel:${message.channelId}`
+          : `guest:${message.author.id}:dm:${message.channelId}`);
+      const attachmentMetadata = isBoss(roleContext) ? getSupportedAttachmentMetadata(message) : [];
+      if (!isBoss(roleContext)) {
+        return;
+      }
       
       memory.add(sessionKey, {
         role: 'user',
@@ -151,12 +178,15 @@ export async function initGateway(
         authorName: message.author.tag,
         channelId: message.channelId,
         channelName: trackOnlyContext.channelName,
+        threadId: trackOnlyContext.origin.threadId,
         guildId: message.guildId ?? null,
         guildName: trackOnlyContext.guildName,
         messageId: message.id,
         replyToMessageId: trackOnlyContext.replyToMessageId,
         replyToAuthorId: trackOnlyContext.replyToAuthorId,
         replyToAuthorName: trackOnlyContext.replyToAuthorName,
+        replyToContent: trackOnlyContext.replyToContent,
+        replyToAttachments: isBoss(roleContext) ? trackOnlyContext.replyToAttachments : [],
         trigger: 'tracked',
         createdAt: new Date().toISOString(),
       });
@@ -171,6 +201,44 @@ export async function initGateway(
 
   await client.login(config.discordBotToken);
   log.info('Discord login initiated');
+}
+
+async function sendSetupValidationMessage(
+  client: Awaited<ReturnType<typeof createClient>>,
+  config: ReturnType<typeof loadConfig>,
+  extensionDir: string,
+): Promise<void> {
+  if (!config.setupValidationPending) {
+    return;
+  }
+
+  const userId = config.discordBossUserId;
+  if (!userId) {
+    log.warn('Setup validation message skipped: no configured boss user id');
+    return;
+  }
+
+  try {
+    const user = await client.users.fetch(userId);
+    const serverLabel = config.discordServerName
+      ? `${config.discordServerName} (${config.discordServerId || 'unknown server id'})`
+      : (config.discordServerId || 'the configured server');
+    await user.send([
+      'gemini-discord setup is complete.',
+      `Bot: ${client.user?.tag ?? 'connected'}`,
+      `Server: ${serverLabel}`,
+      'The bridge is online and ready to use.',
+    ].join('\n'));
+
+    config.setupValidationPending = false;
+    persistConfigEnvUpdates(extensionDir, { [ENV.SETUP_VALIDATION_PENDING]: 'false' });
+    log.info('Setup validation message sent', { userId });
+  } catch (err) {
+    log.warn('Setup validation message failed', {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function isResetCommand(
@@ -202,8 +270,16 @@ async function processMessage(
 ): Promise<void> {
   const channel = message.channel as TextChannel | DMChannel | NewsChannel;
   const startTime = Date.now();
-  const toolMode = accepted.trigger === 'cron' ? 'discord' : resolveToolMode(accepted.content);
-  const attachmentMetadata = getImageAttachmentMetadata(message);
+  const requestedToolMode = accepted.trigger === 'cron' ? 'discord' : resolveToolMode(accepted.content);
+  const turnDecision = authorizeGuestRequest({
+    content: accepted.content,
+    attachmentCount: message.attachments.size,
+    toolMode: requestedToolMode,
+  }, accepted.roleContext);
+  const toolMode = isBoss(accepted.roleContext)
+    ? requestedToolMode
+    : turnDecision.action === 'public_web_search' ? 'web' : 'chat';
+  const attachmentMetadata = isBoss(accepted.roleContext) ? getSupportedAttachmentMetadata(message) : [];
   let effectiveAttachmentMetadata = attachmentMetadata;
 
   let response = '';
@@ -211,9 +287,18 @@ async function processMessage(
   let geminiSessionId: string | undefined;
 
   try {
+    if (turnDecision.decision !== 'allow') {
+      response = formatPermissionDenial(turnDecision);
+      effectiveAttachmentMetadata = [];
+      const sent = await retrySend(() => channel.send(response));
+      responseMessageIds = [sent.id];
+      await persistExchange();
+      return;
+    }
+
     if (!accepted.content.trim() && message.attachments.size > 0 && attachmentMetadata.length === 0) {
       await retrySend(() =>
-        channel.send('🖼️ I can inspect Discord image attachments, but I could not read any supported image from that message.'),
+        channel.send('I can inspect Discord images, videos, audio, PDFs, and text files, but I could not read any supported attachment from that message.'),
       ).catch(() => {});
       return;
     }
@@ -226,7 +311,11 @@ async function processMessage(
     effectiveAttachmentMetadata = result.attachments ?? attachmentMetadata;
     geminiSessionId = result.sessionId;
 
-    await persistExchange();
+    if (response.trim().length > 0 || responseMessageIds.length > 0) {
+      await persistExchange();
+    } else {
+      log.info('Skipping memory persistence for empty response');
+    }
 
     if (accepted.speakerKind === 'agent') {
       const prev = runtimeStore.agentExchangeCount.get(message.channelId) ?? 0;
@@ -241,48 +330,56 @@ async function processMessage(
       error: state.lastError,
       sessionKey: processingContext.sessionKey,
       toolMode,
+      requestedToolMode,
     });
   }
 
   async function persistExchange(): Promise<void> {
     const now = new Date().toISOString();
+    const persistConversationMemory = isBoss(accepted.roleContext);
 
-    memory.add(processingContext.sessionKey, {
-      role: 'user',
-      content: accepted.content,
-      attachments: effectiveAttachmentMetadata,
-      speakerKind: accepted.speakerKind,
-      authorId: message.author.id,
-      authorName: message.author.tag,
-      channelId: message.channelId,
-      channelName: accepted.channelName,
-      guildId: message.guildId ?? null,
-      guildName: accepted.guildName,
-      messageId: message.id,
-      replyToMessageId: accepted.replyToMessageId,
-      replyToAuthorId: accepted.replyToAuthorId,
-      replyToAuthorName: accepted.replyToAuthorName,
-      trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
-      createdAt: now,
-    });
+    if (persistConversationMemory) {
+      memory.add(processingContext.sessionKey, {
+        role: 'user',
+        content: accepted.content,
+        attachments: effectiveAttachmentMetadata,
+        speakerKind: accepted.speakerKind,
+        authorId: message.author.id,
+        authorName: message.author.tag,
+        channelId: message.channelId,
+        channelName: accepted.channelName,
+        threadId: accepted.origin.threadId,
+        guildId: message.guildId ?? null,
+        guildName: accepted.guildName,
+        messageId: message.id,
+        replyToMessageId: accepted.replyToMessageId,
+        replyToAuthorId: accepted.replyToAuthorId,
+        replyToAuthorName: accepted.replyToAuthorName,
+        replyToContent: accepted.replyToContent,
+        replyToAttachments: accepted.replyToAttachments,
+        trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
+        createdAt: now,
+      });
 
-    memory.add(processingContext.sessionKey, {
-      role: 'assistant',
-      content: response,
-      speakerKind: 'assistant',
-      authorId: message.client.user?.id,
-      authorName: message.client.user?.tag ?? 'Assistant',
-      channelId: message.channelId,
-      channelName: accepted.channelName,
-      guildId: message.guildId ?? null,
-      guildName: accepted.guildName,
-      messageId: responseMessageIds[0],
-      replyToMessageId: message.id,
-      replyToAuthorId: message.author.id,
-      replyToAuthorName: message.author.tag,
-      trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
-      createdAt: now,
-    });
+      memory.add(processingContext.sessionKey, {
+        role: 'assistant',
+        content: response,
+        speakerKind: 'assistant',
+        authorId: message.client.user?.id,
+        authorName: message.client.user?.tag ?? 'Assistant',
+        channelId: message.channelId,
+        channelName: accepted.channelName,
+        threadId: accepted.origin.threadId,
+        guildId: message.guildId ?? null,
+        guildName: accepted.guildName,
+        messageId: responseMessageIds[0],
+        replyToMessageId: message.id,
+        replyToAuthorId: message.author.id,
+        replyToAuthorName: message.author.tag,
+        trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
+        createdAt: now,
+      });
+    }
 
     const elapsed = Date.now() - startTime;
     state.messagesHandled++;
@@ -295,13 +392,14 @@ async function processMessage(
       authorType: accepted.speakerKind,
       channelId: message.channelId,
       channelName: accepted.channelName,
+      threadId: accepted.origin.threadId,
       guildId: message.guildId ?? null,
       guildName: accepted.guildName,
       requestMessageId: message.id,
       responseMessageIds,
       attachmentCount: effectiveAttachmentMetadata.length,
       trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
-      prompt: (accepted.content || (effectiveAttachmentMetadata.length > 0 ? '[image-only message]' : '')).slice(0, 500),
+      prompt: (accepted.content || (effectiveAttachmentMetadata.length > 0 ? '[attachment-only message]' : '')).slice(0, 500),
       response: response.slice(0, 500),
       elapsedMs: elapsed,
     };

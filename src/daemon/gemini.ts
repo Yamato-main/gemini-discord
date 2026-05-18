@@ -11,21 +11,7 @@ import { log } from './log.js';
 import type { ToolMode } from './tool-mode.js';
 import { buildGeminiCliPrompt } from './gemini-input.js';
 import { extractGeminiResultText, getGeminiTextDelta } from './gemini-output.js';
-
-const DISCORD_BRIDGE_TOOLS = [
-  'discord_status',
-  'discord_send',
-  'discord_reply',
-  'discord_history',
-  'discord_reset',
-  'discord_restart',
-  'discord_find_images',
-  'discord_channels',
-  'schedule_reminder',
-  'schedule_cron_job',
-  'list_cron_jobs',
-  'delete_cron_job',
-].join(',');
+import { resolveGeminiAllowedTools, roleEnv, type RoleContext } from './permissions.js';
 
 interface StreamingCallbacks {
   onToken: (token: string) => void;
@@ -41,7 +27,7 @@ export interface GeminiInvocationOptions {
   cwd: string;
   useResume: boolean;
   resumeSessionId?: string | null;
-  isBoss: boolean;
+  roleContext: RoleContext;
   attachmentPaths?: string[];
   onSessionId?: (sessionId: string) => void;
   toolMode?: ToolMode;
@@ -62,7 +48,7 @@ export async function callGeminiStreaming(
     const proc = spawn(config.geminiPath, args, {
       cwd: options.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: { ...process.env, ...roleEnv(options.roleContext) },
     });
 
     const timer = setTimeout(() => {
@@ -226,7 +212,7 @@ export async function callGeminiFull(
     const proc = spawn(config.geminiPath, args, {
       cwd: options.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: { ...process.env, ...roleEnv(options.roleContext) },
     });
 
     const timer = setTimeout(() => {
@@ -296,7 +282,7 @@ function buildGeminiArgs(
 ): string[] {
   const args = ['--model', config.geminiModel, '--output-format', outputFormat];
 
-  args.push('--allowed-tools', resolveAllowedTools(options.isBoss, options.toolMode ?? 'chat'));
+  args.push('--allowed-tools', resolveGeminiAllowedTools(options.roleContext, options.toolMode ?? 'chat'));
 
   // Auto-approve all tool operations for headless daemon — stdin is 'ignore'
   // so 'default' mode would hang waiting for confirmation. Security boundary
@@ -311,23 +297,6 @@ function buildGeminiArgs(
 
   args.push('-p', buildGeminiCliPrompt(prompt, options.attachmentPaths));
   return args;
-}
-
-function resolveAllowedTools(isBoss: boolean, toolMode: ToolMode): string {
-  switch (toolMode) {
-    case 'chat':
-      return 'none';
-    case 'web':
-      return 'google_web_search,web_fetch';
-    case 'discord':
-      return isBoss ? DISCORD_BRIDGE_TOOLS : 'none';
-    case 'web_discord':
-      return isBoss ? `google_web_search,web_fetch,${DISCORD_BRIDGE_TOOLS}` : 'google_web_search,web_fetch';
-    case 'full':
-      return isBoss ? 'all' : 'none';
-    default:
-      return 'none';
-  }
 }
 
 function withResumeFallbackHint(error: Error, options: GeminiInvocationOptions): Error {

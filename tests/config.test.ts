@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe('loadConfig', () => {
-  it('prefers explicit .env values over inherited process env for daemon settings', () => {
+  it('prefers extension process settings over local .env development defaults', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-config-'));
 
     try {
@@ -20,10 +20,10 @@ describe('loadConfig', () => {
         'DISCORD_CHANNEL_ID=channel-1',
         'DISCORD_OWNER_IDS=owner-1',
         'ALLOWED_CHANNEL_IDS=channel-1',
-        'USE_GEMINI_CLI_SESSIONS=true',
+        'USE_GEMINI_CLI_SESSIONS=false',
       ].join('\n'));
 
-      vi.stubEnv('USE_GEMINI_CLI_SESSIONS', 'false');
+      vi.stubEnv('USE_GEMINI_CLI_SESSIONS', 'true');
 
       const config = loadConfig(tmpDir);
 
@@ -33,7 +33,7 @@ describe('loadConfig', () => {
     }
   });
 
-  it('defaults memory and Gemini sessions to the global agent context', () => {
+  it('defaults Discord memory and Gemini sessions to channel isolation', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-config-'));
 
     try {
@@ -46,8 +46,8 @@ describe('loadConfig', () => {
 
       const config = loadConfig(tmpDir);
 
-      expect(config.memoryScope).toBe('global');
-      expect(config.geminiSessionBindingScope).toBe('global');
+      expect(config.memoryScope).toBe('channel');
+      expect(config.geminiSessionBindingScope).toBe('channel');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -97,6 +97,78 @@ describe('loadConfig', () => {
 
       expect(config.discordServerId).toBe('guild-1');
       expect(config.discordServerName).toBe('Operations');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers explicit server id over discovered Discord server metadata', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-config-'));
+
+    try {
+      const runtimePaths = resolveRuntimePaths(tmpDir);
+      writeManagedConfigFile(runtimePaths.managedConfigFile, {
+        version: 2,
+        updatedAt: new Date().toISOString(),
+        env: {
+          DISCORD_BOT_TOKEN: 'test-token',
+          DISCORD_SERVER_ID: 'configured-guild',
+          DISCORD_OWNER_IDS: 'owner-1',
+          SETUP_VALIDATION_PENDING: 'true',
+        },
+        discord: {
+          primaryGuildId: 'discovered-guild',
+          primaryGuildName: 'Operations',
+        },
+      });
+
+      const config = loadConfig(tmpDir);
+
+      expect(config.discordServerId).toBe('configured-guild');
+      expect(config.setupValidationPending).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('marks manifest-configured installs for first-start validation without requiring setup script', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-config-'));
+
+    try {
+      fs.writeFileSync(path.join(tmpDir, '.env'), [
+        'DISCORD_BOT_TOKEN=test-token',
+        'DISCORD_OWNER_IDS=owner-1',
+        'DISCORD_SERVER_ID=server-1',
+      ].join('\n'));
+
+      const config = loadConfig(tmpDir);
+
+      expect(config.setupValidationPending).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('honors persisted setup validation completion after first-start DM is sent', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-config-'));
+
+    try {
+      const runtimePaths = resolveRuntimePaths(tmpDir);
+      writeManagedConfigFile(runtimePaths.managedConfigFile, {
+        version: 2,
+        updatedAt: new Date().toISOString(),
+        env: {
+          DISCORD_BOT_TOKEN: 'test-token',
+          DISCORD_OWNER_IDS: 'owner-1',
+          DISCORD_SERVER_ID: 'server-1',
+          SETUP_VALIDATION_PENDING: 'false',
+        },
+        discord: {},
+      });
+
+      const config = loadConfig(tmpDir);
+
+      expect(config.setupValidationPending).toBe(false);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

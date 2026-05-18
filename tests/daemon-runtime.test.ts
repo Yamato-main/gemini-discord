@@ -138,6 +138,7 @@ function createConfig(): Config {
     discordChannelId: 'channel-1',
     discordServerId: '',
     discordServerName: '',
+    discordBossUserId: '111111111111111111',
     ownerIds: ['owner-1'],
     discordAdminId: 'owner-1',
     allowedChannelIds: ['channel-1'],
@@ -164,6 +165,7 @@ function createConfig(): Config {
     useGeminiCliSessions: true,
     geminiSessionBindingScope: 'server',
     cliIdleTimeoutMs: 300000,
+    setupValidationPending: false,
   };
 }
 

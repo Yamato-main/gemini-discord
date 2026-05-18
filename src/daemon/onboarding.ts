@@ -8,6 +8,7 @@ import {
   persistConfigEnvUpdates,
   persistDiscordMetadata,
 } from '../shared/config.js';
+import { ENV } from '../shared/config-vars.js';
 import type { ManagedDiscordMetadata } from '../shared/managed-config.js';
 import { log } from './log.js';
 
@@ -26,16 +27,16 @@ export async function bootstrapManagedDiscordConfig(
   const ownerDiscovery = await discoverApplicationOwners(client);
   if (config.ownerIds.length === 0 && ownerDiscovery.ids.length > 0) {
     config.ownerIds = ownerDiscovery.ids;
-    envUpdates.DISCORD_OWNER_IDS = ownerDiscovery.ids.join(',');
+    envUpdates[ENV.DISCORD_OWNER_IDS] = ownerDiscovery.ids.join(',');
 
     if (!config.discordAdminId) {
       config.discordAdminId = ownerDiscovery.ids[0];
-      envUpdates.DISCORD_ADMIN_ID = ownerDiscovery.ids[0];
+      envUpdates[ENV.DISCORD_ADMIN_ID] = ownerDiscovery.ids[0];
     }
 
     if (config.allowedUserIds.length === 0) {
       config.allowedUserIds = [...ownerDiscovery.ids];
-      envUpdates.DISCORD_ALLOWED_USER_IDS = ownerDiscovery.ids.join(',');
+      envUpdates[ENV.DISCORD_ALLOWED_USER_IDS] = ownerDiscovery.ids.join(',');
     }
   }
 
@@ -50,6 +51,7 @@ export async function bootstrapManagedDiscordConfig(
   if (channelDiscovery.primaryGuildId) {
     config.discordServerId = channelDiscovery.primaryGuildId;
     metadataUpdates.primaryGuildId = channelDiscovery.primaryGuildId;
+    envUpdates[ENV.DISCORD_SERVER_ID] = channelDiscovery.primaryGuildId;
   }
   if (channelDiscovery.primaryGuildName) {
     config.discordServerName = channelDiscovery.primaryGuildName;
@@ -57,7 +59,7 @@ export async function bootstrapManagedDiscordConfig(
   }
   if (!config.discordChannelId && channelDiscovery.primaryChannelId) {
     config.discordChannelId = channelDiscovery.primaryChannelId;
-    envUpdates.DISCORD_CHANNEL_ID = channelDiscovery.primaryChannelId;
+    envUpdates[ENV.DISCORD_CHANNEL_ID] = channelDiscovery.primaryChannelId;
     metadataUpdates.primaryChannelId = channelDiscovery.primaryChannelId;
   }
   if (channelDiscovery.primaryChannelName) {
@@ -65,7 +67,7 @@ export async function bootstrapManagedDiscordConfig(
   }
   if (config.allowedChannelIds.length === 0 && channelDiscovery.allowedChannelIds.length > 0) {
     config.allowedChannelIds = [...channelDiscovery.allowedChannelIds];
-    envUpdates.DISCORD_ALLOWED_CHANNEL_IDS = channelDiscovery.allowedChannelIds.join(',');
+    envUpdates[ENV.DISCORD_ALLOWED_CHANNEL_IDS] = channelDiscovery.allowedChannelIds.join(',');
   }
 
   if (Object.keys(envUpdates).length > 0) {
@@ -91,13 +93,13 @@ export function rememberPrimaryChannelFromMessage(
 
   if (!config.discordChannelId) {
     config.discordChannelId = message.channelId;
-    envUpdates.DISCORD_CHANNEL_ID = message.channelId;
+    envUpdates[ENV.DISCORD_CHANNEL_ID] = message.channelId;
     changed = true;
   }
 
   if (!config.allowedChannelIds.includes(message.channelId)) {
     config.allowedChannelIds = [...config.allowedChannelIds, message.channelId];
-    envUpdates.DISCORD_ALLOWED_CHANNEL_IDS = config.allowedChannelIds.join(',');
+    envUpdates[ENV.DISCORD_ALLOWED_CHANNEL_IDS] = config.allowedChannelIds.join(',');
     changed = true;
   }
 
@@ -191,11 +193,11 @@ async function discoverGuildDefaults(client: Client, config: Config): Promise<Gu
   }
 
   const guildRefs = await client.guilds.fetch();
-  if (guildRefs.size !== 1) {
+  const guildId = config.discordServerId || (guildRefs.size === 1 ? [...guildRefs.keys()][0] : '');
+  if (!guildId) {
     return result;
   }
 
-  const [guildId] = guildRefs.keys();
   const guild = await client.guilds.fetch(guildId);
   const channels = await guild.channels.fetch();
   const eligible = channels

@@ -4,7 +4,7 @@
  */
 
 import * as http from 'node:http';
-import type { Client, TextChannel, DMChannel, NewsChannel } from 'discord.js';
+import { ActivityType, type Client, type TextChannel, type DMChannel, type NewsChannel } from 'discord.js';
 import type {
   Config,
   DaemonHistory,
@@ -19,11 +19,21 @@ import type { ChannelQueue } from './queue.js';
 import { sendDiscordMessage } from './sender.js';
 import { scheduleJob, scheduleReminder, listJobs, deleteJob } from './cron.js';
 import { getChannelMapEntries, resolveDiscoveredChannel } from './channels.js';
+import { buildGuildUserMap, getUserMapEntries, resolveDiscoveredUser } from './users.js';
 import { resetConversationSession } from './session-reset.js';
 import { listGeminiBindingStates } from './binding.js';
 import { listDmPairings, resolveDmUserIdForChannel } from './dm-pairing.js';
+import {
+  authorizeAction,
+  formatPermissionDenial,
+  GUEST_PERMISSION_REFUSAL,
+  resolveDiscordRole,
+  type PermissionAction,
+  type RoleContext,
+} from './permissions.js';
 
 const MAX_BODY_BYTES = 10240;
+const DISCORD_SNOWFLAKE_RE = /^\d{15,25}$/;
 
 export interface DaemonState {
   status: 'starting' | 'ready' | 'degraded';
@@ -70,6 +80,7 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           respond(res, 401, { error: 'Unauthorized' });
           return;
         }
+        if (!authorizeApiAction(req, res, config, 'admin_command')) return;
         respond(res, 200, { ok: true, message: 'Shutdown initiated' });
         // Give the response a moment to send before killing the process
         setTimeout(() => shutdown('API'), 500);
@@ -77,7 +88,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
       }
 
       if (req.method === 'GET' && pathname === '/status') {
-        const queueKey = config.memoryScope === 'global' ? 'global' : config.discordChannelId;
+        if (!authorizeApiAction(req, res, config, 'status')) return;
+        const queueKey = config.discordChannelId ? `memory:channel:${config.discordChannelId}` : 'memory:none';
         const statusBody: DaemonStatus = {
           status: state.status,
           startedAt: state.startedAt,
@@ -112,9 +124,14 @@ export function startControlApi(deps: ApiDependencies): http.Server {
       }
 
       if (req.method === 'GET' && pathname === '/history') {
+        if (!authorizeApiAction(req, res, config, 'history')) return;
         const channelId = url.searchParams.get('channel_id');
         const scope = url.searchParams.get('scope') ?? 'current';
-        const resolvedChannelId = channelId ?? config.discordChannelId;
+        if (!channelId) {
+          respond(res, 400, { error: 'channel_id is required for history' });
+          return;
+        }
+        const resolvedChannelId = channelId;
         const sessionKey = resolveConversationSessionKey(config, extensionDir, resolvedChannelId, null);
         const filteredMessages = channelId
           ? state.exchangeLog.filter((entry) => entry.channelId === channelId).slice(-30)
@@ -133,7 +150,90 @@ export function startControlApi(deps: ApiDependencies): http.Server {
       }
 
       if (req.method === 'GET' && pathname === '/cron') {
+        if (!authorizeApiAction(req, res, config, 'cron')) return;
         respond(res, 200, { ok: true, jobs: listJobs() });
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/users') {
+        if (!authorizeApiAction(req, res, config, 'user_discovery')) return;
+        if (!deps.client) {
+          respond(res, 503, { error: 'Client not ready' });
+          return;
+        }
+
+        const query = url.searchParams.get('query') ?? '';
+        await buildGuildUserMap(deps.client, config, query ? { query, limit: 25 } : undefined);
+        const resolved = query ? await resolveDiscoveredUser(query, deps.client, config) : null;
+        const users = getUserMapEntries(config.discordServerId || undefined)
+          .filter((entry) => {
+            if (!query.trim()) return true;
+            const needle = query.trim().toLowerCase();
+            return entry.id.includes(needle)
+              || entry.username.toLowerCase().includes(needle)
+              || (entry.displayName ?? '').toLowerCase().includes(needle)
+              || (entry.globalName ?? '').toLowerCase().includes(needle)
+              || (entry.tag ?? '').toLowerCase().includes(needle);
+          })
+          .slice(0, 50);
+        respond(res, 200, { ok: true, users, resolved });
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/reactions') {
+        if (!authorizeApiAction(req, res, config, 'history')) return;
+        const channelId = url.searchParams.get('channel_id');
+        const messageId = url.searchParams.get('message_id');
+        const emoji = url.searchParams.get('emoji');
+        if (!channelId || !messageId) {
+          respond(res, 400, { error: 'channel_id and message_id are required' });
+          return;
+        }
+        try {
+          if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+          const channel = await fetchTextChannel(deps.client, channelId);
+          if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+          const msg = await channel.messages.fetch(messageId);
+          const reactions: Array<{ emoji: string; count: number; users: string[] }> = [];
+          for (const [key, reaction] of msg.reactions.cache) {
+            if (emoji && key !== emoji && reaction.emoji.name !== emoji) continue;
+            const users = await reaction.users.fetch();
+            reactions.push({
+              emoji: reaction.emoji.toString(),
+              count: reaction.count,
+              users: users.map(u => u.id),
+            });
+          }
+          respond(res, 200, { ok: true, reactions });
+        } catch (err) {
+          respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/pins') {
+        if (!authorizeApiAction(req, res, config, 'history')) return;
+        const channelId = url.searchParams.get('channel_id');
+        if (!channelId) {
+          respond(res, 400, { error: 'channel_id is required' });
+          return;
+        }
+        try {
+          if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+          const channel = await fetchTextChannel(deps.client, channelId);
+          if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+          const pins = await channel.messages.fetchPinned();
+          const pinList = pins.map(p => ({
+            id: p.id,
+            content: p.content.slice(0, 300),
+            author: p.author.tag,
+            authorId: p.author.id,
+            pinnedAt: p.editedAt?.toISOString() ?? p.createdAt.toISOString(),
+          }));
+          respond(res, 200, { ok: true, pins: pinList });
+        } catch (err) {
+          respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
         return;
       }
 
@@ -160,6 +260,7 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         }
 
         if (pathname === '/send') {
+          if (!authorizeApiAction(req, res, config, 'outbound_discord')) return;
           const requestedChannelId = parsed['channel_id'] == null ? '' : String(parsed['channel_id']);
           const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
           const content = String(parsed['content'] ?? '');
@@ -170,28 +271,46 @@ export function startControlApi(deps: ApiDependencies): http.Server {
             return;
           }
 
+          let channelId = '';
           try {
-            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
-            let channelId = requestedChannelId || config.discordChannelId;
+            channelId = resolveSendChannelId(requestedChannelId);
             if (!requestedChannelId && requestedChannelName) {
-              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client);
+              if (!deps.client) {
+                respond(res, 503, { error: 'Client not ready' });
+                return;
+              }
+              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client, config);
               if (!resolved) {
                 respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
                 return;
               }
               channelId = resolved.id;
             }
+            if (!channelId) {
+              respond(res, 400, {
+                error: 'No proven Discord target is available. Provide channel_id or channel_name explicitly.',
+              });
+              return;
+            }
+            if (!deps.client) {
+              respond(res, 503, {
+                error: 'Client not ready',
+                ...(channelId ? { channel_id: channelId } : {}),
+              });
+              return;
+            }
             const channel = await fetchTextChannel(deps.client, channelId);
             if (!channel) {
-              respond(res, 400, { error: 'Channel is not text-based' });
+              respond(res, 400, { error: 'Channel is not text-based', channel_id: channelId });
               return;
             }
             if (!isWritableTarget(channelId, channel, config)) {
-              respond(res, 403, { error: `Channel ${channelId} is not allowed for sending` });
+              respond(res, 403, { error: `Channel ${channelId} is not allowed for sending`, channel_id: channelId });
               return;
             }
 
-            const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { files });
+            const silent = parsed['silent'] === true;
+            const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { files, silent });
 
             const sessionKey = resolveConversationSessionKey(
               config,
@@ -218,12 +337,16 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
             respond(res, 200, { ok: true, chunks: messageIds.length, messageIds, channel_id: channelId });
           } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+            respond(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+              ...(channelId ? { channel_id: channelId } : {}),
+            });
           }
           return;
         }
 
         if (pathname === '/reply') {
+          if (!authorizeApiAction(req, res, config, 'outbound_discord')) return;
           const channelId = String(parsed['channel_id'] ?? '');
           const messageId = String(parsed['message_id'] ?? '');
           const content = String(parsed['content'] ?? '');
@@ -247,7 +370,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
             }
 
             const msg = await channel.messages.fetch(messageId);
-            const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { replyTo: msg, files });
+            const silent = parsed['silent'] === true;
+            const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { replyTo: msg, files, silent });
 
             const sessionKey = resolveConversationSessionKey(
               config,
@@ -283,7 +407,12 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         }
 
         if (pathname === '/reset') {
-          const channelId = String(parsed['channel_id'] ?? config.discordChannelId);
+          if (!authorizeApiAction(req, res, config, 'session_reset')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          if (!channelId) {
+            respond(res, 400, { error: 'channel_id is required for reset' });
+            return;
+          }
           const guildId = parsed['guild_id'] == null ? null : String(parsed['guild_id']);
           const authorId = guildId ? null : resolveDmUserIdForChannel(extensionDir, channelId);
           resetConversationSession(config, memory, extensionDir, { channelId, guildId, authorId });
@@ -292,12 +421,13 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         }
 
         if (pathname === '/cron') {
+          if (!authorizeApiAction(req, res, config, 'cron')) return;
           const cronExpression = String(parsed['cron_expression'] ?? '');
           const legacyInstruction = String(parsed['instruction'] ?? '');
           const message = String(parsed['message'] ?? legacyInstruction);
           const requestedChannelId = parsed['channel_id'] == null ? '' : String(parsed['channel_id']);
           const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
-          const authorId = String(parsed['author_id'] ?? config.discordAdminId);
+          const authorId = String(parsed['author_id'] ?? config.discordBossUserId);
           const runOnce = parsed['run_once'] === undefined ? true : parsed['run_once'] === true;
           const delayMinutes = parseOptionalNumber(parsed['delay_minutes']);
           const deliverAt = parseOptionalTimestamp(parsed['deliver_at']);
@@ -308,9 +438,9 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           }
 
           try {
-            let channelId = requestedChannelId || config.discordChannelId;
+            let channelId = requestedChannelId;
             if (!requestedChannelId && requestedChannelName && deps.client) {
-              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client);
+              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client, config);
               if (!resolved) {
                 respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
                 return;
@@ -320,7 +450,7 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
             if (!channelId) {
               respond(res, 400, {
-                error: 'No primary Discord channel is configured yet. Provide channel_id/channel_name or let the daemon remember the first owner channel automatically.',
+                error: 'No proven Discord target is available. Provide channel_id or channel_name explicitly.',
               });
               return;
             }
@@ -347,17 +477,288 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           return;
         }
 
+        if (pathname === '/cron/delete') {
+          if (!authorizeApiAction(req, res, config, 'cron')) return;
+          const jobId = String(parsed['job_id'] ?? '');
+          if (!jobId) {
+            respond(res, 400, { error: 'job_id is required' });
+            return;
+          }
+          const ok = deleteJob(jobId);
+          respond(res, 200, { ok });
+          return;
+        }
 
-  if (pathname === '/cron/delete') {
-    const jobId = String(parsed['job_id'] ?? '');
-    if (!jobId) {
-      respond(res, 400, { error: 'job_id is required' });
-      return;
-    }
-    const ok = deleteJob(jobId);
-    respond(res, 200, { ok });
-    return;
-  }
+        if (pathname === '/reactions') {
+          if (!authorizeApiAction(req, res, config, 'history')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          const messageId = String(parsed['message_id'] ?? '');
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
+            if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+            const msg = await channel.messages.fetch(messageId);
+            const reactions = msg.reactions.cache.map(r => ({ emoji: r.emoji.name, count: r.count }));
+            respond(res, 200, { reactions });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/pins') {
+          if (!authorizeApiAction(req, res, config, 'history')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
+            if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+            const pins = await channel.messages.fetchPinned();
+            respond(res, 200, { pins: pins.map(p => ({ id: p.id, content: p.content })) });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/react') {
+          if (!authorizeApiAction(req, res, config, 'outbound_discord')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          const messageId = String(parsed['message_id'] ?? '');
+          const emoji = String(parsed['emoji'] ?? '');
+          if (!channelId || !messageId || !emoji) {
+            respond(res, 400, { error: 'channel_id, message_id, and emoji are required' });
+            return;
+          }
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
+            if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+            const msg = await channel.messages.fetch(messageId);
+            await msg.react(emoji);
+            respond(res, 200, { ok: true });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/unreact') {
+          if (!authorizeApiAction(req, res, config, 'outbound_discord')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          const messageId = String(parsed['message_id'] ?? '');
+          const emoji = parsed['emoji'] == null ? '' : String(parsed['emoji']);
+          if (!channelId || !messageId) {
+            respond(res, 400, { error: 'channel_id and message_id are required' });
+            return;
+          }
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
+            if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+            const msg = await channel.messages.fetch(messageId);
+            if (emoji) {
+              const reaction = msg.reactions.cache.find(
+                r => r.emoji.name === emoji || r.emoji.toString() === emoji,
+              );
+              if (reaction) await reaction.users.remove(deps.client.user!.id);
+            } else {
+              for (const reaction of msg.reactions.cache.values()) {
+                if (reaction.users.cache.has(deps.client.user!.id)) {
+                  await reaction.users.remove(deps.client.user!.id);
+                }
+              }
+            }
+            respond(res, 200, { ok: true });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/edit') {
+          if (!authorizeApiAction(req, res, config, 'outbound_discord')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          const messageId = String(parsed['message_id'] ?? '');
+          const content = String(parsed['content'] ?? '');
+          if (!channelId || !messageId || !content.trim()) {
+            respond(res, 400, { error: 'channel_id, message_id, and content are required' });
+            return;
+          }
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
+            if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+            const msg = await channel.messages.fetch(messageId);
+            if (msg.author.id !== deps.client.user?.id) {
+              respond(res, 403, { error: 'Can only edit own messages' });
+              return;
+            }
+            await msg.edit(content);
+            respond(res, 200, { ok: true });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/delete') {
+          if (!authorizeApiAction(req, res, config, 'outbound_discord')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          const messageId = String(parsed['message_id'] ?? '');
+          if (!channelId || !messageId) {
+            respond(res, 400, { error: 'channel_id and message_id are required' });
+            return;
+          }
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
+            if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+            const msg = await channel.messages.fetch(messageId);
+            if (msg.author.id !== deps.client.user?.id) {
+              respond(res, 403, { error: 'Can only delete own messages' });
+              return;
+            }
+            await msg.delete();
+            respond(res, 200, { ok: true });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/pin') {
+          if (!authorizeApiAction(req, res, config, 'outbound_discord')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          const messageId = String(parsed['message_id'] ?? '');
+          if (!channelId || !messageId) {
+            respond(res, 400, { error: 'channel_id and message_id are required' });
+            return;
+          }
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
+            if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+            const msg = await channel.messages.fetch(messageId);
+            await msg.pin();
+            respond(res, 200, { ok: true });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/unpin') {
+          if (!authorizeApiAction(req, res, config, 'outbound_discord')) return;
+          const channelId = String(parsed['channel_id'] ?? '');
+          const messageId = String(parsed['message_id'] ?? '');
+          if (!channelId || !messageId) {
+            respond(res, 400, { error: 'channel_id and message_id are required' });
+            return;
+          }
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const channel = await fetchTextChannel(deps.client, channelId);
+            if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
+            const msg = await channel.messages.fetch(messageId);
+            await msg.unpin();
+            respond(res, 200, { ok: true });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/moderation') {
+          if (!authorizeApiAction(req, res, config, 'moderation')) return;
+          const action = String(parsed['action'] ?? '');
+          const userId = String(parsed['user_id'] ?? '').trim();
+          const guildId = String(parsed['guild_id'] ?? config.discordServerId ?? '').trim();
+          const reason = parsed['reason'] == null ? undefined : String(parsed['reason']);
+          const durationMinutes = parseOptionalNumber(parsed['duration_minutes']);
+
+          if (!['kick', 'timeout', 'remove_timeout'].includes(action)) {
+            respond(res, 400, { error: 'action must be kick, timeout, or remove_timeout' });
+            return;
+          }
+          if (!userId) {
+            respond(res, 400, { error: 'user_id is required' });
+            return;
+          }
+          if (!DISCORD_SNOWFLAKE_RE.test(userId)) {
+            respond(res, 400, { error: 'user_id must be a stable numeric Discord user ID. Use user discovery to resolve names or mentions first.' });
+            return;
+          }
+          if (!guildId) {
+            respond(res, 400, { error: 'guild_id is required because no Discord server is configured' });
+            return;
+          }
+          if (userId === deps.client?.user?.id) {
+            respond(res, 400, { error: 'Refusing to moderate the bot user' });
+            return;
+          }
+          if (config.discordBossUserId && userId === config.discordBossUserId) {
+            respond(res, 400, { error: 'Refusing to moderate the configured authorized Discord user' });
+            return;
+          }
+          if (action === 'timeout') {
+            if (durationMinutes === null || durationMinutes <= 0) {
+              respond(res, 400, { error: 'duration_minutes must be greater than 0 for timeout' });
+              return;
+            }
+            if (durationMinutes > 40320) {
+              respond(res, 400, { error: 'duration_minutes cannot exceed 40320 minutes (28 days)' });
+              return;
+            }
+          }
+
+          try {
+            if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const guild = await deps.client.guilds.fetch(guildId);
+            const member = await guild.members.fetch(userId);
+
+            if (action === 'kick') {
+              await member.kick(reason);
+            } else if (action === 'timeout') {
+              await member.timeout((durationMinutes ?? 0) * 60_000, reason);
+            } else {
+              await member.timeout(null, reason);
+            }
+
+            respond(res, 200, { ok: true, action, user_id: userId, guild_id: guildId });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
+
+        if (pathname === '/presence') {
+          if (!authorizeApiAction(req, res, config, 'admin_command')) return;
+          const status = String(parsed['status'] ?? 'online');
+          const activityType = String(parsed['activity_type'] ?? '');
+          const activityName = String(parsed['activity_name'] ?? '');
+          try {
+            if (!deps.client?.user) { respond(res, 503, { error: 'Client not ready' }); return; }
+            const validStatuses = ['online', 'idle', 'dnd', 'invisible'] as const;
+            const resolvedStatus = validStatuses.includes(status as any)
+              ? (status as typeof validStatuses[number])
+              : 'online';
+            const activityTypeMap: Record<string, number> = {
+              playing: ActivityType.Playing,
+              watching: ActivityType.Watching,
+              listening: ActivityType.Listening,
+              competing: ActivityType.Competing,
+            };
+            const activities = activityName
+              ? [{ name: activityName, type: activityTypeMap[activityType] ?? ActivityType.Playing }]
+              : [];
+            deps.client.user.setPresence({ status: resolvedStatus, activities });
+            respond(res, 200, { ok: true, status: resolvedStatus, activities });
+          } catch (err) {
+            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
+          return;
+        }
 
 }
 
@@ -387,6 +788,42 @@ function requireAuth(req: http.IncomingMessage, config: Config): boolean {
   return scheme === 'Bearer' && token === config.daemonApiToken;
 }
 
+function authorizeApiAction(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: Config,
+  action: PermissionAction,
+): boolean {
+  const roleContext = roleContextFromRequest(req, config);
+  if (!roleContext) {
+    respond(res, 403, { error: GUEST_PERMISSION_REFUSAL });
+    return false;
+  }
+
+  const decision = authorizeAction(action, roleContext);
+  if (decision.decision === 'allow') {
+    return true;
+  }
+
+  respond(res, 403, { error: formatPermissionDenial(decision) });
+  return false;
+}
+
+function roleContextFromRequest(req: http.IncomingMessage, config: Config): RoleContext | null {
+  const rawRole = req.headers['x-gemini-discord-role'];
+  const role = Array.isArray(rawRole) ? rawRole[0] : rawRole;
+  if (role !== 'BOSS' && role !== 'GUEST') {
+    return null;
+  }
+
+  const rawSenderId = req.headers['x-gemini-discord-sender-id'];
+  const rawSenderLabel = req.headers['x-gemini-discord-sender-label'];
+  const senderDiscordId = (Array.isArray(rawSenderId) ? rawSenderId[0] : rawSenderId)?.trim() || 'unknown';
+  const senderDisplayLabel = (Array.isArray(rawSenderLabel) ? rawSenderLabel[0] : rawSenderLabel)?.trim() || senderDiscordId;
+
+  return resolveDiscordRole(config, { discordUserId: senderDiscordId, displayLabel: senderDisplayLabel });
+}
+
 function parseOptionalNumber(value: unknown): number | null {
   if (value === undefined || value === null || value === '') {
     return null;
@@ -411,19 +848,19 @@ function resolveConversationSessionKey(
   channelId: string,
   guildId: string | null,
 ): string {
-  if (config.memoryScope !== 'channel') {
-    return 'global';
-  }
-
   if (guildId) {
-    return resolveSessionKey(config.memoryScope, channelId, null);
+    return resolveSessionKey('channel', channelId, null);
   }
 
   return resolveSessionKey(
-    config.memoryScope,
+    'channel',
     channelId,
     resolveDmUserIdForChannel(extensionDir, channelId),
   );
+}
+
+export function resolveSendChannelId(requestedChannelId: string): string {
+  return requestedChannelId.trim();
 }
 
 async function readBody(req: http.IncomingMessage): Promise<string> {
@@ -464,5 +901,16 @@ function isWritableTarget(channelId: string, channel: SendableChannel, config: C
   if ('isDMBased' in channel && channel.isDMBased()) {
     return config.enableDMs;
   }
-  return config.allowedChannelIds.includes(channelId);
+  if (config.allowedChannelIds.includes(channelId)) {
+    return true;
+  }
+  const parentId = (channel as { parentId?: string | null }).parentId ?? null;
+  if (parentId && config.allowedChannelIds.includes(parentId)) {
+    return true;
+  }
+
+  const guildId = (channel as { guildId?: string | null }).guildId ?? null;
+  return config.allowedChannelIds.length === 0
+    && Boolean(config.discordServerId)
+    && guildId === config.discordServerId;
 }

@@ -1,39 +1,59 @@
+# Secrets and local environment
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+*.env
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cert
+*.secret
+secrets/
+
+# Managed runtime state
+.gemini-discord/
+.gemini-extension-install.json
+.daemon.pid
+.daemon-token
 .memory.json
 .memory.json.tmp
-start-daemon.sh
-.daemon.pid
 .cron.json
-node_modules
-node_modules/
-coverage/
-build/
-*.db
+.tmp-attachments/
+daemon.log
 *.log
 *.jsonl
-tmp/
-.DS_Store
-.gemini-discord/
-.tmp-attachments/
-graphify-out/
-!.env.example
+*.sqlite
+*.sqlite3
+*.db
 
-# BEADS runtime
+# Dependencies and build/test output
+node_modules/
+coverage/
+coverage_output.txt
+build/
+tmp/
+dist/*.map
+
+# Local editor/agent adapters
+.DS_Store
+.claude/
+.codex/
+.cursor/
+.vscode/
+.idea/
+.omg/
+start-daemon.sh
+graphify-out/
+
+# BEADS runtime and local execution state
 .beads/beads.db
 .beads/daemon.lock
 .beads/daemon.pid
 .beads/daemon.log
 .beads/temp/
-
-# BEADS execution state (working files for context recovery)
 .beads/context/
 .beads/plans/
-
-# Beads / Dolt files (added by bd init)
 .dolt/
 .beads-credential-key
-.claude/
-.gemini-extension-install.json
-coverage_output.txt

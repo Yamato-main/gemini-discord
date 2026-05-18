@@ -2,7 +2,7 @@
   "name": "gemini-discord",
   "version": "0.1.0",
   "type": "module",
-  "description": "Local Discord bridge that gives your existing Gemini CLI agent a Discord channel.",
+  "description": "Chat with your local Gemini CLI agent from Discord.",
   "files": [
     "dist",
     "src",
@@ -26,6 +26,7 @@
   ],
   "scripts": {
     "build": "node esbuild.config.mjs",
+    "setup": "node dist/setup.cjs",
     "dev:daemon": "npx tsx watch --ignore 'daemon.log' --ignore '*.sqlite*' --ignore '.env' src/daemon.ts",
     "start:daemon": "node dist/daemon.cjs",
     "start:server": "node dist/server.cjs",

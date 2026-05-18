@@ -15,6 +15,14 @@ import { spawn } from 'node:child_process';
 import { updateEnvModel } from '../shared/config.js';
 import { runtimeStore } from './runtime.js';
 import { resetConversationSession } from './session-reset.js';
+import {
+  authorizeAction,
+  formatPermissionDenial,
+  isBoss,
+  resolveDiscordRole,
+  type PermissionAction,
+  type RoleContext,
+} from './permissions.js';
 
 /**
  * Slash command definitions.
@@ -143,10 +151,17 @@ export function setupInteractionHandler(
 
     if (!interaction.isChatInputCommand()) return;
 
-    // Authorization check: Only the owner or allowed users can use commands
-    const isOwner = config.ownerIds.includes(interaction.user.id);
+    const roleContext = resolveDiscordRole(config, {
+      discordUserId: interaction.user.id,
+      displayLabel: interaction.user.tag,
+    });
+
+    // Routing check: existing allowlists may permit command interaction, but
+    // only DISCORD_BOSS_USER_ID can authorize privileged commands.
+    const isBossUser = isBoss(roleContext);
     const isAllowed = config.allowedUserIds.includes(interaction.user.id);
-    if (!isOwner && !isAllowed) {
+    const isOwner = config.ownerIds.includes(interaction.user.id);
+    if (!isBossUser && !isOwner && !isAllowed) {
       await interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
       return;
     }
@@ -154,6 +169,7 @@ export function setupInteractionHandler(
     const { commandName } = interaction;
 
     if (commandName === 'new') {
+      if (!await authorizeInteraction(interaction, roleContext, 'session_reset')) return;
       resetConversationSession(config, memory, extensionDir, {
         channelId: interaction.channelId,
         guildId: interaction.guildId ?? null,
@@ -174,6 +190,7 @@ export function setupInteractionHandler(
     }
 
     if (commandName === 'status') {
+      if (!await authorizeInteraction(interaction, roleContext, 'status')) return;
       const uptime = ((Date.now() - new Date(state.startedAt).getTime()) / 1000 / 60).toFixed(1);
       let poolInfo = 'Not initialized';
       if (runtimeStore.cliPool) {
@@ -195,10 +212,7 @@ export function setupInteractionHandler(
     }
 
     if (commandName === 'pool') {
-      if (!isOwner) {
-        await interaction.reply({ content: 'Only the **Owner** can view pool status.', ephemeral: true });
-        return;
-      }
+      if (!await authorizeInteraction(interaction, roleContext, 'status')) return;
       if (!runtimeStore.cliPool) {
         await interaction.reply({ content: 'CLI pool is not initialized.', ephemeral: true });
         return;
@@ -223,10 +237,7 @@ export function setupInteractionHandler(
     }
 
     if (commandName === 'kill') {
-      if (!isOwner) {
-        await interaction.reply({ content: 'Only the **Owner** can kill processes.', ephemeral: true });
-        return;
-      }
+      if (!await authorizeInteraction(interaction, roleContext, 'admin_command')) return;
 
       const poolKey = interaction.options.getString('session', true);
       if (!runtimeStore.cliPool) {
@@ -240,10 +251,7 @@ export function setupInteractionHandler(
     }
 
     if (commandName === 'model') {
-      if (!isOwner) {
-        await interaction.reply({ content: 'Only the **Owner** can switch models.', ephemeral: true });
-        return;
-      }
+      if (!await authorizeInteraction(interaction, roleContext, 'model_config')) return;
 
       const newModel = interaction.options.getString('name', true);
       const oldModel = config.geminiModel;
@@ -279,6 +287,20 @@ Action: Reverted to \`${oldModel}\`.`);
       return;
     }
   });
+}
+
+async function authorizeInteraction(
+  interaction: CommandInteraction,
+  roleContext: RoleContext,
+  action: PermissionAction,
+): Promise<boolean> {
+  const decision = authorizeAction(action, roleContext);
+  if (decision.decision === 'allow') {
+    return true;
+  }
+
+  await interaction.reply({ content: formatPermissionDenial(decision), ephemeral: true });
+  return false;
 }
 
 

@@ -12,6 +12,7 @@ Transform the gemini-discord gateway from a functional proof-of-concept into a *
 | **Lock-free/Atomic Filesystem Operations** | **Reliability Under Pressure:** No more "file not found" errors when multiple people message the bot at the exact same time. |
 | **Aggressive Cache Pruning** | **Host-Friendly:** Keeps the bot's disk footprint tiny, making it ideal for always-on usage on low-cost VPS/Raspberry Pi. |
 | **Token Streaming Optimization** | **Real-time Interaction:** Words appear as they are generated, matching the "live" feel of the Gemini web interface. |
+| **Structured ACP Media Blocks** | **Reliable Media Understanding:** Images and other Discord attachments stay on the warm Gemini session path instead of timing out through a separate headless CLI process. |
 
 ## Definition of Done (DoD)
 
@@ -24,6 +25,7 @@ Transform the gemini-discord gateway from a functional proof-of-concept into a *
 ### 2. Visual & UX Polish (Complete Prototype Alignment)
 - [ ] **Feedback Lifecycle**: The "⏳ Gemini is busy..." message is automatically deleted the moment the semaphore is acquired and streaming begins.
 - [ ] **Streaming Smoothness**: Tokens are flushed to Discord in optimal chunks (balancing API rate limits vs. perceived speed).
+- [x] **Media Fast Path**: Discord attachments are delivered through persistent Gemini ACP sessions with structured media/resource blocks instead of headless `@file` prompt parsing.
 - [ ] **Typing Indicators**: The bot shows "typing..." only when it is actually generating text, not during idle wait.
 
 ### 3. Substantially Complete Architecture

@@ -6,6 +6,7 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     discordChannelId: 'channel-1',
     discordServerId: '',
     discordServerName: '',
+    discordBossUserId: '111111111111111111',
     ownerIds: ['owner-1'],
     discordAdminId: 'owner-1',
     allowedChannelIds: ['channel-1', 'channel-2'],
@@ -27,11 +28,12 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     enableDMs: true,
     requireMention: false,
     respondToReplies: true,
-    memoryScope: 'global',
+    memoryScope: 'channel',
     autoStartDaemon: true,
     useGeminiCliSessions: true,
-    geminiSessionBindingScope: 'global',
+    geminiSessionBindingScope: 'channel',
     cliIdleTimeoutMs: 300000,
+    setupValidationPending: false,
     ...overrides,
   };
 }

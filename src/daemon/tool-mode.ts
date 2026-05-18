@@ -36,6 +36,9 @@ const DISCORD_ACTION_PATTERNS = [
   /\bstart (?:a )?new session\b/i,
   /\bhistory\b/i,
   /\bfind (?:an |the )?image\b/i,
+  /\b(?:find|send|attach|fetch|get|grab|show|upload)\b.*\b(?:media|file|image|photo|picture|screenshot|video|movie|audio|song|music|clip|gif)\b/i,
+  /\b(?:media|file|image|photo|picture|screenshot|video|movie|audio|song|music|clip|gif)\b.*\b(?:from|on) (?:my|the) (?:device|computer|mac|machine)\b/i,
+  /\brandom (?:media|file|image|photo|picture|video|movie|audio|song|clip|gif)\b/i,
 ];
 
 const FULL_TOOL_PATTERNS = [

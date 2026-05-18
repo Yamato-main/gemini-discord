@@ -16,12 +16,15 @@ import { runtimeStore } from './daemon/runtime.js';
 import { probeDiscordGateway } from './daemon/probe.js';
 import { shutdownCron } from './daemon/cron.js';
 import { cleanupLegacyBindingContextFiles } from './daemon/binding.js';
+import { startTmpAttachmentCleanup } from './daemon/attachment-cleanup.js';
+import { validateBossConfig } from './daemon/permissions.js';
 
 let tmpDir = process.cwd();
 try { tmpDir = __dirname; } catch {}
 const extensionDir = resolveExtensionDir(tmpDir);
 
 let shuttingDown = false;
+let attachmentCleanupTimer: NodeJS.Timeout | null = null;
 
 const state: DaemonState = {
   status: 'starting',
@@ -46,6 +49,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig(extensionDir);
+  attachmentCleanupTimer = startTmpAttachmentCleanup(extensionDir);
   const removedLegacyContextFiles = cleanupLegacyBindingContextFiles(extensionDir);
   if (removedLegacyContextFiles > 0) {
     log.info('Removed legacy per-binding Gemini context files', { count: removedLegacyContextFiles });
@@ -53,6 +57,7 @@ async function main(): Promise<void> {
 
   log.info('Config loaded', {
     channelId: config.discordChannelId,
+    bossConfigValid: validateBossConfig(config).valid,
     owners: config.ownerIds.length,
     allowlistedUsers: config.allowedUserIds.length,
     allowlistedAgents: config.allowedAgentIds.length,
@@ -84,6 +89,10 @@ async function main(): Promise<void> {
     log.info('Shutting down', { signal });
 
     cliPool.killAll();
+    if (attachmentCleanupTimer) {
+      clearInterval(attachmentCleanupTimer);
+      attachmentCleanupTimer = null;
+    }
     await Promise.race([queue.drainAll(), sleep(30_000)]);
     memory.stopAutoFlush();
 

@@ -1,21 +1,18 @@
 /**
  * MCP Server entry point (Track 2).
  * Spawned by Gemini CLI as a subprocess.
- * Registers 5 tools that communicate with the daemon via localhost HTTP.
+ * Registers Discord bridge tools that communicate with the daemon via localhost HTTP.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { loadConfig, resolveExtensionDir } from './shared/config.js';
-import { registerStatusTool } from './tools/status.js';
-import { registerSendTool } from './tools/send.js';
-import { registerReplyTool } from './tools/reply.js';
+import { registerAdminTool } from './tools/admin.js';
+import { registerMessageTool } from './tools/message.js';
+
 import { registerHistoryTool } from './tools/history.js';
-import { registerResetTool } from './tools/reset.js';
-import { registerRestartTool } from './tools/restart.js';
-import { registerFindImagesTool } from './tools/find-images.js';
+import { registerFindMediaTool } from './tools/find-media.js';
 import { registerCronTools } from './tools/cron.js';
-import { registerChannelsTool } from './tools/channels.js';
 import { ensureDaemonRunning } from './shared/daemon-runtime.js';
 
 // Resolve extension directory
@@ -30,15 +27,12 @@ const server = new McpServer({
 });
 
 // Register all tools
-registerStatusTool(server, config);
-registerSendTool(server, config);
-registerReplyTool(server, config);
+registerAdminTool(server, config);
+registerMessageTool(server, config);
+
 registerHistoryTool(server, config);
-registerResetTool(server, config);
-registerRestartTool(server, config);
-registerFindImagesTool(server);
+registerFindMediaTool(server, config);
 registerCronTools(server, config);
-registerChannelsTool(server, config);
 
 // Connect via stdio (Gemini CLI manages the process lifecycle)
 async function main() {

@@ -1,7 +1,7 @@
 {
   "name": "gemini-discord",
   "version": "0.1.0",
-  "description": "Local Discord bridge that gives your existing Gemini CLI agent a Discord channel.",
+  "description": "Chat with your local Gemini CLI agent from Discord.",
   "settings": [
     {
       "name": "Discord Bot Token",
@@ -10,15 +10,21 @@
       "sensitive": true
     },
     {
-      "name": "Primary Discord Channel ID",
-      "description": "Optional override for the primary Discord channel ID. Leave blank to let the daemon remember the first owner channel automatically.",
-      "envVar": "DISCORD_CHANNEL_ID",
+      "name": "Boss Discord User ID",
+      "description": "Stable numeric Discord user ID with full bridge authority.",
+      "envVar": "DISCORD_BOSS_USER_ID",
       "sensitive": false
     },
     {
       "name": "Owner Discord User IDs",
-      "description": "Optional override for bridge owners. Leave blank to let the daemon infer the Discord application owner automatically when possible.",
+      "description": "Discord user IDs allowed by legacy routing/setup flows. This does not grant boss authority.",
       "envVar": "DISCORD_OWNER_IDS",
+      "sensitive": false
+    },
+    {
+      "name": "Discord Server ID",
+      "description": "Server ID where the bot is installed. The bridge discovers usable channels automatically.",
+      "envVar": "DISCORD_SERVER_ID",
       "sensitive": false
     }
   ],
@@ -29,8 +35,9 @@
       "cwd": "${extensionPath}",
       "env": {
         "DISCORD_BOT_TOKEN": "${DISCORD_BOT_TOKEN}",
-        "DISCORD_CHANNEL_ID": "${DISCORD_CHANNEL_ID}",
-        "DISCORD_OWNER_IDS": "${DISCORD_OWNER_IDS}"
+        "DISCORD_BOSS_USER_ID": "${DISCORD_BOSS_USER_ID}",
+        "DISCORD_OWNER_IDS": "${DISCORD_OWNER_IDS}",
+        "DISCORD_SERVER_ID": "${DISCORD_SERVER_ID}"
       }
     }
   }

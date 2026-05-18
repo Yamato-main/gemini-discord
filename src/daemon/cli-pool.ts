@@ -3,8 +3,8 @@
  *
  * Each binding/tool tier gets a warm Gemini CLI ACP process that keeps a real
  * Gemini session alive between Discord turns. That removes the repeated CLI
- * cold-start cost while preserving the exact same prompt and @file packaging we
- * already use for headless one-shot calls.
+ * cold-start cost while sending Discord attachments as structured ACP media
+ * blocks instead of relying on fragile headless @file prompt parsing.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -12,23 +12,9 @@ import * as readline from 'node:readline';
 import type { Config } from '../shared/types.js';
 import type { ToolMode } from './tool-mode.js';
 import { log } from './log.js';
-import { buildGeminiCliPrompt } from './gemini-input.js';
+import { buildAcpPromptBlocks, type AcpPromptAttachment } from './acp-content.js';
 import { extractGeminiResultText, getGeminiTextDelta } from './gemini-output.js';
-
-const DISCORD_BRIDGE_TOOLS = [
-  'discord_status',
-  'discord_send',
-  'discord_reply',
-  'discord_history',
-  'discord_reset',
-  'discord_restart',
-  'discord_find_images',
-  'discord_channels',
-  'schedule_reminder',
-  'schedule_cron_job',
-  'list_cron_jobs',
-  'delete_cron_job',
-].join(',');
+import { resolveGeminiAllowedTools, roleEnv, type RoleContext } from './permissions.js';
 
 const ACP_PROTOCOL_VERSION = 1;
 const SESSION_REQUEST_TIMEOUT_MS = 120_000;
@@ -44,9 +30,9 @@ export interface StreamCallbacks {
 export interface PoolSendOptions {
   cwd: string;
   resumeSessionId?: string | null;
-  isBoss: boolean;
+  roleContext: RoleContext;
   toolMode: ToolMode;
-  attachmentPaths?: string[];
+  attachments?: AcpPromptAttachment[];
   onSessionId?: (sessionId: string) => void;
 }
 
@@ -100,32 +86,17 @@ interface PersistentProcess {
   lastSessionUpdateAt: number;
 }
 
-function resolveAllowedTools(isBoss: boolean, toolMode: ToolMode): string {
-  switch (toolMode) {
-    case 'chat':
-      return 'none';
-    case 'web':
-      return 'google_web_search,web_fetch';
-    case 'discord':
-      return isBoss ? DISCORD_BRIDGE_TOOLS : 'none';
-    case 'web_discord':
-      return isBoss ? `google_web_search,web_fetch,${DISCORD_BRIDGE_TOOLS}` : 'google_web_search,web_fetch';
-    case 'full':
-      return isBoss ? 'all' : 'none';
-    default:
-      return 'none';
-  }
-}
-
 function buildPoolKey(bindingKey: string, allowedTools: string): string {
   const tier = allowedTools === 'all'
     ? 'full'
     : allowedTools === 'none'
       ? 'chat'
-      : allowedTools === 'google_web_search,web_fetch'
-        ? 'web'
-        : allowedTools.includes('google_web_search,web_fetch')
-          ? 'web-discord'
+      : allowedTools === 'google_web_search'
+        ? 'public-web-search'
+        : allowedTools === 'google_web_search,web_fetch'
+          ? 'web'
+          : allowedTools.includes('google_web_search,web_fetch')
+            ? 'web-discord'
           : 'discord';
   return `${bindingKey}:${tier}`;
 }
@@ -199,13 +170,6 @@ function extractUpdateText(update: Record<string, unknown>): string {
   return '';
 }
 
-function buildAcpPromptBlocks(prompt: string, attachmentPaths?: string[]): Array<{ type: 'text'; text: string }> {
-  return [{
-    type: 'text',
-    text: buildGeminiCliPrompt(prompt, attachmentPaths),
-  }];
-}
-
 export class CliProcessPool {
   private pool = new Map<string, PersistentProcess>();
   private maxSize: number;
@@ -224,7 +188,7 @@ export class CliProcessPool {
     callbacks: StreamCallbacks,
     opts: PoolSendOptions,
   ): Promise<string> {
-    const allowedTools = resolveAllowedTools(opts.isBoss, opts.toolMode);
+    const allowedTools = resolveGeminiAllowedTools(opts.roleContext, opts.toolMode);
     const poolKey = buildPoolKey(bindingKey, allowedTools);
     let lastError: Error | null = null;
 
@@ -249,7 +213,7 @@ export class CliProcessPool {
           this.evictOldestIdle();
         }
 
-        entry = await this.spawnProcess(poolKey, allowedTools);
+        entry = await this.spawnProcess(poolKey, allowedTools, opts.roleContext);
         entry.busy = true;
         this.pool.set(poolKey, entry);
       }
@@ -281,7 +245,7 @@ export class CliProcessPool {
     throw lastError ?? new Error('Gemini ACP request failed');
   }
 
-  private async spawnProcess(poolKey: string, allowedTools: string): Promise<PersistentProcess> {
+  private async spawnProcess(poolKey: string, allowedTools: string, roleContext: RoleContext): Promise<PersistentProcess> {
     const spawnedAt = Date.now();
     const args = [
       '--acp',
@@ -300,7 +264,7 @@ export class CliProcessPool {
 
     const proc = spawn(this.config.geminiPath, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: { ...process.env, ...roleEnv(roleContext) },
     });
 
     if (!proc.stdout || !proc.stdin) {
@@ -484,13 +448,13 @@ export class CliProcessPool {
     }
 
     const requestId = entry.nextRequestId++;
-    const hasAttachments = (opts.attachmentPaths?.length ?? 0) > 0;
+    const hasAttachments = (opts.attachments?.length ?? 0) > 0;
 
     return new Promise<string>((resolve, reject) => {
       const maxTotalTimeoutMs = this.config.geminiTimeoutMs;
       const firstOutputTimeoutMs = hasAttachments
-        ? Math.min(maxTotalTimeoutMs, 240_000)
-        : 120_000;
+        ? Math.min(maxTotalTimeoutMs, 600_000)
+        : Math.min(maxTotalTimeoutMs, 120_000);
       const postOutputTimeoutMs = 120_000;
 
       const activePrompt: ActivePrompt = {
@@ -560,7 +524,7 @@ export class CliProcessPool {
           method: 'session/prompt',
           params: {
             sessionId: entry.sessionId,
-            prompt: buildAcpPromptBlocks(prompt, opts.attachmentPaths),
+            prompt: buildAcpPromptBlocks(prompt, opts.attachments),
           },
         });
       } catch (error) {

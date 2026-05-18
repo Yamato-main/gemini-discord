@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config, DaemonHistory, ExchangeLog, ConversationArchive, ConversationMessage } from '../shared/types.js';
 import { daemonRequest } from './client.js';
+import { authorizeMcpToolAction, formatPermissionDenial } from '../daemon/permissions.js';
 
 export function registerHistoryTool(server: McpServer, config: Config): void {
   server.tool(
@@ -21,8 +22,7 @@ export function registerHistoryTool(server: McpServer, config: Config): void {
         .describe('Number of recent exchanges to return (1-30, default 10)'),
       channel_id: z
         .string()
-        .optional()
-        .describe('Channel ID to get history for. Omit for primary channel. DM channel IDs work here too.'),
+        .describe('Explicit channel ID to get history for. DM channel IDs work here too.'),
       scope: z
         .enum(['current', 'archived', 'all'])
         .default('current')
@@ -30,18 +30,24 @@ export function registerHistoryTool(server: McpServer, config: Config): void {
         .describe('Whether to read only the active conversation, only archived sessions, or both.'),
     },
     async ({ limit, channel_id, scope = 'current' }) => {
-      const queryLimit = limit ?? 10;
-      const params = new URLSearchParams();
-      if (channel_id) {
-        params.set('channel_id', channel_id);
+      const gate = authorizeMcpToolAction('history', config);
+      if (gate.decision !== 'allow') {
+        return text(formatPermissionDenial(gate));
       }
+
+      const queryLimit = limit ?? 10;
+      if (!channel_id) {
+        return text('❌ Error: channel_id is required for history.');
+      }
+      const params = new URLSearchParams();
+      params.set('channel_id', channel_id);
       params.set('scope', scope);
       const queryPath = params.size > 0 ? `/history?${params.toString()}` : '/history';
 
       const res = await daemonRequest({ method: 'GET', path: queryPath, config });
 
       if (res.data['error'] === 'daemon_offline') {
-        return text('❌ Daemon is offline. No history available. Reopen Gemini CLI or run `gemini extensions config gemini-discord` if setup is incomplete.');
+        return text('❌ Daemon is offline. No history available. Reopen Gemini CLI or run `npm run setup` in the extension directory if setup is incomplete.');
       }
 
       if (!res.ok) {
@@ -76,7 +82,7 @@ export function registerHistoryTool(server: McpServer, config: Config): void {
           const m = msg as ExchangeLog;
           const replyIds = m.responseMessageIds.length > 0 ? m.responseMessageIds.join(', ') : 'none';
           lines.push(`- **${m.author}** (${m.authorType}) in \`${m.channelName}\` at ${m.at} [${m.elapsedMs}ms]`);
-          lines.push(`  request: \`${m.requestMessageId}\` | replies: \`${replyIds}\` | trigger: \`${m.trigger}\` | images: ${m.attachmentCount}`);
+          lines.push(`  request: \`${m.requestMessageId}\` | replies: \`${replyIds}\` | trigger: \`${m.trigger}\` | attachments: ${m.attachmentCount}`);
           lines.push(`  > ${truncate(m.prompt, 150)}`);
           lines.push(`  → ${truncate(m.response, 150)}`);
         }
@@ -95,7 +101,7 @@ export function registerHistoryTool(server: McpServer, config: Config): void {
             : `🤖 ${c.authorName ?? 'Assistant'}`;
           const location = c.channelName ? ` in ${c.channelName}` : '';
           const attachments = c.attachments && c.attachments.length > 0
-            ? ` [images: ${c.attachments.map((attachment) => attachment.name).join(', ')}]`
+            ? ` [attachments: ${c.attachments.map((attachment) => attachment.name).join(', ')}]`
             : '';
           lines.push(`${label}${location}: ${truncate(c.content || '(no text provided)', 200)}${attachments}`);
         }

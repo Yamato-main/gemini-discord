@@ -6,8 +6,8 @@
  * before the first message chunk is sent.
  *
  * Tuned for responsiveness:
- * - 700ms edit interval (under Discord's 5/5s rate limit, 65% faster than 2s)
- * - Adaptive first-message: sends as soon as 20+ chars are buffered
+ * - 1000ms edit interval (at Discord's 5/5s rate limit boundary with retry backoff)
+ * - Adaptive first-message: sends as soon as a short phrase is buffered
  */
 
 import type { Message, TextChannel, DMChannel, NewsChannel } from 'discord.js';
@@ -15,9 +15,9 @@ import { withRetry, retrySend } from './retry.js';
 
 import { sanitizeStreamChunk } from './sanitizer.js';
 
-const STREAM_EDIT_INTERVAL = 1100; // Safe edit pacing (1 edit every 1.1s) avoiding Discord's 5 edits / 5s rate limit
+const STREAM_EDIT_INTERVAL = 1000; // Fastest steady pacing that respects Discord's 5 edits / 5s rate limit
 const DISPLAY_CAP = 1900;
-const FIRST_MESSAGE_THRESHOLD = 24; // Large enough to avoid half-rendered mentions/code fences while reducing first-token latency
+const FIRST_MESSAGE_THRESHOLD = 12; // Small enough to feel immediate without flashing single-token fragments
 
 export interface LiveEditorOptions {
   placeholderDelayMs?: number | null;
