@@ -27,7 +27,16 @@ Install:
 gemini extensions install https://github.com/<owner>/gemini-discord
 ```
 
-For a local development checkout:
+During installation, the Gemini CLI will securely prompt you for:
+- **Discord Bot Token**
+- **Boss Discord User ID**: Your stable numeric Discord user ID for full bridge authority.
+- **Discord Server ID**: The server where the bot is installed.
+
+These are automatically saved and managed securely by the CLI. The extension starts automatically the next time Gemini CLI loads it, then sends you a Discord DM when the bot is online.
+
+### Manual / Local Development
+
+If you are developing locally or checking out the code directly without the CLI's installation manager:
 
 ```bash
 gemini extensions install /absolute/path/to/gemini-discord
@@ -35,13 +44,7 @@ cd /absolute/path/to/gemini-discord
 npm run setup
 ```
 
-Setup asks for exactly three values:
-
-- Bot Token
-- Boss User ID. This is written as `DISCORD_BOSS_USER_ID` for full bridge authority.
-- Server ID
-
-The extension starts automatically the next time Gemini CLI loads it, then sends you a Discord DM when the bot is online.
+The `setup` script will manually prompt for the same values and build the local environment.
 
 ## Identity
 
