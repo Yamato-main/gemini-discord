@@ -89426,8 +89426,78 @@ init_users();
 init_session_reset();
 init_binding();
 init_dm_pairing();
+
+// src/daemon/api-utils.ts
 init_permissions();
 var MAX_BODY_BYTES = 10240;
+function respond(res, status, body) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+function requireAuth(req, config) {
+  const header = req.headers.authorization;
+  if (!header) return false;
+  const [scheme, token] = header.split(" ");
+  return scheme === "Bearer" && token === config.daemonApiToken;
+}
+async function readBody(req) {
+  return new Promise((resolve2, reject2) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy();
+        reject2(new Error("Payload too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve2(Buffer.concat(chunks).toString("utf-8")));
+    req.on("error", reject2);
+  });
+}
+function parseOptionalNumber(value) {
+  if (value === void 0 || value === null || value === "") {
+    return null;
+  }
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function parseOptionalTimestamp(value) {
+  if (value === void 0 || value === null || value === "") {
+    return null;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function roleContextFromRequest(req, config) {
+  const rawRole = req.headers["x-gemini-discord-role"];
+  const role = Array.isArray(rawRole) ? rawRole[0] : rawRole;
+  if (role !== "BOSS" && role !== "GUEST") {
+    return null;
+  }
+  const rawSenderId = req.headers["x-gemini-discord-sender-id"];
+  const rawSenderLabel = req.headers["x-gemini-discord-sender-label"];
+  const senderDiscordId = (Array.isArray(rawSenderId) ? rawSenderId[0] : rawSenderId)?.trim() || "unknown";
+  const senderDisplayLabel = (Array.isArray(rawSenderLabel) ? rawSenderLabel[0] : rawSenderLabel)?.trim() || senderDiscordId;
+  return resolveDiscordRole(config, { discordUserId: senderDiscordId, displayLabel: senderDisplayLabel });
+}
+function authorizeApiAction(req, res, config, action) {
+  const roleContext = roleContextFromRequest(req, config);
+  if (!roleContext) {
+    respond(res, 403, { error: GUEST_PERMISSION_REFUSAL });
+    return false;
+  }
+  const decision = authorizeAction(action, roleContext);
+  if (decision.decision === "allow") {
+    return true;
+  }
+  respond(res, 403, { error: formatPermissionDenial(decision) });
+  return false;
+}
+
+// src/daemon/api.ts
 var DISCORD_SNOWFLAKE_RE3 = /^\d{15,25}$/;
 function startControlApi(deps) {
   const { config, state: state2, memory, queue, extensionDir: extensionDir2, isShuttingDown, shutdown } = deps;
@@ -90107,55 +90177,6 @@ function startControlApi(deps) {
   });
   return server;
 }
-function respond(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
-function requireAuth(req, config) {
-  const header = req.headers.authorization;
-  if (!header) return false;
-  const [scheme, token] = header.split(" ");
-  return scheme === "Bearer" && token === config.daemonApiToken;
-}
-function authorizeApiAction(req, res, config, action) {
-  const roleContext = roleContextFromRequest(req, config);
-  if (!roleContext) {
-    respond(res, 403, { error: GUEST_PERMISSION_REFUSAL });
-    return false;
-  }
-  const decision = authorizeAction(action, roleContext);
-  if (decision.decision === "allow") {
-    return true;
-  }
-  respond(res, 403, { error: formatPermissionDenial(decision) });
-  return false;
-}
-function roleContextFromRequest(req, config) {
-  const rawRole = req.headers["x-gemini-discord-role"];
-  const role = Array.isArray(rawRole) ? rawRole[0] : rawRole;
-  if (role !== "BOSS" && role !== "GUEST") {
-    return null;
-  }
-  const rawSenderId = req.headers["x-gemini-discord-sender-id"];
-  const rawSenderLabel = req.headers["x-gemini-discord-sender-label"];
-  const senderDiscordId = (Array.isArray(rawSenderId) ? rawSenderId[0] : rawSenderId)?.trim() || "unknown";
-  const senderDisplayLabel = (Array.isArray(rawSenderLabel) ? rawSenderLabel[0] : rawSenderLabel)?.trim() || senderDiscordId;
-  return resolveDiscordRole(config, { discordUserId: senderDiscordId, displayLabel: senderDisplayLabel });
-}
-function parseOptionalNumber(value) {
-  if (value === void 0 || value === null || value === "") {
-    return null;
-  }
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-function parseOptionalTimestamp(value) {
-  if (value === void 0 || value === null || value === "") {
-    return null;
-  }
-  const parsed = Date.parse(String(value));
-  return Number.isFinite(parsed) ? parsed : null;
-}
 function resolveConversationSessionKey(config, extensionDir2, channelId, guildId) {
   if (guildId) {
     return resolveSessionKey("channel", channelId, null);
@@ -90168,23 +90189,6 @@ function resolveConversationSessionKey(config, extensionDir2, channelId, guildId
 }
 function resolveSendChannelId(requestedChannelId) {
   return requestedChannelId.trim();
-}
-async function readBody(req) {
-  return new Promise((resolve2, reject2) => {
-    const chunks = [];
-    let size = 0;
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        req.destroy();
-        reject2(new Error("Payload too large"));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve2(Buffer.concat(chunks).toString("utf-8")));
-    req.on("error", reject2);
-  });
 }
 async function fetchTextChannel(client, channelId) {
   try {
