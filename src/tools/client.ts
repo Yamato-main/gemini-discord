@@ -108,11 +108,3 @@ function discordRoleHeaders(config: Config): Record<string, string> {
     'X-Gemini-Discord-Sender-Label': roleContext.senderDisplayLabel,
   };
 }
-
-/**
- * Check if the daemon is reachable via /health.
- */
-export async function isDaemonOnline(config: Config): Promise<boolean> {
-  const res = await daemonRequest({ method: 'GET', path: '/health', config });
-  return res.ok;
-}

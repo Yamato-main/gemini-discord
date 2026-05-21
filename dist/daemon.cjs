@@ -87172,75 +87172,6 @@ var init_session_reset = __esm({
   }
 });
 
-// src/daemon/gemini-output.ts
-function asRecord(value) {
-  return value && typeof value === "object" ? value : null;
-}
-function extractGeminiResultText(value) {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    const joined = value.map((entry) => extractGeminiResultText(entry)).filter((entry) => typeof entry === "string" && entry.length > 0).join("");
-    return joined || null;
-  }
-  const record = asRecord(value);
-  if (!record) {
-    return null;
-  }
-  const directFields = ["response", "text", "content"];
-  for (const field of directFields) {
-    const candidate = record[field];
-    if (typeof candidate === "string" && candidate.length > 0) {
-      return candidate;
-    }
-  }
-  const parts = record["parts"];
-  if (Array.isArray(parts)) {
-    const joined = parts.map((part) => {
-      const partRecord = asRecord(part);
-      if (!partRecord || partRecord["thought"] === true) {
-        return "";
-      }
-      return typeof partRecord["text"] === "string" ? partRecord["text"] : "";
-    }).join("");
-    if (joined.length > 0) {
-      return joined;
-    }
-  }
-  const nestedFields = ["result", "output", "message"];
-  for (const field of nestedFields) {
-    const nested = extractGeminiResultText(record[field]);
-    if (nested) {
-      return nested;
-    }
-  }
-  return null;
-}
-function getGeminiTextDelta(existing, incoming) {
-  if (!incoming || incoming === existing) {
-    return "";
-  }
-  if (!existing) {
-    return incoming;
-  }
-  if (incoming.startsWith(existing)) {
-    return incoming.slice(existing.length);
-  }
-  const maxOverlap = Math.min(existing.length, incoming.length);
-  for (let overlap = maxOverlap; overlap > 0; overlap--) {
-    if (existing.slice(-overlap) === incoming.slice(0, overlap)) {
-      return incoming.slice(overlap);
-    }
-  }
-  return incoming;
-}
-var init_gemini_output = __esm({
-  "src/daemon/gemini-output.ts"() {
-    "use strict";
-  }
-});
-
 // src/daemon/attachments.ts
 function getSupportedAttachmentMetadata(message) {
   return getSupportedAttachments(message).map(toConversationAttachment);
@@ -88329,192 +88260,6 @@ var init_background_context = __esm({
   }
 });
 
-// src/daemon/gemini-input.ts
-function buildGeminiCliPrompt(prompt, attachmentRefs = []) {
-  if (attachmentRefs.length === 0) {
-    return prompt;
-  }
-  const fileRefs = attachmentRefs.map((ref) => `@${ref}`).join(" ");
-  return `${fileRefs}
-
-Use the attached file content as the primary evidence for this turn. If the user asks to identify a person, character, object, place, or media source, ground the answer in visible/audible/textual details from the attachment and say when you are uncertain. Do not infer from prior conversation, memory, or unrelated context when it conflicts with the attachment.
-
-${prompt}`;
-}
-var init_gemini_input = __esm({
-  "src/daemon/gemini-input.ts"() {
-    "use strict";
-  }
-});
-
-// src/daemon/gemini.ts
-function appendHeadlessIsolationArgs2(args) {
-  args.push("--extensions", "gemini-discord");
-  args.push("--allowed-mcp-server-names", "discord-bridge");
-}
-async function callGeminiStreaming(prompt, config, callbacks, options) {
-  return new Promise((resolve2, reject2) => {
-    let fullResponse = "";
-    let resolved = false;
-    let sawAssistantOutput = false;
-    const args = buildGeminiArgs(prompt, config, "stream-json", options);
-    const proc = (0, import_node_child_process4.spawn)(config.geminiPath, args, {
-      cwd: options.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...roleEnv(options.roleContext) }
-    });
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        proc.kill("SIGTERM");
-        reject2(new Error(`Gemini timed out after ${config.geminiTimeoutMs / 1e3}s`));
-      }
-    }, config.geminiTimeoutMs);
-    let stderr = "";
-    proc.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    const rl = readline2.createInterface({ input: proc.stdout });
-    rl.on("line", (line) => {
-      if (resolved) return;
-      if (line.length < 10 || !line.startsWith('{"type":')) {
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        return;
-      }
-      const type = parsed["type"];
-      const role = parsed["role"];
-      if (type === "init") {
-        const sessionId = parsed["session_id"];
-        if (typeof sessionId === "string") {
-          options.onSessionId?.(sessionId);
-        }
-        return;
-      }
-      if (type === "message" && role === "assistant") {
-        const parts = parsed["parts"];
-        if (parts) {
-          for (const part of parts) {
-            if (part.text && !part.thought) {
-              sawAssistantOutput = true;
-              fullResponse += part.text;
-              callbacks.onToken(part.text);
-            } else if (part.thought) {
-              callbacks.onThought?.();
-            }
-          }
-        }
-        const isThought = parsed["thought"] === true;
-        const text = parsed["text"];
-        if (text && !parts) {
-          if (isThought) {
-            callbacks.onThought?.();
-          } else {
-            sawAssistantOutput = true;
-            fullResponse += text;
-            callbacks.onToken(text);
-          }
-        }
-        const content = parsed["content"];
-        if (content && !parts && !text) {
-          if (isThought) {
-            callbacks.onThought?.();
-          } else {
-            sawAssistantOutput = true;
-            fullResponse += content;
-            callbacks.onToken(content);
-          }
-        }
-        return;
-      }
-      if (type === "result") {
-        if (parsed["error"]) {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timer);
-            reject2(new Error(String(parsed["error"])));
-          }
-          return;
-        }
-        const finalText = extractGeminiResultText(parsed);
-        if (finalText) {
-          const delta = getGeminiTextDelta(fullResponse, finalText);
-          if (delta) {
-            sawAssistantOutput = true;
-            fullResponse += delta;
-            callbacks.onToken(delta);
-          }
-        }
-        return;
-      }
-      if (type === "message" && role === "user") {
-        return;
-      }
-      if (type === "tool_call" || type === "tool_execution" || type === "call_tool" || type === "tool_use" || type === "tool_result") {
-        callbacks.onThought?.();
-        return;
-      }
-      log.warn("Unknown stream-json line", { type, raw: line.slice(0, 200) });
-    });
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      rl.close();
-      if (resolved) return;
-      resolved = true;
-      if (code !== 0 && !sawAssistantOutput) {
-        reject2(withResumeFallbackHint(new Error(`Gemini exited with code ${code}. ${stderr.slice(0, 300)}`), options));
-        return;
-      }
-      resolve2(fullResponse);
-    });
-    proc.on("error", (err) => {
-      clearTimeout(timer);
-      if (!resolved) {
-        resolved = true;
-        reject2(new Error(`Failed to spawn gemini: ${err.message}`));
-      }
-    });
-  });
-}
-function buildGeminiArgs(prompt, config, outputFormat, options) {
-  const args = ["--model", config.geminiModel, "--output-format", outputFormat];
-  args.push("--allowed-tools", resolveGeminiAllowedTools(options.roleContext, options.toolMode ?? "chat"));
-  args.push("--approval-mode", "yolo");
-  appendHeadlessIsolationArgs2(args);
-  const resumeSessionId = options.resumeSessionId?.trim();
-  if (options.useResume && resumeSessionId) {
-    args.push("-r", resumeSessionId);
-  }
-  args.push("-p", buildGeminiCliPrompt(prompt, options.attachmentPaths));
-  return args;
-}
-function withResumeFallbackHint(error, options) {
-  if (!options.useResume) {
-    return error;
-  }
-  const message = error.message.toLowerCase();
-  if (message.includes("no session") || message.includes("session not found") || message.includes("resume") || message.includes("latest")) {
-    return new Error(`resume_session_unavailable: ${error.message}`);
-  }
-  return error;
-}
-var import_node_child_process4, readline2;
-var init_gemini = __esm({
-  "src/daemon/gemini.ts"() {
-    "use strict";
-    import_node_child_process4 = require("node:child_process");
-    readline2 = __toESM(require("node:readline"), 1);
-    init_log();
-    init_gemini_input();
-    init_gemini_output();
-    init_permissions();
-  }
-});
-
 // src/daemon/gemini-project.ts
 function resolveGeminiProjectDir(extensionDir2) {
   const resolved = path11.resolve(extensionDir2);
@@ -88623,32 +88368,23 @@ async function processViaCli(message, accepted, config, memory, processingContex
     });
   });
   try {
-    const useHeadlessAttachmentPrompt = shouldUseHeadlessForAttachmentInjection(attachmentMetadata);
     const cliPool = runtimeStore.cliPool;
-    if (!useHeadlessAttachmentPrompt && !cliPool) {
+    if (!cliPool) {
       throw new Error("CLI pool not initialized");
     }
     const sendViaCli = async (callbacks) => {
       const baseOptions = {
         cwd: processingContext.geminiProjectDir,
-        useResume: useHeadlessAttachmentPrompt ? false : allowPersistentSession,
-        resumeSessionId: useHeadlessAttachmentPrompt ? null : resumeSessionId,
+        useResume: allowPersistentSession,
+        resumeSessionId,
         roleContext: accepted.roleContext,
         toolMode,
-        attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
         attachments: downloadedAttachments,
         onSessionId: (sessionId) => {
           currentSessionId = sessionId;
         }
       };
       try {
-        if (useHeadlessAttachmentPrompt) {
-          log.info("Using fresh headless Gemini CLI prompt for attachment injection", {
-            bindingKey: processingContext.bindingKey,
-            attachmentCount: downloadedAttachments.length
-          });
-          return await callGeminiStreaming(prompt, config, callbacks, baseOptions);
-        }
         return await cliPool.send(processingContext.bindingKey, prompt, callbacks, baseOptions);
       } catch (error) {
         if (!shouldRetryWithFreshSession(error, baseOptions.resumeSessionId)) {
@@ -88665,9 +88401,6 @@ async function processViaCli(message, accepted, config, memory, processingContex
           ...baseOptions,
           resumeSessionId: null
         };
-        if (useHeadlessAttachmentPrompt) {
-          return callGeminiStreaming(prompt, config, callbacks, freshOptions);
-        }
         return cliPool.send(processingContext.bindingKey, prompt, callbacks, freshOptions);
       }
     };
@@ -88822,9 +88555,6 @@ function shouldRetryWithFreshSession(error, resumeSessionId) {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   return message.includes("exited with code") || message.includes("returned no assistant output") || message.includes("resume_session_unavailable");
 }
-function shouldUseHeadlessForAttachmentInjection(attachments) {
-  return false;
-}
 var fsp2, path12, ERROR_MATCHERS;
 var init_engine_cli = __esm({
   "src/daemon/engine-cli.ts"() {
@@ -88839,7 +88569,6 @@ var init_engine_cli = __esm({
     init_background_context();
     init_runtime();
     init_log();
-    init_gemini();
     init_permissions();
     init_binding();
     init_gemini_project();
@@ -90609,8 +90338,71 @@ function toFileUri(relativePath) {
   return `file://${relativePath.split(path8.sep).join("/")}`;
 }
 
+// src/daemon/gemini-output.ts
+function asRecord(value) {
+  return value && typeof value === "object" ? value : null;
+}
+function extractGeminiResultText(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const joined = value.map((entry) => extractGeminiResultText(entry)).filter((entry) => typeof entry === "string" && entry.length > 0).join("");
+    return joined || null;
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  const directFields = ["response", "text", "content"];
+  for (const field of directFields) {
+    const candidate = record[field];
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate;
+    }
+  }
+  const parts = record["parts"];
+  if (Array.isArray(parts)) {
+    const joined = parts.map((part) => {
+      const partRecord = asRecord(part);
+      if (!partRecord || partRecord["thought"] === true) {
+        return "";
+      }
+      return typeof partRecord["text"] === "string" ? partRecord["text"] : "";
+    }).join("");
+    if (joined.length > 0) {
+      return joined;
+    }
+  }
+  const nestedFields = ["result", "output", "message"];
+  for (const field of nestedFields) {
+    const nested = extractGeminiResultText(record[field]);
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+function getGeminiTextDelta(existing, incoming) {
+  if (!incoming || incoming === existing) {
+    return "";
+  }
+  if (!existing) {
+    return incoming;
+  }
+  if (incoming.startsWith(existing)) {
+    return incoming.slice(existing.length);
+  }
+  const maxOverlap = Math.min(existing.length, incoming.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap--) {
+    if (existing.slice(-overlap) === incoming.slice(0, overlap)) {
+      return incoming.slice(overlap);
+    }
+  }
+  return incoming;
+}
+
 // src/daemon/cli-pool.ts
-init_gemini_output();
 init_permissions();
 var ACP_PROTOCOL_VERSION = 1;
 var SESSION_REQUEST_TIMEOUT_MS = 12e4;

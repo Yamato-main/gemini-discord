@@ -21,7 +21,6 @@ import { sanitizeFullResponse } from './sanitizer.js';
 import { getBackgroundOperationsContext } from './background-context.js';
 import { runtimeStore } from './runtime.js';
 import { log } from './log.js';
-import { callGeminiStreaming } from './gemini.js';
 import {
   authorizeAction,
   formatPermissionDenial,
@@ -164,34 +163,24 @@ export async function processViaCli(
   });
 
   try {
-    const useHeadlessAttachmentPrompt = shouldUseHeadlessForAttachmentInjection(attachmentMetadata);
     const cliPool = runtimeStore.cliPool;
-    if (!useHeadlessAttachmentPrompt && !cliPool) {
+    if (!cliPool) {
       throw new Error('CLI pool not initialized');
     }
 
     const sendViaCli = async (callbacks: { onToken: (token: string) => void; onThought: () => void }): Promise<string> => {
       const baseOptions = {
         cwd: processingContext.geminiProjectDir,
-        useResume: useHeadlessAttachmentPrompt ? false : allowPersistentSession,
-        resumeSessionId: useHeadlessAttachmentPrompt ? null : resumeSessionId,
+        useResume: allowPersistentSession,
+        resumeSessionId: resumeSessionId,
         roleContext: accepted.roleContext,
         toolMode,
-        attachmentPaths: downloadedAttachments.map((attachment) => attachment.relativePath),
         attachments: downloadedAttachments,
         onSessionId: (sessionId: string) => { currentSessionId = sessionId; },
       } as const;
 
       try {
-        if (useHeadlessAttachmentPrompt) {
-          log.info('Using fresh headless Gemini CLI prompt for attachment injection', {
-            bindingKey: processingContext.bindingKey,
-            attachmentCount: downloadedAttachments.length,
-          });
-          return await callGeminiStreaming(prompt, config, callbacks, baseOptions);
-        }
-
-        return await cliPool!.send(processingContext.bindingKey, prompt, callbacks, baseOptions);
+        return await cliPool.send(processingContext.bindingKey, prompt, callbacks, baseOptions);
       } catch (error) {
         if (!shouldRetryWithFreshSession(error, baseOptions.resumeSessionId)) {
           throw error;
@@ -211,11 +200,7 @@ export async function processViaCli(
           resumeSessionId: null,
         };
 
-        if (useHeadlessAttachmentPrompt) {
-          return callGeminiStreaming(prompt, config, callbacks, freshOptions);
-        }
-
-        return cliPool!.send(processingContext.bindingKey, prompt, callbacks, freshOptions);
+        return cliPool.send(processingContext.bindingKey, prompt, callbacks, freshOptions);
       }
     };
 
@@ -431,8 +416,4 @@ function shouldRetryWithFreshSession(error: unknown, resumeSessionId: string | n
   return message.includes('exited with code')
     || message.includes('returned no assistant output')
     || message.includes('resume_session_unavailable');
-}
-
-export function shouldUseHeadlessForAttachmentInjection(attachments: ConversationAttachment[]): boolean {
-  return false;
 }
