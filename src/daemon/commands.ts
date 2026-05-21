@@ -77,31 +77,6 @@ const AVAILABLE_MODELS = [
 ];
 
 /**
- * Register slash commands for the primary guild.
- * We use guild-scoped commands for instant propagation.
- */
-export async function registerSlashCommands(config: Config, botUserId: string): Promise<void> {
-  if (!config.discordBotToken || !config.discordChannelId) return;
-
-  const rest = new REST({ version: '10' }).setToken(config.discordBotToken);
-
-  try {
-    log.info('Refreshing guild slash commands...');
-    
-    // We fetch the guild ID from the primary channel's parent guild
-    // Since we only care about the primary server, we can just use the guild of the primary channel.
-    // However, to keep it simple, we'll try to register for ALL guilds the bot is in (usually just one).
-    // Or we can just use a common guild ID if we had one. 
-    // For now, we'll register globally but explain the 1h delay, OR try to find guilds.
-    
-    // Better: Guild registration for all guilds is fast and reliable for private servers.
-    // clientReady event guarantees we can see guilds.
-  } catch (error) {
-    log.error('Failed to register slash commands', { error });
-  }
-}
-
-/**
  * Perform global and guild-scoped registration. Called from clientReady.
  */
 export async function registerGuildCommands(client: Client, config: Config): Promise<void> {

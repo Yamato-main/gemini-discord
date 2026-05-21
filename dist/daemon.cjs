@@ -90101,48 +90101,6 @@ function startControlApi(deps) {
           respond(res, 200, { ok });
           return;
         }
-        if (pathname === "/reactions") {
-          if (!authorizeApiAction(req, res, config, "history")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          const messageId = String(parsed["message_id"] ?? "");
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            const msg = await channel.messages.fetch(messageId);
-            const reactions = msg.reactions.cache.map((r) => ({ emoji: r.emoji.name, count: r.count }));
-            respond(res, 200, { reactions });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-        if (pathname === "/pins") {
-          if (!authorizeApiAction(req, res, config, "history")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            const pins = await channel.messages.fetchPinned();
-            respond(res, 200, { pins: pins.map((p) => ({ id: p.id, content: p.content })) });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
         if (pathname === "/react") {
           if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
           const channelId = String(parsed["channel_id"] ?? "");
