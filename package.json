@@ -2,7 +2,7 @@
   "name": "gemini-discord",
   "version": "0.1.0",
   "type": "module",
-  "description": "Chat with your local Gemini CLI agent from Discord.",
+  "description": "Secure Discord bridge for your local Gemini CLI agent.",
   "files": [
     "dist",
     "src",

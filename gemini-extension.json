@@ -1,29 +1,29 @@
 {
   "name": "gemini-discord",
   "version": "0.1.0",
-  "description": "Chat with your local Gemini CLI agent from Discord.",
+  "description": "Secure Discord bridge for your local Gemini CLI agent.",
   "settings": [
     {
       "name": "Discord Bot Token",
-      "description": "Bot token from discord.com/developers/applications",
+      "description": "Bot token from the Discord Developer Portal.",
       "envVar": "DISCORD_BOT_TOKEN",
       "sensitive": true
     },
     {
       "name": "Boss Discord User ID",
-      "description": "Stable numeric Discord user ID with full bridge authority.",
+      "description": "Stable numeric Discord user ID for full bridge authority.",
       "envVar": "DISCORD_BOSS_USER_ID",
       "sensitive": false
     },
     {
       "name": "Owner Discord User IDs",
-      "description": "Discord user IDs allowed by legacy routing/setup flows. This does not grant boss authority.",
+      "description": "Discord user IDs allowed by legacy setup. Does not grant Boss authority.",
       "envVar": "DISCORD_OWNER_IDS",
       "sensitive": false
     },
     {
       "name": "Discord Server ID",
-      "description": "Server ID where the bot is installed. The bridge discovers usable channels automatically.",
+      "description": "ID of the server where the bot is installed.",
       "envVar": "DISCORD_SERVER_ID",
       "sensitive": false
     }
