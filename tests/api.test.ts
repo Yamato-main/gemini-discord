@@ -477,62 +477,6 @@ describe('control API moderation', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
-
-  it('creates a guild sticker for an authorized Discord request', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-sticker-'));
-    const create = vi.fn().mockResolvedValue({ id: 'sticker-1', name: 'Luffy G5' });
-    const client = {
-      user: { id: 'bot-user', tag: 'Bot#0001' },
-      ws: { ping: 0 },
-      guilds: {
-        fetch: vi.fn().mockResolvedValue({
-          stickers: { create },
-        }),
-      },
-    };
-    const config = createConfig({
-      daemonPort: 0,
-      discordServerId: 'guild-1',
-      discordBossUserId: '111111111111111111',
-    });
-    const server = startControlApi({
-      config,
-      state: createState(),
-      memory: {} as any,
-      queue: { depth: () => 0 } as any,
-      extensionDir: tmpDir,
-      client: client as any,
-      isShuttingDown: () => false,
-      shutdown: async () => {},
-    });
-
-    try {
-      await once(server, 'listening');
-      const port = (server.address() as AddressInfo).port;
-      const response = await fetch(`http://127.0.0.1:${port}/sticker`, {
-        method: 'POST',
-        headers: bossHeaders(config.daemonApiToken),
-        body: JSON.stringify({
-          file_path: '/tmp/test-sticker.png',
-          name: 'Luffy G5',
-          tags: 'one-piece, gear-5',
-          description: 'Luffy in Gear 5 form',
-        }),
-      });
-
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ ok: true, sticker_id: 'sticker-1', name: 'Luffy G5' });
-      expect(create).toHaveBeenCalledWith({
-        file: '/tmp/test-sticker.png',
-        name: 'Luffy G5',
-        tags: 'one-piece, gear-5',
-        description: 'Luffy in Gear 5 form',
-      });
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
 });
 
 function createState(): DaemonState {

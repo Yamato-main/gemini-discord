@@ -21949,11 +21949,10 @@ function registerAdminTool(server2, config3) {
       `\u2022 "set_presence" \u2014 change the bot's online status and activity`,
       '\u2022 "kick" \u2014 remove a member from the server',
       '\u2022 "timeout" \u2014 apply a communication timeout (up to 28 days)',
-      '\u2022 "remove_timeout" \u2014 remove an active timeout from a member',
-      '\u2022 "create_sticker" \u2014 upload a new sticker to the server'
+      '\u2022 "remove_timeout" \u2014 remove an active timeout from a member'
     ].join("\n"),
     {
-      action: external_exports.enum(["status", "restart", "reset", "channels", "users", "allowlist_add", "allowlist_remove", "set_presence", "kick", "timeout", "remove_timeout", "create_sticker"]).describe("The administrative action to perform."),
+      action: external_exports.enum(["status", "restart", "reset", "channels", "users", "allowlist_add", "allowlist_remove", "set_presence", "kick", "timeout", "remove_timeout"]).describe("The administrative action to perform."),
       query: external_exports.string().optional().describe("Optional channel/user name, mention, ID, or partial string to filter discovery actions."),
       channel_id: external_exports.string().optional().describe("Explicit Discord channel ID for reset actions."),
       status: external_exports.enum(["online", "idle", "dnd", "invisible"]).optional().describe("Bot online status (only for set_presence)."),
@@ -21962,14 +21961,10 @@ function registerAdminTool(server2, config3) {
       user_id: external_exports.string().optional().describe("Stable numeric Discord user ID of the member to moderate or allowlist. Use users discovery to resolve names or mentions first."),
       guild_id: external_exports.string().optional().describe("Discord server/guild ID. Defaults to the configured server (only for kick/timeout/remove_timeout)."),
       reason: external_exports.string().optional().describe("Optional audit-log reason (only for kick/timeout/remove_timeout)."),
-      duration_minutes: external_exports.number().optional().describe("Timeout duration in minutes. Required for timeout. Maximum 40320 (28 days)."),
-      file_path: external_exports.string().optional().describe("Local absolute path to the sticker image (only for create_sticker)."),
-      name: external_exports.string().optional().describe("Sticker name (only for create_sticker)."),
-      tags: external_exports.string().optional().describe('Sticker tags, e.g. "luffy, anime" (only for create_sticker).'),
-      description: external_exports.string().optional().describe("Optional sticker description (only for create_sticker).")
+      duration_minutes: external_exports.number().optional().describe("Timeout duration in minutes. Required for timeout. Maximum 40320 (28 days).")
     },
-    async ({ action, query, channel_id, status, activity_type, activity_name, user_id, guild_id, reason, duration_minutes, file_path, name, tags, description }) => {
-      const permAction = action === "status" ? "status" : action === "users" ? "user_discovery" : ["kick", "timeout", "remove_timeout", "allowlist_add", "allowlist_remove", "create_sticker"].includes(action) ? "moderation" : "admin_command";
+    async ({ action, query, channel_id, status, activity_type, activity_name, user_id, guild_id, reason, duration_minutes }) => {
+      const permAction = action === "status" ? "status" : action === "users" ? "user_discovery" : ["kick", "timeout", "remove_timeout", "allowlist_add", "allowlist_remove"].includes(action) ? "moderation" : "admin_command";
       const gate = authorizeMcpToolAction(permAction, config3);
       if (gate.decision !== "allow") {
         return text(formatPermissionDenial(gate), true);
@@ -22192,25 +22187,6 @@ ${retryMessage}` : ""}` }]
           if (action === "kick") return text(`\u2705 Kicked user ${target}.`);
           if (action === "timeout") return text(`\u2705 Timed out user ${target} for ${duration_minutes} minute${duration_minutes === 1 ? "" : "s"}.`);
           return text(`\u2705 Removed timeout for user ${target}.`);
-        }
-        case "create_sticker": {
-          if (!file_path || !name || !tags) {
-            return text("\u274C Error: file_path, name, and tags are required for create_sticker.", true);
-          }
-          const body = { file_path, name, tags };
-          if (guild_id) body["guild_id"] = guild_id;
-          if (description) body["description"] = description;
-          const res = await daemonRequest({
-            method: "POST",
-            path: "/sticker",
-            config: config3,
-            body,
-            timeoutMs: 6e4
-          });
-          if (!res.ok) {
-            return text(`\u274C Sticker creation failed: ${res.data["error"] ?? "unknown error"}`, true);
-          }
-          return text(`\u2705 Sticker "${name}" created successfully. ID: \`${res.data["sticker_id"]}\``);
         }
         default:
           return text(`\u274C Error: Unknown action ${action}`, true);

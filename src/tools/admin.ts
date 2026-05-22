@@ -30,10 +30,9 @@ export function registerAdminTool(server: McpServer, config: Config): void {
       '• "kick" — remove a member from the server',
       '• "timeout" — apply a communication timeout (up to 28 days)',
       '• "remove_timeout" — remove an active timeout from a member',
-      '• "create_sticker" — upload a new sticker to the server',
     ].join('\n'),
     {
-      action: z.enum(['status', 'restart', 'reset', 'channels', 'users', 'allowlist_add', 'allowlist_remove', 'set_presence', 'kick', 'timeout', 'remove_timeout', 'create_sticker']).describe('The administrative action to perform.'),
+      action: z.enum(['status', 'restart', 'reset', 'channels', 'users', 'allowlist_add', 'allowlist_remove', 'set_presence', 'kick', 'timeout', 'remove_timeout']).describe('The administrative action to perform.'),
       query: z.string().optional().describe('Optional channel/user name, mention, ID, or partial string to filter discovery actions.'),
       channel_id: z.string().optional().describe('Explicit Discord channel ID for reset actions.'),
       status: z.enum(['online', 'idle', 'dnd', 'invisible']).optional().describe('Bot online status (only for set_presence).'),
@@ -43,15 +42,11 @@ export function registerAdminTool(server: McpServer, config: Config): void {
       guild_id: z.string().optional().describe('Discord server/guild ID. Defaults to the configured server (only for kick/timeout/remove_timeout).'),
       reason: z.string().optional().describe('Optional audit-log reason (only for kick/timeout/remove_timeout).'),
       duration_minutes: z.number().optional().describe('Timeout duration in minutes. Required for timeout. Maximum 40320 (28 days).'),
-      file_path: z.string().optional().describe('Local absolute path to the sticker image (only for create_sticker).'),
-      name: z.string().optional().describe('Sticker name (only for create_sticker).'),
-      tags: z.string().optional().describe('Sticker tags, e.g. "luffy, anime" (only for create_sticker).'),
-      description: z.string().optional().describe('Optional sticker description (only for create_sticker).'),
     },
-    async ({ action, query, channel_id, status, activity_type, activity_name, user_id, guild_id, reason, duration_minutes, file_path, name, tags, description }) => {
+    async ({ action, query, channel_id, status, activity_type, activity_name, user_id, guild_id, reason, duration_minutes }) => {
       const permAction = action === 'status' ? 'status' as const
         : action === 'users' ? 'user_discovery' as const
-        : ['kick', 'timeout', 'remove_timeout', 'allowlist_add', 'allowlist_remove', 'create_sticker'].includes(action) ? 'moderation' as const
+        : ['kick', 'timeout', 'remove_timeout', 'allowlist_add', 'allowlist_remove'].includes(action) ? 'moderation' as const
         : 'admin_command' as const;
       const gate = authorizeMcpToolAction(permAction, config);
       if (gate.decision !== 'allow') {
@@ -317,30 +312,6 @@ export function registerAdminTool(server: McpServer, config: Config): void {
           if (action === 'kick') return text(`✅ Kicked user ${target}.`);
           if (action === 'timeout') return text(`✅ Timed out user ${target} for ${duration_minutes} minute${duration_minutes === 1 ? '' : 's'}.`);
           return text(`✅ Removed timeout for user ${target}.`);
-        }
-
-        case 'create_sticker': {
-          if (!file_path || !name || !tags) {
-            return text('❌ Error: file_path, name, and tags are required for create_sticker.', true);
-          }
-
-          const body: Record<string, unknown> = { file_path, name, tags };
-          if (guild_id) body['guild_id'] = guild_id;
-          if (description) body['description'] = description;
-
-          const res = await daemonRequest({
-            method: 'POST',
-            path: '/sticker',
-            config,
-            body,
-            timeoutMs: 60000,
-          });
-
-          if (!res.ok) {
-            return text(`❌ Sticker creation failed: ${res.data['error'] ?? 'unknown error'}`, true);
-          }
-
-          return text(`✅ Sticker "${name}" created successfully. ID: \`${res.data['sticker_id']}\``);
         }
 
         default:

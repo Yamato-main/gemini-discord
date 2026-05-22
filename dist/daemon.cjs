@@ -90212,35 +90212,6 @@ async function handleModerationRoutes(req, res, pathname, parsed, deps) {
     }
     return true;
   }
-  if (pathname === "/sticker") {
-    if (!authorizeApiAction(req, res, config, "moderation")) return true;
-    const guildId = String(parsed["guild_id"] ?? config.discordServerId ?? "").trim();
-    const filePath = String(parsed["file_path"] ?? "").trim();
-    const name = String(parsed["name"] ?? "").trim();
-    const tags = String(parsed["tags"] ?? "").trim();
-    const description = String(parsed["description"] ?? "").trim();
-    if (!guildId || !filePath || !name || !tags) {
-      respond(res, 400, { error: "guild_id, file_path, name, and tags are required" });
-      return true;
-    }
-    try {
-      if (!deps.client) {
-        respond(res, 503, { error: "Client not ready" });
-        return true;
-      }
-      const guild = await deps.client.guilds.fetch(guildId);
-      const sticker = await guild.stickers.create({
-        file: filePath,
-        name,
-        tags,
-        description
-      });
-      respond(res, 200, { ok: true, sticker_id: sticker.id, name: sticker.name });
-    } catch (err) {
-      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-    }
-    return true;
-  }
   if (pathname === "/presence") {
     if (!authorizeApiAction(req, res, config, "admin_command")) return true;
     const status = String(parsed["status"] ?? "online");
