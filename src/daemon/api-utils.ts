@@ -1,5 +1,13 @@
 import * as http from 'node:http';
-import type { Config } from '../shared/types.js';
+import { type Client, type TextChannel, type DMChannel, type NewsChannel } from 'discord.js';
+import type {
+  Config,
+  ExchangeLog,
+} from '../shared/types.js';
+import { resolveSessionKey } from './memory.js';
+import type { ConversationMemory } from './memory.js';
+import type { ChannelQueue } from './queue.js';
+import { resolveDmUserIdForChannel } from './dm-pairing.js';
 import {
   authorizeAction,
   formatPermissionDenial,
@@ -10,6 +18,30 @@ import {
 } from './permissions.js';
 
 const MAX_BODY_BYTES = 10240;
+
+export interface DaemonState {
+  status: 'starting' | 'ready' | 'degraded';
+  startedAt: string;
+  geminiReachable: boolean;
+  geminiVersion: string;
+  messagesHandled: number;
+  lastMessageAt: string | null;
+  lastError: string | null;
+  exchangeLog: ExchangeLog[];
+}
+
+export interface ApiDependencies {
+  config: Config;
+  state: DaemonState;
+  memory: ConversationMemory;
+  queue: ChannelQueue;
+  extensionDir: string;
+  client?: import('discord.js').Client | null;
+  isShuttingDown: () => boolean;
+  shutdown: (signal: string) => Promise<void>;
+}
+
+export type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
 export function respond(res: http.ServerResponse, status: number, body: object): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -93,4 +125,57 @@ export function authorizeApiAction(
 
   respond(res, 403, { error: formatPermissionDenial(decision) });
   return false;
+}
+
+export function resolveConversationSessionKey(
+  config: Config,
+  extensionDir: string,
+  channelId: string,
+  guildId: string | null,
+): string {
+  if (guildId) {
+    return resolveSessionKey('channel', channelId, null);
+  }
+
+  return resolveSessionKey(
+    'channel',
+    channelId,
+    resolveDmUserIdForChannel(extensionDir, channelId),
+  );
+}
+
+export function resolveSendChannelId(requestedChannelId: string): string {
+  return requestedChannelId.trim();
+}
+
+export async function fetchTextChannel(client: Client, channelId: string): Promise<SendableChannel | null> {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (channel && channel.isTextBased() && 'send' in channel) return channel as SendableChannel;
+  } catch {}
+  
+  try {
+    const user = await client.users.fetch(channelId);
+    if (user) return await user.createDM();
+  } catch {}
+  
+  return null;
+}
+
+export function isWritableTarget(channelId: string, channel: SendableChannel, config: Config): boolean {
+  if ('isDMBased' in channel && channel.isDMBased()) {
+    return config.enableDMs;
+  }
+  if (config.allowedChannelIds.includes(channelId)) {
+    return true;
+  }
+  const parentId = (channel as { parentId?: string | null }).parentId ?? null;
+  if (parentId && config.allowedChannelIds.includes(parentId)) {
+    return true;
+  }
+
+  const guildId = (channel as { guildId?: string | null }).guildId ?? null;
+  return config.allowedChannelIds.length === 0
+    && Boolean(config.discordServerId)
+    && guildId === config.discordServerId;
 }

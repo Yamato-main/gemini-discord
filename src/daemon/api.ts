@@ -4,69 +4,52 @@
  */
 
 import * as http from 'node:http';
-import { ActivityType, type Client, type TextChannel, type DMChannel, type NewsChannel } from 'discord.js';
+import { ActivityType } from 'discord.js';
 import type {
   Config,
-  DaemonHistory,
-  DaemonStatus,
-  ExchangeLog,
 } from '../shared/types.js';
 import { chunkMessage } from '../shared/chunker.js';
 import { log } from './log.js';
-import type { ConversationMemory } from './memory.js';
-import { resolveSessionKey } from './memory.js';
-import type { ChannelQueue } from './queue.js';
 import { sendDiscordMessage } from './sender.js';
-import { scheduleJob, scheduleReminder, listJobs, deleteJob } from './cron.js';
-import { getChannelMapEntries, resolveDiscoveredChannel } from './channels.js';
-import { buildGuildUserMap, getUserMapEntries, resolveDiscoveredUser } from './users.js';
+import { scheduleJob, scheduleReminder, deleteJob } from './cron.js';
+import { resolveDiscoveredChannel } from './channels.js';
 import { resetConversationSession } from './session-reset.js';
-import { listGeminiBindingStates } from './binding.js';
-import { listDmPairings, resolveDmUserIdForChannel } from './dm-pairing.js';
-import {
-  authorizeAction,
-  formatPermissionDenial,
-  GUEST_PERMISSION_REFUSAL,
-  resolveDiscordRole,
-  type PermissionAction,
-  type RoleContext,
-} from './permissions.js';
+import { resolveDmUserIdForChannel } from './dm-pairing.js';
 import {
   respond,
   requireAuth,
   readBody,
   parseOptionalNumber,
   parseOptionalTimestamp,
-  roleContextFromRequest,
   authorizeApiAction,
+  resolveConversationSessionKey,
+  resolveSendChannelId,
+  fetchTextChannel,
+  isWritableTarget,
+  type ApiDependencies,
 } from './api-utils.js';
+import { handleStatusRoutes } from './api/status.js';
+import { handleDiscoveryRoutes } from './api/discovery.js';
 
 const DISCORD_SNOWFLAKE_RE = /^\d{15,25}$/;
 
-export interface DaemonState {
-  status: 'starting' | 'ready' | 'degraded';
-  startedAt: string;
-  geminiReachable: boolean;
-  geminiVersion: string;
-  messagesHandled: number;
-  lastMessageAt: string | null;
-  lastError: string | null;
-  exchangeLog: ExchangeLog[];
-}
-
-export interface ApiDependencies {
-  config: Config;
-  state: DaemonState;
-  memory: ConversationMemory;
-  queue: ChannelQueue;
-  extensionDir: string;
-  client?: import('discord.js').Client | null;
-  isShuttingDown: () => boolean;
-  shutdown: (signal: string) => Promise<void>;
-}
+export {
+  respond,
+  requireAuth,
+  readBody,
+  parseOptionalNumber,
+  parseOptionalTimestamp,
+  authorizeApiAction,
+  resolveConversationSessionKey,
+  resolveSendChannelId,
+  fetchTextChannel,
+  isWritableTarget,
+  type DaemonState,
+  type ApiDependencies,
+} from './api-utils.js';
 
 export function startControlApi(deps: ApiDependencies): http.Server {
-  const { config, state, memory, queue, extensionDir, isShuttingDown, shutdown } = deps;
+  const { config, memory, extensionDir, isShuttingDown, shutdown } = deps;
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -95,155 +78,8 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         return;
       }
 
-      if (req.method === 'GET' && pathname === '/status') {
-        if (!authorizeApiAction(req, res, config, 'status')) return;
-        const queueKey = config.discordChannelId ? `memory:channel:${config.discordChannelId}` : 'memory:none';
-        const statusBody: DaemonStatus = {
-          status: state.status,
-          startedAt: state.startedAt,
-          geminiReachable: state.geminiReachable,
-          geminiVersion: state.geminiVersion,
-          messagesHandled: state.messagesHandled,
-          lastMessageAt: state.lastMessageAt,
-          lastError: state.lastError,
-          queueDepth: queue.depth(queueKey),
-          streaming: config.streaming,
-          botTag: deps.client?.user?.tag ?? null,
-          wsPing: deps.client?.ws?.ping ?? -1,
-          channelId: config.discordChannelId,
-          serverId: config.discordServerId || undefined,
-          serverName: config.discordServerName || undefined,
-          ownerIds: config.ownerIds,
-          enableDMs: config.enableDMs,
-          sessionScope: config.memoryScope,
-          geminiSessionBindingScope: config.geminiSessionBindingScope,
-          useGeminiCliSessions: config.useGeminiCliSessions,
-          allowlistedUsers: config.allowedUserIds.length,
-          allowlistedAgents: config.allowedAgentIds.length,
-          requireMention: config.requireMention,
-          channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
-          cronJobs: listJobs(),
-          headlessMode: config.useGeminiCliSessions ? 'gemini-cli ACP persistent sessions (discord-only extension load)' : 'stateless prompt replay',
-          bindings: listGeminiBindingStates(extensionDir),
-          dmPairings: listDmPairings(extensionDir),
-        };
-        respond(res, 200, statusBody);
-        return;
-      }
-
-      if (req.method === 'GET' && pathname === '/history') {
-        if (!authorizeApiAction(req, res, config, 'history')) return;
-        const channelId = url.searchParams.get('channel_id');
-        const scope = url.searchParams.get('scope') ?? 'current';
-        if (!channelId) {
-          respond(res, 400, { error: 'channel_id is required for history' });
-          return;
-        }
-        const resolvedChannelId = channelId;
-        const sessionKey = resolveConversationSessionKey(config, extensionDir, resolvedChannelId, null);
-        const filteredMessages = channelId
-          ? state.exchangeLog.filter((entry) => entry.channelId === channelId).slice(-30)
-          : state.exchangeLog.slice(-30);
-
-        const historyBody: DaemonHistory = {
-          sessionKey,
-          messages: filteredMessages,
-          conversation: scope === 'archived' ? [] : memory.snapshot(sessionKey),
-          archives: scope === 'current' ? [] : memory.archivedSessions(sessionKey),
-          participants: memory.participants(sessionKey),
-          channels: memory.channels(sessionKey),
-        };
-        respond(res, 200, historyBody);
-        return;
-      }
-
-      if (req.method === 'GET' && pathname === '/cron') {
-        if (!authorizeApiAction(req, res, config, 'cron')) return;
-        respond(res, 200, { ok: true, jobs: listJobs() });
-        return;
-      }
-
-      if (req.method === 'GET' && pathname === '/users') {
-        if (!authorizeApiAction(req, res, config, 'user_discovery')) return;
-        if (!deps.client) {
-          respond(res, 503, { error: 'Client not ready' });
-          return;
-        }
-
-        const query = url.searchParams.get('query') ?? '';
-        await buildGuildUserMap(deps.client, config, query ? { query, limit: 25 } : undefined);
-        const resolved = query ? await resolveDiscoveredUser(query, deps.client, config) : null;
-        const users = getUserMapEntries(config.discordServerId || undefined)
-          .filter((entry) => {
-            if (!query.trim()) return true;
-            const needle = query.trim().toLowerCase();
-            return entry.id.includes(needle)
-              || entry.username.toLowerCase().includes(needle)
-              || (entry.displayName ?? '').toLowerCase().includes(needle)
-              || (entry.globalName ?? '').toLowerCase().includes(needle)
-              || (entry.tag ?? '').toLowerCase().includes(needle);
-          })
-          .slice(0, 50);
-        respond(res, 200, { ok: true, users, resolved });
-        return;
-      }
-
-      if (req.method === 'GET' && pathname === '/reactions') {
-        if (!authorizeApiAction(req, res, config, 'history')) return;
-        const channelId = url.searchParams.get('channel_id');
-        const messageId = url.searchParams.get('message_id');
-        const emoji = url.searchParams.get('emoji');
-        if (!channelId || !messageId) {
-          respond(res, 400, { error: 'channel_id and message_id are required' });
-          return;
-        }
-        try {
-          if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
-          const channel = await fetchTextChannel(deps.client, channelId);
-          if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
-          const msg = await channel.messages.fetch(messageId);
-          const reactions: Array<{ emoji: string; count: number; users: string[] }> = [];
-          for (const [key, reaction] of msg.reactions.cache) {
-            if (emoji && key !== emoji && reaction.emoji.name !== emoji) continue;
-            const users = await reaction.users.fetch();
-            reactions.push({
-              emoji: reaction.emoji.toString(),
-              count: reaction.count,
-              users: users.map(u => u.id),
-            });
-          }
-          respond(res, 200, { ok: true, reactions });
-        } catch (err) {
-          respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-        }
-        return;
-      }
-
-      if (req.method === 'GET' && pathname === '/pins') {
-        if (!authorizeApiAction(req, res, config, 'history')) return;
-        const channelId = url.searchParams.get('channel_id');
-        if (!channelId) {
-          respond(res, 400, { error: 'channel_id is required' });
-          return;
-        }
-        try {
-          if (!deps.client) { respond(res, 503, { error: 'Client not ready' }); return; }
-          const channel = await fetchTextChannel(deps.client, channelId);
-          if (!channel) { respond(res, 400, { error: 'Channel is not text-based' }); return; }
-          const pins = await channel.messages.fetchPinned();
-          const pinList = pins.map(p => ({
-            id: p.id,
-            content: p.content.slice(0, 300),
-            author: p.author.tag,
-            authorId: p.author.id,
-            pinnedAt: p.editedAt?.toISOString() ?? p.createdAt.toISOString(),
-          }));
-          respond(res, 200, { ok: true, pins: pinList });
-        } catch (err) {
-          respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-        }
-        return;
-      }
+      if (handleStatusRoutes(req, res, url, deps)) return;
+      if (await handleDiscoveryRoutes(req, res, url, deps)) return;
 
       if (req.method === 'POST') {
         if (!requireAuth(req, config)) {
@@ -750,59 +586,4 @@ export function startControlApi(deps: ApiDependencies): http.Server {
   });
 
   return server;
-}
-
-function resolveConversationSessionKey(
-  config: Config,
-  extensionDir: string,
-  channelId: string,
-  guildId: string | null,
-): string {
-  if (guildId) {
-    return resolveSessionKey('channel', channelId, null);
-  }
-
-  return resolveSessionKey(
-    'channel',
-    channelId,
-    resolveDmUserIdForChannel(extensionDir, channelId),
-  );
-}
-
-export function resolveSendChannelId(requestedChannelId: string): string {
-  return requestedChannelId.trim();
-}
-
-type SendableChannel = TextChannel | DMChannel | NewsChannel;
-
-async function fetchTextChannel(client: Client, channelId: string): Promise<SendableChannel | null> {
-  try {
-    const channel = await client.channels.fetch(channelId);
-    if (channel && channel.isTextBased() && 'send' in channel) return channel as SendableChannel;
-  } catch {}
-  
-  try {
-    const user = await client.users.fetch(channelId);
-    if (user) return await user.createDM();
-  } catch {}
-  
-  return null;
-}
-
-function isWritableTarget(channelId: string, channel: SendableChannel, config: Config): boolean {
-  if ('isDMBased' in channel && channel.isDMBased()) {
-    return config.enableDMs;
-  }
-  if (config.allowedChannelIds.includes(channelId)) {
-    return true;
-  }
-  const parentId = (channel as { parentId?: string | null }).parentId ?? null;
-  if (parentId && config.allowedChannelIds.includes(parentId)) {
-    return true;
-  }
-
-  const guildId = (channel as { guildId?: string | null }).guildId ?? null;
-  return config.allowedChannelIds.length === 0
-    && Boolean(config.discordServerId)
-    && guildId === config.discordServerId;
 }

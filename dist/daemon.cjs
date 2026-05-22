@@ -86714,145 +86714,6 @@ var init_cron = __esm({
   }
 });
 
-// src/daemon/users.ts
-async function buildGuildUserMap(client, config, options = {}) {
-  userAliasMap.clear();
-  discoveredUsers.clear();
-  for (const guild of await resolveGuilds2(client, config)) {
-    try {
-      const members = options.query?.trim() ? await guild.members.fetch({ query: options.query.trim(), limit: options.limit ?? 25 }) : await guild.members.fetch();
-      for (const [, member] of members) {
-        registerDiscoveredUser(memberToTarget(member, guild));
-      }
-    } catch (err) {
-      log.warn("Failed to fetch users for guild", {
-        guildId: guild.id,
-        error: err instanceof Error ? err.message : String(err)
-      });
-    }
-  }
-  lastUserMapRefresh = Date.now();
-  log.info("User map built", { users: discoveredUsers.size });
-}
-function getUserMapEntries(guildId) {
-  return [...discoveredUsers.values()].filter((entry) => !guildId || entry.guildId === guildId).sort((a, b) => displayLabel(a).localeCompare(displayLabel(b)));
-}
-async function resolveDiscoveredUser(query, client, config) {
-  const id = extractDiscordUserId(query);
-  if (id) {
-    const cached2 = discoveredUsers.get(id);
-    if (cached2) return cached2;
-    if (client) {
-      const fetched = await fetchMemberById(client, id, config);
-      if (fetched) return fetched;
-    }
-    return null;
-  }
-  const cached = resolveUserFromCache(query);
-  if (cached) return cached;
-  if (!client) return null;
-  await buildGuildUserMap(client, config, { query, limit: 25 });
-  return resolveUserFromCache(query);
-}
-function registerDiscoveredUser(user) {
-  discoveredUsers.set(user.id, user);
-  const aliases = new Set([
-    user.id,
-    `<@${user.id}>`,
-    `<@!${user.id}>`,
-    user.username,
-    user.tag ?? "",
-    user.displayName ?? "",
-    user.globalName ?? ""
-  ].filter(Boolean));
-  for (const alias of aliases) {
-    addAlias2(alias, user.id);
-    addAlias2(alias.toLowerCase(), user.id);
-  }
-}
-function addAlias2(alias, id) {
-  const trimmed = alias.trim();
-  if (!trimmed) return;
-  const existing = userAliasMap.get(trimmed) ?? /* @__PURE__ */ new Set();
-  existing.add(id);
-  userAliasMap.set(trimmed, existing);
-}
-function resolveUserFromCache(query) {
-  const candidates = normalizeUserQuery(query);
-  for (const candidate of candidates) {
-    const ids = userAliasMap.get(candidate);
-    if (!ids || ids.size !== 1) continue;
-    const [id] = ids;
-    return discoveredUsers.get(id) ?? null;
-  }
-  return null;
-}
-function normalizeUserQuery(query) {
-  const trimmed = query.trim();
-  if (!trimmed) return [];
-  const values = /* @__PURE__ */ new Set([trimmed, trimmed.toLowerCase()]);
-  const id = extractDiscordUserId(trimmed);
-  if (id) values.add(id);
-  return [...values];
-}
-function extractDiscordUserId(query) {
-  const trimmed = query.trim();
-  if (DISCORD_SNOWFLAKE_RE2.test(trimmed)) return trimmed;
-  const mention = trimmed.match(/^<@!?(\d{15,25})>$/);
-  return mention?.[1] ?? null;
-}
-async function fetchMemberById(client, userId, config) {
-  for (const guild of await resolveGuilds2(client, config)) {
-    try {
-      const member = await guild.members.fetch({ user: userId, cache: true });
-      const target = memberToTarget(member, guild);
-      registerDiscoveredUser(target);
-      return target;
-    } catch {
-    }
-  }
-  return null;
-}
-async function resolveGuilds2(client, config) {
-  if (config?.discordServerId) {
-    const guild = await client.guilds.fetch(config.discordServerId);
-    return [guild];
-  }
-  const refs = await client.guilds.fetch();
-  const guilds = [];
-  for (const [guildId] of refs) {
-    guilds.push(await client.guilds.fetch(guildId));
-  }
-  return guilds;
-}
-function memberToTarget(member, guild) {
-  return {
-    id: member.user.id,
-    username: member.user.username,
-    displayName: member.displayName,
-    globalName: member.user.globalName ?? void 0,
-    tag: member.user.tag,
-    guildId: guild.id,
-    guildName: guild.name,
-    bot: member.user.bot
-  };
-}
-function displayLabel(user) {
-  return user.displayName || user.globalName || user.username || user.id;
-}
-var DISCORD_SNOWFLAKE_RE2, userAliasMap, discoveredUsers, lastUserMapRefresh, USER_MAP_TTL_MS;
-var init_users = __esm({
-  "src/daemon/users.ts"() {
-    "use strict";
-    init_log();
-    DISCORD_SNOWFLAKE_RE2 = /^\d{15,25}$/;
-    userAliasMap = /* @__PURE__ */ new Map();
-    discoveredUsers = /* @__PURE__ */ new Map();
-    lastUserMapRefresh = 0;
-    USER_MAP_TTL_MS = 10 * 60 * 1e3;
-  }
-});
-
 // src/daemon/dm-pairing.ts
 function pairingsPath(extensionDir2) {
   return resolveRuntimePaths(extensionDir2).dmPairingsFile;
@@ -87169,6 +87030,145 @@ var init_session_reset = __esm({
     init_memory();
     init_binding();
     init_runtime();
+  }
+});
+
+// src/daemon/users.ts
+async function buildGuildUserMap(client, config, options = {}) {
+  userAliasMap.clear();
+  discoveredUsers.clear();
+  for (const guild of await resolveGuilds2(client, config)) {
+    try {
+      const members = options.query?.trim() ? await guild.members.fetch({ query: options.query.trim(), limit: options.limit ?? 25 }) : await guild.members.fetch();
+      for (const [, member] of members) {
+        registerDiscoveredUser(memberToTarget(member, guild));
+      }
+    } catch (err) {
+      log.warn("Failed to fetch users for guild", {
+        guildId: guild.id,
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+  lastUserMapRefresh = Date.now();
+  log.info("User map built", { users: discoveredUsers.size });
+}
+function getUserMapEntries(guildId) {
+  return [...discoveredUsers.values()].filter((entry) => !guildId || entry.guildId === guildId).sort((a, b) => displayLabel(a).localeCompare(displayLabel(b)));
+}
+async function resolveDiscoveredUser(query, client, config) {
+  const id = extractDiscordUserId(query);
+  if (id) {
+    const cached2 = discoveredUsers.get(id);
+    if (cached2) return cached2;
+    if (client) {
+      const fetched = await fetchMemberById(client, id, config);
+      if (fetched) return fetched;
+    }
+    return null;
+  }
+  const cached = resolveUserFromCache(query);
+  if (cached) return cached;
+  if (!client) return null;
+  await buildGuildUserMap(client, config, { query, limit: 25 });
+  return resolveUserFromCache(query);
+}
+function registerDiscoveredUser(user) {
+  discoveredUsers.set(user.id, user);
+  const aliases = new Set([
+    user.id,
+    `<@${user.id}>`,
+    `<@!${user.id}>`,
+    user.username,
+    user.tag ?? "",
+    user.displayName ?? "",
+    user.globalName ?? ""
+  ].filter(Boolean));
+  for (const alias of aliases) {
+    addAlias2(alias, user.id);
+    addAlias2(alias.toLowerCase(), user.id);
+  }
+}
+function addAlias2(alias, id) {
+  const trimmed = alias.trim();
+  if (!trimmed) return;
+  const existing = userAliasMap.get(trimmed) ?? /* @__PURE__ */ new Set();
+  existing.add(id);
+  userAliasMap.set(trimmed, existing);
+}
+function resolveUserFromCache(query) {
+  const candidates = normalizeUserQuery(query);
+  for (const candidate of candidates) {
+    const ids = userAliasMap.get(candidate);
+    if (!ids || ids.size !== 1) continue;
+    const [id] = ids;
+    return discoveredUsers.get(id) ?? null;
+  }
+  return null;
+}
+function normalizeUserQuery(query) {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const values = /* @__PURE__ */ new Set([trimmed, trimmed.toLowerCase()]);
+  const id = extractDiscordUserId(trimmed);
+  if (id) values.add(id);
+  return [...values];
+}
+function extractDiscordUserId(query) {
+  const trimmed = query.trim();
+  if (DISCORD_SNOWFLAKE_RE2.test(trimmed)) return trimmed;
+  const mention = trimmed.match(/^<@!?(\d{15,25})>$/);
+  return mention?.[1] ?? null;
+}
+async function fetchMemberById(client, userId, config) {
+  for (const guild of await resolveGuilds2(client, config)) {
+    try {
+      const member = await guild.members.fetch({ user: userId, cache: true });
+      const target = memberToTarget(member, guild);
+      registerDiscoveredUser(target);
+      return target;
+    } catch {
+    }
+  }
+  return null;
+}
+async function resolveGuilds2(client, config) {
+  if (config?.discordServerId) {
+    const guild = await client.guilds.fetch(config.discordServerId);
+    return [guild];
+  }
+  const refs = await client.guilds.fetch();
+  const guilds = [];
+  for (const [guildId] of refs) {
+    guilds.push(await client.guilds.fetch(guildId));
+  }
+  return guilds;
+}
+function memberToTarget(member, guild) {
+  return {
+    id: member.user.id,
+    username: member.user.username,
+    displayName: member.displayName,
+    globalName: member.user.globalName ?? void 0,
+    tag: member.user.tag,
+    guildId: guild.id,
+    guildName: guild.name,
+    bot: member.user.bot
+  };
+}
+function displayLabel(user) {
+  return user.displayName || user.globalName || user.username || user.id;
+}
+var DISCORD_SNOWFLAKE_RE2, userAliasMap, discoveredUsers, lastUserMapRefresh, USER_MAP_TTL_MS;
+var init_users = __esm({
+  "src/daemon/users.ts"() {
+    "use strict";
+    init_log();
+    DISCORD_SNOWFLAKE_RE2 = /^\d{15,25}$/;
+    userAliasMap = /* @__PURE__ */ new Map();
+    discoveredUsers = /* @__PURE__ */ new Map();
+    lastUserMapRefresh = 0;
+    USER_MAP_TTL_MS = 10 * 60 * 1e3;
   }
 });
 
@@ -89418,16 +89418,15 @@ var http = __toESM(require("node:http"), 1);
 var import_discord3 = __toESM(require_src(), 1);
 init_chunker();
 init_log();
-init_memory();
 init_sender();
 init_cron();
 init_channels();
-init_users();
 init_session_reset();
-init_binding();
 init_dm_pairing();
 
 // src/daemon/api-utils.ts
+init_memory();
+init_dm_pairing();
 init_permissions();
 var MAX_BODY_BYTES = 10240;
 function respond(res, status, body) {
@@ -89496,11 +89495,211 @@ function authorizeApiAction(req, res, config, action) {
   respond(res, 403, { error: formatPermissionDenial(decision) });
   return false;
 }
+function resolveConversationSessionKey(config, extensionDir2, channelId, guildId) {
+  if (guildId) {
+    return resolveSessionKey("channel", channelId, null);
+  }
+  return resolveSessionKey(
+    "channel",
+    channelId,
+    resolveDmUserIdForChannel(extensionDir2, channelId)
+  );
+}
+function resolveSendChannelId(requestedChannelId) {
+  return requestedChannelId.trim();
+}
+async function fetchTextChannel(client, channelId) {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (channel && channel.isTextBased() && "send" in channel) return channel;
+  } catch {
+  }
+  try {
+    const user = await client.users.fetch(channelId);
+    if (user) return await user.createDM();
+  } catch {
+  }
+  return null;
+}
+function isWritableTarget(channelId, channel, config) {
+  if ("isDMBased" in channel && channel.isDMBased()) {
+    return config.enableDMs;
+  }
+  if (config.allowedChannelIds.includes(channelId)) {
+    return true;
+  }
+  const parentId = channel.parentId ?? null;
+  if (parentId && config.allowedChannelIds.includes(parentId)) {
+    return true;
+  }
+  const guildId = channel.guildId ?? null;
+  return config.allowedChannelIds.length === 0 && Boolean(config.discordServerId) && guildId === config.discordServerId;
+}
+
+// src/daemon/api/status.ts
+init_channels();
+init_cron();
+init_binding();
+init_dm_pairing();
+function handleStatusRoutes(req, res, url, deps) {
+  const pathname = url.pathname;
+  const { config, state: state2, memory, queue, extensionDir: extensionDir2 } = deps;
+  if (req.method === "GET" && pathname === "/status") {
+    if (!authorizeApiAction(req, res, config, "status")) return true;
+    const queueKey = config.discordChannelId ? `memory:channel:${config.discordChannelId}` : "memory:none";
+    const statusBody = {
+      status: state2.status,
+      startedAt: state2.startedAt,
+      geminiReachable: state2.geminiReachable,
+      geminiVersion: state2.geminiVersion,
+      messagesHandled: state2.messagesHandled,
+      lastMessageAt: state2.lastMessageAt,
+      lastError: state2.lastError,
+      queueDepth: queue.depth(queueKey),
+      streaming: config.streaming,
+      botTag: deps.client?.user?.tag ?? null,
+      wsPing: deps.client?.ws?.ping ?? -1,
+      channelId: config.discordChannelId,
+      serverId: config.discordServerId || void 0,
+      serverName: config.discordServerName || void 0,
+      ownerIds: config.ownerIds,
+      enableDMs: config.enableDMs,
+      sessionScope: config.memoryScope,
+      geminiSessionBindingScope: config.geminiSessionBindingScope,
+      useGeminiCliSessions: config.useGeminiCliSessions,
+      allowlistedUsers: config.allowedUserIds.length,
+      allowlistedAgents: config.allowedAgentIds.length,
+      requireMention: config.requireMention,
+      channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
+      cronJobs: listJobs(),
+      headlessMode: config.useGeminiCliSessions ? "gemini-cli ACP persistent sessions (discord-only extension load)" : "stateless prompt replay",
+      bindings: listGeminiBindingStates(extensionDir2),
+      dmPairings: listDmPairings(extensionDir2)
+    };
+    respond(res, 200, statusBody);
+    return true;
+  }
+  if (req.method === "GET" && pathname === "/history") {
+    if (!authorizeApiAction(req, res, config, "history")) return true;
+    const channelId = url.searchParams.get("channel_id");
+    const scope = url.searchParams.get("scope") ?? "current";
+    if (!channelId) {
+      respond(res, 400, { error: "channel_id is required for history" });
+      return true;
+    }
+    const resolvedChannelId = channelId;
+    const sessionKey = resolveConversationSessionKey(config, extensionDir2, resolvedChannelId, null);
+    const filteredMessages = channelId ? state2.exchangeLog.filter((entry) => entry.channelId === channelId).slice(-30) : state2.exchangeLog.slice(-30);
+    const historyBody = {
+      sessionKey,
+      messages: filteredMessages,
+      conversation: scope === "archived" ? [] : memory.snapshot(sessionKey),
+      archives: scope === "current" ? [] : memory.archivedSessions(sessionKey),
+      participants: memory.participants(sessionKey),
+      channels: memory.channels(sessionKey)
+    };
+    respond(res, 200, historyBody);
+    return true;
+  }
+  return false;
+}
+
+// src/daemon/api/discovery.ts
+init_users();
+async function handleDiscoveryRoutes(req, res, url, deps) {
+  const pathname = url.pathname;
+  const { config } = deps;
+  if (req.method === "GET" && pathname === "/users") {
+    if (!authorizeApiAction(req, res, config, "user_discovery")) return true;
+    if (!deps.client) {
+      respond(res, 503, { error: "Client not ready" });
+      return true;
+    }
+    const query = url.searchParams.get("query") ?? "";
+    await buildGuildUserMap(deps.client, config, query ? { query, limit: 25 } : void 0);
+    const resolved = query ? await resolveDiscoveredUser(query, deps.client, config) : null;
+    const users = getUserMapEntries(config.discordServerId || void 0).filter((entry) => {
+      if (!query.trim()) return true;
+      const needle = query.trim().toLowerCase();
+      return entry.id.includes(needle) || entry.username.toLowerCase().includes(needle) || (entry.displayName ?? "").toLowerCase().includes(needle) || (entry.globalName ?? "").toLowerCase().includes(needle) || (entry.tag ?? "").toLowerCase().includes(needle);
+    }).slice(0, 50);
+    respond(res, 200, { ok: true, users, resolved });
+    return true;
+  }
+  if (req.method === "GET" && pathname === "/reactions") {
+    if (!authorizeApiAction(req, res, config, "history")) return true;
+    const channelId = url.searchParams.get("channel_id");
+    const messageId = url.searchParams.get("message_id");
+    const emoji = url.searchParams.get("emoji");
+    if (!channelId || !messageId) {
+      respond(res, 400, { error: "channel_id and message_id are required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      const msg = await channel.messages.fetch(messageId);
+      const reactions = [];
+      for (const [key, reaction] of msg.reactions.cache) {
+        if (emoji && key !== emoji && reaction.emoji.name !== emoji) continue;
+        const users = await reaction.users.fetch();
+        reactions.push({
+          emoji: reaction.emoji.toString(),
+          count: reaction.count,
+          users: users.map((u) => u.id)
+        });
+      }
+      respond(res, 200, { ok: true, reactions });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (req.method === "GET" && pathname === "/pins") {
+    if (!authorizeApiAction(req, res, config, "history")) return true;
+    const channelId = url.searchParams.get("channel_id");
+    if (!channelId) {
+      respond(res, 400, { error: "channel_id is required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      const pins = await channel.messages.fetchPinned();
+      const pinList = pins.map((p) => ({
+        id: p.id,
+        content: p.content.slice(0, 300),
+        author: p.author.tag,
+        authorId: p.author.id,
+        pinnedAt: p.editedAt?.toISOString() ?? p.createdAt.toISOString()
+      }));
+      respond(res, 200, { ok: true, pins: pinList });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  return false;
+}
 
 // src/daemon/api.ts
 var DISCORD_SNOWFLAKE_RE3 = /^\d{15,25}$/;
 function startControlApi(deps) {
-  const { config, state: state2, memory, queue, extensionDir: extensionDir2, isShuttingDown, shutdown } = deps;
+  const { config, memory, extensionDir: extensionDir2, isShuttingDown, shutdown } = deps;
   const server = http.createServer(async (req, res) => {
     try {
       if (req.method === "POST" && isShuttingDown() && req.url !== "/shutdown") {
@@ -89523,152 +89722,8 @@ function startControlApi(deps) {
         setTimeout(() => shutdown("API"), 500);
         return;
       }
-      if (req.method === "GET" && pathname === "/status") {
-        if (!authorizeApiAction(req, res, config, "status")) return;
-        const queueKey = config.discordChannelId ? `memory:channel:${config.discordChannelId}` : "memory:none";
-        const statusBody = {
-          status: state2.status,
-          startedAt: state2.startedAt,
-          geminiReachable: state2.geminiReachable,
-          geminiVersion: state2.geminiVersion,
-          messagesHandled: state2.messagesHandled,
-          lastMessageAt: state2.lastMessageAt,
-          lastError: state2.lastError,
-          queueDepth: queue.depth(queueKey),
-          streaming: config.streaming,
-          botTag: deps.client?.user?.tag ?? null,
-          wsPing: deps.client?.ws?.ping ?? -1,
-          channelId: config.discordChannelId,
-          serverId: config.discordServerId || void 0,
-          serverName: config.discordServerName || void 0,
-          ownerIds: config.ownerIds,
-          enableDMs: config.enableDMs,
-          sessionScope: config.memoryScope,
-          geminiSessionBindingScope: config.geminiSessionBindingScope,
-          useGeminiCliSessions: config.useGeminiCliSessions,
-          allowlistedUsers: config.allowedUserIds.length,
-          allowlistedAgents: config.allowedAgentIds.length,
-          requireMention: config.requireMention,
-          channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
-          cronJobs: listJobs(),
-          headlessMode: config.useGeminiCliSessions ? "gemini-cli ACP persistent sessions (discord-only extension load)" : "stateless prompt replay",
-          bindings: listGeminiBindingStates(extensionDir2),
-          dmPairings: listDmPairings(extensionDir2)
-        };
-        respond(res, 200, statusBody);
-        return;
-      }
-      if (req.method === "GET" && pathname === "/history") {
-        if (!authorizeApiAction(req, res, config, "history")) return;
-        const channelId = url.searchParams.get("channel_id");
-        const scope = url.searchParams.get("scope") ?? "current";
-        if (!channelId) {
-          respond(res, 400, { error: "channel_id is required for history" });
-          return;
-        }
-        const resolvedChannelId = channelId;
-        const sessionKey = resolveConversationSessionKey(config, extensionDir2, resolvedChannelId, null);
-        const filteredMessages = channelId ? state2.exchangeLog.filter((entry) => entry.channelId === channelId).slice(-30) : state2.exchangeLog.slice(-30);
-        const historyBody = {
-          sessionKey,
-          messages: filteredMessages,
-          conversation: scope === "archived" ? [] : memory.snapshot(sessionKey),
-          archives: scope === "current" ? [] : memory.archivedSessions(sessionKey),
-          participants: memory.participants(sessionKey),
-          channels: memory.channels(sessionKey)
-        };
-        respond(res, 200, historyBody);
-        return;
-      }
-      if (req.method === "GET" && pathname === "/cron") {
-        if (!authorizeApiAction(req, res, config, "cron")) return;
-        respond(res, 200, { ok: true, jobs: listJobs() });
-        return;
-      }
-      if (req.method === "GET" && pathname === "/users") {
-        if (!authorizeApiAction(req, res, config, "user_discovery")) return;
-        if (!deps.client) {
-          respond(res, 503, { error: "Client not ready" });
-          return;
-        }
-        const query = url.searchParams.get("query") ?? "";
-        await buildGuildUserMap(deps.client, config, query ? { query, limit: 25 } : void 0);
-        const resolved = query ? await resolveDiscoveredUser(query, deps.client, config) : null;
-        const users = getUserMapEntries(config.discordServerId || void 0).filter((entry) => {
-          if (!query.trim()) return true;
-          const needle = query.trim().toLowerCase();
-          return entry.id.includes(needle) || entry.username.toLowerCase().includes(needle) || (entry.displayName ?? "").toLowerCase().includes(needle) || (entry.globalName ?? "").toLowerCase().includes(needle) || (entry.tag ?? "").toLowerCase().includes(needle);
-        }).slice(0, 50);
-        respond(res, 200, { ok: true, users, resolved });
-        return;
-      }
-      if (req.method === "GET" && pathname === "/reactions") {
-        if (!authorizeApiAction(req, res, config, "history")) return;
-        const channelId = url.searchParams.get("channel_id");
-        const messageId = url.searchParams.get("message_id");
-        const emoji = url.searchParams.get("emoji");
-        if (!channelId || !messageId) {
-          respond(res, 400, { error: "channel_id and message_id are required" });
-          return;
-        }
-        try {
-          if (!deps.client) {
-            respond(res, 503, { error: "Client not ready" });
-            return;
-          }
-          const channel = await fetchTextChannel(deps.client, channelId);
-          if (!channel) {
-            respond(res, 400, { error: "Channel is not text-based" });
-            return;
-          }
-          const msg = await channel.messages.fetch(messageId);
-          const reactions = [];
-          for (const [key, reaction] of msg.reactions.cache) {
-            if (emoji && key !== emoji && reaction.emoji.name !== emoji) continue;
-            const users = await reaction.users.fetch();
-            reactions.push({
-              emoji: reaction.emoji.toString(),
-              count: reaction.count,
-              users: users.map((u) => u.id)
-            });
-          }
-          respond(res, 200, { ok: true, reactions });
-        } catch (err) {
-          respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-        }
-        return;
-      }
-      if (req.method === "GET" && pathname === "/pins") {
-        if (!authorizeApiAction(req, res, config, "history")) return;
-        const channelId = url.searchParams.get("channel_id");
-        if (!channelId) {
-          respond(res, 400, { error: "channel_id is required" });
-          return;
-        }
-        try {
-          if (!deps.client) {
-            respond(res, 503, { error: "Client not ready" });
-            return;
-          }
-          const channel = await fetchTextChannel(deps.client, channelId);
-          if (!channel) {
-            respond(res, 400, { error: "Channel is not text-based" });
-            return;
-          }
-          const pins = await channel.messages.fetchPinned();
-          const pinList = pins.map((p) => ({
-            id: p.id,
-            content: p.content.slice(0, 300),
-            author: p.author.tag,
-            authorId: p.author.id,
-            pinnedAt: p.editedAt?.toISOString() ?? p.createdAt.toISOString()
-          }));
-          respond(res, 200, { ok: true, pins: pinList });
-        } catch (err) {
-          respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-        }
-        return;
-      }
+      if (handleStatusRoutes(req, res, url, deps)) return;
+      if (await handleDiscoveryRoutes(req, res, url, deps)) return;
       if (req.method === "POST") {
         if (!requireAuth(req, config)) {
           respond(res, 401, { error: "Unauthorized" });
@@ -90176,46 +90231,6 @@ function startControlApi(deps) {
     log.info("Control API listening", { port: config.daemonPort, host: "127.0.0.1" });
   });
   return server;
-}
-function resolveConversationSessionKey(config, extensionDir2, channelId, guildId) {
-  if (guildId) {
-    return resolveSessionKey("channel", channelId, null);
-  }
-  return resolveSessionKey(
-    "channel",
-    channelId,
-    resolveDmUserIdForChannel(extensionDir2, channelId)
-  );
-}
-function resolveSendChannelId(requestedChannelId) {
-  return requestedChannelId.trim();
-}
-async function fetchTextChannel(client, channelId) {
-  try {
-    const channel = await client.channels.fetch(channelId);
-    if (channel && channel.isTextBased() && "send" in channel) return channel;
-  } catch {
-  }
-  try {
-    const user = await client.users.fetch(channelId);
-    if (user) return await user.createDM();
-  } catch {
-  }
-  return null;
-}
-function isWritableTarget(channelId, channel, config) {
-  if ("isDMBased" in channel && channel.isDMBased()) {
-    return config.enableDMs;
-  }
-  if (config.allowedChannelIds.includes(channelId)) {
-    return true;
-  }
-  const parentId = channel.parentId ?? null;
-  if (parentId && config.allowedChannelIds.includes(parentId)) {
-    return true;
-  }
-  const guildId = channel.guildId ?? null;
-  return config.allowedChannelIds.length === 0 && Boolean(config.discordServerId) && guildId === config.discordServerId;
 }
 
 // src/daemon.ts
