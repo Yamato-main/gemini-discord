@@ -45,6 +45,8 @@ The installer prompts for three values. Restart Gemini CLI and the bot should co
 
 Legacy owner and admin routing IDs are auto-derived from Boss User ID unless overridden in [advanced configuration](docs/configuration.md).
 
+If startup fails, see [docs/troubleshooting.md](docs/troubleshooting.md).
+
 ---
 
 ## Updating Configuration
@@ -153,32 +155,6 @@ npm run install-service # Install as system service
 
 Before releasing: run typecheck + tests + build, commit `dist/`, keep `.env` and `.gemini-discord/` untracked, use placeholder IDs in examples, add the `gemini-cli-extension` GitHub topic.
 
----
-
-## Troubleshooting
-
-### Disallowed Intents (Close Code 4014)
-If the daemon log shows a `Fatal disconnect (code 4014)` or the probe logs a warning about missing intents:
-1. Ensure both **Message Content Intent** and **Server Members Intent** are enabled in the Discord Developer Portal under the **Bot** settings page.
-2. If you do not want to enable the Server Members Intent, add `DISCORD_ENABLE_SERVER_MEMBERS_INTENT=false` to your configuration (either in `.env` or using config tool). The daemon will automatically detect missing portal permissions and fall back to disabling this intent to connect successfully.
-
-### Invalid Bot Token (Close Code 4004)
-If you see a `Fatal disconnect (code 4004)`:
-1. The Discord token configured in your setup is invalid or expired.
-2. Reset your token in the Discord Developer Portal and update your configuration.
-
-### Log Files
-To view detailed logs for diagnostic purposes, look at:
-- `.gemini-discord/daemon.log` inside the extension installation directory.
-
----
-
-## Security Warning: Plaintext Token Storage
-> [!CAUTION]
-> **Plaintext Bot Token Exposure**: The extension stores `DISCORD_BOT_TOKEN` in plaintext inside the `.gemini-discord/config.json` managed configuration file. While `.gemini-discord/` is ignored by git, anyone with local access to the file system can read this token. Keep your system secure and do not share your extension data directory.
-
----
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -186,4 +162,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 [MIT](LICENSE)
-

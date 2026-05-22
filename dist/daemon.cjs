@@ -109,6 +109,7 @@ function writeManagedConfigFile(filePath, config) {
   };
   fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
   fs2.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
+  fs2.chmodSync(filePath, 384);
 }
 function updateManagedConfigFile(filePath, updater) {
   const next = updater(readManagedConfigFile(filePath));

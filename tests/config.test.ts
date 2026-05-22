@@ -69,6 +69,33 @@ describe('loadConfig', () => {
       expect(managedConfig.env.DISCORD_BOT_TOKEN).toBe('test-token');
       expect(managedConfig.env.DISCORD_CHANNEL_ID).toBe('channel-1');
       expect(managedConfig.env.DISCORD_OWNER_IDS).toBe('owner-1');
+      const mode = fs.statSync(resolveRuntimePaths(tmpDir).managedConfigFile).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('tightens existing managed config permissions when rewriting settings', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-config-'));
+
+    try {
+      const configPath = resolveRuntimePaths(tmpDir).managedConfigFile;
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, JSON.stringify({
+        version: 2,
+        updatedAt: new Date().toISOString(),
+        env: {
+          DISCORD_BOT_TOKEN: 'test-token',
+          DISCORD_OWNER_IDS: 'owner-1',
+        },
+        discord: {},
+      }), { mode: 0o644 });
+
+      loadConfig(tmpDir);
+
+      const mode = fs.statSync(configPath).mode & 0o777;
+      expect(mode).toBe(0o600);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

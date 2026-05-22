@@ -64,6 +64,7 @@ export function writeManagedConfigFile(filePath: string, config: ManagedConfigFi
 
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 0o600 });
+  fs.chmodSync(filePath, 0o600);
 }
 
 export function updateManagedConfigFile(
