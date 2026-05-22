@@ -77123,6 +77123,325 @@ var init_memory = __esm({
   }
 });
 
+// src/daemon/dm-pairing.ts
+function pairingsPath(extensionDir2) {
+  return resolveRuntimePaths(extensionDir2).dmPairingsFile;
+}
+function ensureParentDir(filePath) {
+  fs5.mkdirSync(path4.dirname(filePath), { recursive: true });
+}
+function loadPairingMap(extensionDir2) {
+  const filePath = pairingsPath(extensionDir2);
+  try {
+    const parsed = JSON.parse(fs5.readFileSync(filePath, "utf-8"));
+    const pairings = Array.isArray(parsed.pairings) ? parsed.pairings : [];
+    return new Map(
+      pairings.filter((entry) => Boolean(entry && typeof entry.userId === "string" && typeof entry.channelId === "string")).map((entry) => [entry.userId, entry])
+    );
+  } catch {
+    return /* @__PURE__ */ new Map();
+  }
+}
+function savePairingMap(extensionDir2, pairings) {
+  const filePath = pairingsPath(extensionDir2);
+  ensureParentDir(filePath);
+  const payload = {
+    version: 1,
+    pairings: [...pairings.values()].sort((left, right) => left.userId.localeCompare(right.userId))
+  };
+  fs5.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
+}
+function resolveDmPairingKey(userId) {
+  return `dm:${userId}`;
+}
+function touchDmPairing(extensionDir2, userId, channelId) {
+  const pairings = loadPairingMap(extensionDir2);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const existing = pairings.get(userId);
+  const next = {
+    userId,
+    channelId,
+    pairedAt: existing?.pairedAt ?? now,
+    lastSeenAt: now
+  };
+  pairings.set(userId, next);
+  savePairingMap(extensionDir2, pairings);
+  return next;
+}
+function listDmPairings(extensionDir2) {
+  return [...loadPairingMap(extensionDir2).values()].sort((left, right) => left.userId.localeCompare(right.userId)).map((entry) => ({
+    userId: entry.userId,
+    channelId: entry.channelId,
+    pairedAt: entry.pairedAt,
+    lastSeenAt: entry.lastSeenAt
+  }));
+}
+function resolveDmUserIdForChannel(extensionDir2, channelId) {
+  for (const pairing of loadPairingMap(extensionDir2).values()) {
+    if (pairing.channelId === channelId) {
+      return pairing.userId;
+    }
+  }
+  return null;
+}
+async function ensureOwnerDmPairings(client, config, extensionDir2) {
+  ensureRuntimePaths(extensionDir2);
+  if (!config.enableDMs) {
+    return;
+  }
+  const userIds = [.../* @__PURE__ */ new Set([...config.ownerIds, ...config.allowedUserIds])];
+  for (const userId of userIds) {
+    try {
+      const user = await client.users.fetch(userId);
+      const dm = await user.createDM();
+      const pairing = touchDmPairing(extensionDir2, userId, dm.id);
+      log.info("DM pairing ready", pairing);
+    } catch (error) {
+      log.warn("Failed to bootstrap DM pairing", {
+        userId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+}
+var fs5, path4;
+var init_dm_pairing = __esm({
+  "src/daemon/dm-pairing.ts"() {
+    "use strict";
+    fs5 = __toESM(require("node:fs"), 1);
+    path4 = __toESM(require("node:path"), 1);
+    init_runtime_paths();
+    init_log();
+  }
+});
+
+// src/daemon/binding.ts
+function resolveGeminiBindingKey(scope, context) {
+  switch (scope) {
+    case "global":
+      return "global";
+    case "server":
+      if (!context.guildId && context.dmUserId) {
+        return resolveDmPairingKey(context.dmUserId);
+      }
+      return context.guildId ? `guild:${context.guildId}` : `channel:${context.channelId}`;
+    case "channel":
+    default:
+      if (!context.guildId && context.dmUserId) {
+        return resolveDmPairingKey(context.dmUserId);
+      }
+      return `channel:${context.channelId}`;
+  }
+}
+function ensureGeminiBindingWorkspace(extensionDir2, bindingKey) {
+  const bindingsRoot = ensureRuntimePaths(extensionDir2).bindingsDir;
+  const bindingDir = resolveBindingWorkspacePath(bindingsRoot, bindingKey);
+  const attachmentsDir = path5.join(bindingDir, "discord-attachments");
+  fs6.mkdirSync(attachmentsDir, { recursive: true });
+  removeLegacyBindingContextFiles(bindingDir);
+  syncBindingProjectFile(extensionDir2, bindingDir, ".geminiignore");
+  return {
+    bindingKey,
+    bindingDir,
+    attachmentsDir
+  };
+}
+function loadGeminiBindingState(bindingDir) {
+  const statePath = path5.join(bindingDir, ".binding-state.json");
+  try {
+    const raw = fs6.readFileSync(statePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const archivedSessionIds = Array.isArray(parsed.archivedSessionIds) ? parsed.archivedSessionIds.filter((value) => typeof value === "string" && value.length > 0) : [];
+    return {
+      hasSession: parsed.hasSession === true,
+      lastSessionId: typeof parsed.lastSessionId === "string" && parsed.lastSessionId ? parsed.lastSessionId : void 0,
+      archivedSessionIds,
+      lastResetAt: typeof parsed.lastResetAt === "string" && parsed.lastResetAt ? parsed.lastResetAt : void 0
+    };
+  } catch {
+    return { hasSession: false, archivedSessionIds: [] };
+  }
+}
+function saveGeminiBindingState(bindingDir, state2) {
+  const statePath = path5.join(bindingDir, ".binding-state.json");
+  const nextState = {
+    hasSession: state2.hasSession
+  };
+  if (state2.lastSessionId) {
+    nextState.lastSessionId = state2.lastSessionId;
+  }
+  if (state2.archivedSessionIds && state2.archivedSessionIds.length > 0) {
+    nextState.archivedSessionIds = [...new Set(state2.archivedSessionIds)];
+  }
+  if (state2.lastResetAt) {
+    nextState.lastResetAt = state2.lastResetAt;
+  }
+  fs6.writeFileSync(statePath, JSON.stringify(nextState), { mode: 384 });
+}
+function listGeminiBindingStates(extensionDir2) {
+  const bindingsRoot = resolveRuntimePaths(extensionDir2).bindingsDir;
+  if (!fs6.existsSync(bindingsRoot)) {
+    return [];
+  }
+  return fs6.readdirSync(bindingsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+    const bindingDir = path5.join(bindingsRoot, entry.name);
+    const state2 = loadGeminiBindingState(bindingDir);
+    return {
+      workspace: entry.name,
+      hasSession: state2.hasSession,
+      lastSessionId: state2.lastSessionId,
+      archivedSessions: state2.archivedSessionIds?.length ?? 0,
+      lastResetAt: state2.lastResetAt
+    };
+  }).sort((left, right) => left.workspace.localeCompare(right.workspace));
+}
+function cleanupLegacyBindingContextFiles(extensionDir2) {
+  const bindingsRoot = resolveRuntimePaths(extensionDir2).bindingsDir;
+  if (!fs6.existsSync(bindingsRoot)) {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of fs6.readdirSync(bindingsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    removed += removeLegacyBindingContextFiles(path5.join(bindingsRoot, entry.name));
+  }
+  return removed;
+}
+function recordGeminiBindingSession(bindingDir, sessionId) {
+  const current = loadGeminiBindingState(bindingDir);
+  const lastSessionId = sessionId ?? current.lastSessionId;
+  const nextState = {
+    hasSession: Boolean(lastSessionId),
+    lastSessionId,
+    archivedSessionIds: current.archivedSessionIds ?? [],
+    lastResetAt: current.lastResetAt
+  };
+  saveGeminiBindingState(bindingDir, nextState);
+  return nextState;
+}
+function removeLegacyBindingContextFiles(bindingDir) {
+  let removed = 0;
+  for (const fileName of ["GEMINI.md", "Gemini.md", "gemini.md"]) {
+    const target = path5.join(bindingDir, fileName);
+    if (!fs6.existsSync(target)) {
+      continue;
+    }
+    try {
+      fs6.rmSync(target, { force: true });
+      removed += 1;
+    } catch {
+    }
+  }
+  return removed;
+}
+function resetGeminiBindingSession(bindingDir) {
+  const current = loadGeminiBindingState(bindingDir);
+  const archivedSessionIds = [
+    ...current.lastSessionId ? [current.lastSessionId] : [],
+    ...current.archivedSessionIds ?? []
+  ];
+  const nextState = {
+    hasSession: false,
+    archivedSessionIds: [...new Set(archivedSessionIds)].slice(0, 20),
+    lastResetAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  saveGeminiBindingState(bindingDir, nextState);
+  return nextState;
+}
+function syncBindingProjectFile(extensionDir2, bindingDir, fileName) {
+  const source = path5.join(extensionDir2, fileName);
+  if (!fs6.existsSync(source)) {
+    return;
+  }
+  const target = path5.join(bindingDir, fileName);
+  const sourceMtime = fs6.statSync(source).mtimeMs;
+  const targetMtime = fs6.existsSync(target) ? fs6.statSync(target).mtimeMs : 0;
+  if (!fs6.existsSync(target) || sourceMtime > targetMtime) {
+    fs6.copyFileSync(source, target);
+  }
+}
+function toBindingSlug(bindingKey) {
+  return bindingKey.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+function resolveBindingWorkspacePath(bindingsRoot, bindingKey) {
+  const legacyDir = path5.join(bindingsRoot, bindingKey);
+  const slugDir = path5.join(bindingsRoot, toBindingSlug(bindingKey));
+  if (fs6.existsSync(slugDir)) {
+    return slugDir;
+  }
+  if (!fs6.existsSync(legacyDir)) {
+    return slugDir;
+  }
+  try {
+    fs6.mkdirSync(bindingsRoot, { recursive: true });
+    fs6.renameSync(legacyDir, slugDir);
+    return slugDir;
+  } catch {
+    return legacyDir;
+  }
+}
+var fs6, path5;
+var init_binding = __esm({
+  "src/daemon/binding.ts"() {
+    "use strict";
+    fs6 = __toESM(require("node:fs"), 1);
+    path5 = __toESM(require("node:path"), 1);
+    init_runtime_paths();
+    init_dm_pairing();
+  }
+});
+
+// src/daemon/runtime.ts
+var runtimeStore;
+var init_runtime = __esm({
+  "src/daemon/runtime.ts"() {
+    "use strict";
+    runtimeStore = {
+      client: null,
+      memory: null,
+      queue: null,
+      geminiSemaphore: null,
+      cliPool: null,
+      isShuttingDown: false,
+      agentExchangeCount: /* @__PURE__ */ new Map(),
+      lastInteractiveMessageAt: null
+    };
+  }
+});
+
+// src/daemon/session-reset.ts
+function resetConversationSession(config, memory, extensionDir2, context) {
+  const dmUserId = context.guildId ? null : context.authorId ?? null;
+  const sessionKey = resolveSessionKey("channel", context.channelId, dmUserId);
+  const bindingKey = resolveGeminiBindingKey("channel", {
+    guildId: context.guildId,
+    channelId: context.channelId,
+    dmUserId
+  });
+  const bindingWorkspace = ensureGeminiBindingWorkspace(extensionDir2, bindingKey);
+  const bindingState = loadGeminiBindingState(bindingWorkspace.bindingDir);
+  memory.archiveAndReset(sessionKey, {
+    bindingKey,
+    lastSessionId: bindingState.lastSessionId
+  });
+  resetGeminiBindingSession(bindingWorkspace.bindingDir);
+  runtimeStore.cliPool?.kill(bindingKey);
+  return {
+    sessionKey,
+    bindingKey
+  };
+}
+var init_session_reset = __esm({
+  "src/daemon/session-reset.ts"() {
+    "use strict";
+    init_memory();
+    init_binding();
+    init_runtime();
+  }
+});
+
 // node_modules/cron-parser/dist/fields/types.js
 var require_types = __commonJS({
   "node_modules/cron-parser/dist/fields/types.js"(exports2) {
@@ -86491,23 +86810,23 @@ async function buildAttachments(files) {
     let stat3;
     try {
       stat3 = await fsp.stat(filePath);
-      await fsp.access(filePath, fs5.constants.R_OK);
+      await fsp.access(filePath, fs7.constants.R_OK);
     } catch (err) {
       throw new Error(`Attachment file is not readable: ${filePath} (${err instanceof Error ? err.message : String(err)})`);
     }
     if (!stat3.isFile()) {
       throw new Error(`Attachment path is not a file: ${filePath}`);
     }
-    return new import_discord2.AttachmentBuilder(filePath, { name: path4.basename(filePath) });
+    return new import_discord2.AttachmentBuilder(filePath, { name: path6.basename(filePath) });
   }));
 }
-var fs5, fsp, path4, import_discord2;
+var fs7, fsp, path6, import_discord2;
 var init_sender = __esm({
   "src/daemon/sender.ts"() {
     "use strict";
-    fs5 = __toESM(require("node:fs"), 1);
+    fs7 = __toESM(require("node:fs"), 1);
     fsp = __toESM(require("node:fs/promises"), 1);
-    path4 = __toESM(require("node:path"), 1);
+    path6 = __toESM(require("node:path"), 1);
     import_discord2 = __toESM(require_src(), 1);
     init_retry();
   }
@@ -86528,8 +86847,8 @@ function shutdownCron() {
 function loadJobs() {
   jobs = /* @__PURE__ */ new Map();
   try {
-    if (fs6.existsSync(storePath)) {
-      const data = JSON.parse(fs6.readFileSync(storePath, "utf-8"));
+    if (fs8.existsSync(storePath)) {
+      const data = JSON.parse(fs8.readFileSync(storePath, "utf-8"));
       if (Array.isArray(data)) {
         jobs = new Map(
           data.map(coerceCronJob).filter((job) => job !== null).map((job) => [job.id, job])
@@ -86543,8 +86862,8 @@ function loadJobs() {
 function saveJobs() {
   try {
     const data = Array.from(jobs.values());
-    fs6.mkdirSync(path5.dirname(storePath), { recursive: true });
-    fs6.writeFileSync(storePath, JSON.stringify(data, null, 2), { mode: 384 });
+    fs8.mkdirSync(path7.dirname(storePath), { recursive: true });
+    fs8.writeFileSync(storePath, JSON.stringify(data, null, 2), { mode: 384 });
   } catch (err) {
     log.error("Failed to save cron jobs", { error: err });
   }
@@ -86695,12 +87014,12 @@ function normalizeReminderRunAt(input) {
   }
   return roundedUp;
 }
-var fs6, path5, import_cron_parser, MIN_REMINDER_DELAY_MS, jobs, storePath, discordClient, poller;
+var fs8, path7, import_cron_parser, MIN_REMINDER_DELAY_MS, jobs, storePath, discordClient, poller;
 var init_cron = __esm({
   "src/daemon/cron.ts"() {
     "use strict";
-    fs6 = __toESM(require("node:fs"), 1);
-    path5 = __toESM(require("node:path"), 1);
+    fs8 = __toESM(require("node:fs"), 1);
+    path7 = __toESM(require("node:path"), 1);
     import_cron_parser = __toESM(require_dist11(), 1);
     init_log();
     init_chunker();
@@ -86711,325 +87030,6 @@ var init_cron = __esm({
     storePath = "";
     discordClient = null;
     poller = null;
-  }
-});
-
-// src/daemon/dm-pairing.ts
-function pairingsPath(extensionDir2) {
-  return resolveRuntimePaths(extensionDir2).dmPairingsFile;
-}
-function ensureParentDir(filePath) {
-  fs7.mkdirSync(path6.dirname(filePath), { recursive: true });
-}
-function loadPairingMap(extensionDir2) {
-  const filePath = pairingsPath(extensionDir2);
-  try {
-    const parsed = JSON.parse(fs7.readFileSync(filePath, "utf-8"));
-    const pairings = Array.isArray(parsed.pairings) ? parsed.pairings : [];
-    return new Map(
-      pairings.filter((entry) => Boolean(entry && typeof entry.userId === "string" && typeof entry.channelId === "string")).map((entry) => [entry.userId, entry])
-    );
-  } catch {
-    return /* @__PURE__ */ new Map();
-  }
-}
-function savePairingMap(extensionDir2, pairings) {
-  const filePath = pairingsPath(extensionDir2);
-  ensureParentDir(filePath);
-  const payload = {
-    version: 1,
-    pairings: [...pairings.values()].sort((left, right) => left.userId.localeCompare(right.userId))
-  };
-  fs7.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 384 });
-}
-function resolveDmPairingKey(userId) {
-  return `dm:${userId}`;
-}
-function touchDmPairing(extensionDir2, userId, channelId) {
-  const pairings = loadPairingMap(extensionDir2);
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const existing = pairings.get(userId);
-  const next = {
-    userId,
-    channelId,
-    pairedAt: existing?.pairedAt ?? now,
-    lastSeenAt: now
-  };
-  pairings.set(userId, next);
-  savePairingMap(extensionDir2, pairings);
-  return next;
-}
-function listDmPairings(extensionDir2) {
-  return [...loadPairingMap(extensionDir2).values()].sort((left, right) => left.userId.localeCompare(right.userId)).map((entry) => ({
-    userId: entry.userId,
-    channelId: entry.channelId,
-    pairedAt: entry.pairedAt,
-    lastSeenAt: entry.lastSeenAt
-  }));
-}
-function resolveDmUserIdForChannel(extensionDir2, channelId) {
-  for (const pairing of loadPairingMap(extensionDir2).values()) {
-    if (pairing.channelId === channelId) {
-      return pairing.userId;
-    }
-  }
-  return null;
-}
-async function ensureOwnerDmPairings(client, config, extensionDir2) {
-  ensureRuntimePaths(extensionDir2);
-  if (!config.enableDMs) {
-    return;
-  }
-  const userIds = [.../* @__PURE__ */ new Set([...config.ownerIds, ...config.allowedUserIds])];
-  for (const userId of userIds) {
-    try {
-      const user = await client.users.fetch(userId);
-      const dm = await user.createDM();
-      const pairing = touchDmPairing(extensionDir2, userId, dm.id);
-      log.info("DM pairing ready", pairing);
-    } catch (error) {
-      log.warn("Failed to bootstrap DM pairing", {
-        userId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
-}
-var fs7, path6;
-var init_dm_pairing = __esm({
-  "src/daemon/dm-pairing.ts"() {
-    "use strict";
-    fs7 = __toESM(require("node:fs"), 1);
-    path6 = __toESM(require("node:path"), 1);
-    init_runtime_paths();
-    init_log();
-  }
-});
-
-// src/daemon/binding.ts
-function resolveGeminiBindingKey(scope, context) {
-  switch (scope) {
-    case "global":
-      return "global";
-    case "server":
-      if (!context.guildId && context.dmUserId) {
-        return resolveDmPairingKey(context.dmUserId);
-      }
-      return context.guildId ? `guild:${context.guildId}` : `channel:${context.channelId}`;
-    case "channel":
-    default:
-      if (!context.guildId && context.dmUserId) {
-        return resolveDmPairingKey(context.dmUserId);
-      }
-      return `channel:${context.channelId}`;
-  }
-}
-function ensureGeminiBindingWorkspace(extensionDir2, bindingKey) {
-  const bindingsRoot = ensureRuntimePaths(extensionDir2).bindingsDir;
-  const bindingDir = resolveBindingWorkspacePath(bindingsRoot, bindingKey);
-  const attachmentsDir = path7.join(bindingDir, "discord-attachments");
-  fs8.mkdirSync(attachmentsDir, { recursive: true });
-  removeLegacyBindingContextFiles(bindingDir);
-  syncBindingProjectFile(extensionDir2, bindingDir, ".geminiignore");
-  return {
-    bindingKey,
-    bindingDir,
-    attachmentsDir
-  };
-}
-function loadGeminiBindingState(bindingDir) {
-  const statePath = path7.join(bindingDir, ".binding-state.json");
-  try {
-    const raw = fs8.readFileSync(statePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    const archivedSessionIds = Array.isArray(parsed.archivedSessionIds) ? parsed.archivedSessionIds.filter((value) => typeof value === "string" && value.length > 0) : [];
-    return {
-      hasSession: parsed.hasSession === true,
-      lastSessionId: typeof parsed.lastSessionId === "string" && parsed.lastSessionId ? parsed.lastSessionId : void 0,
-      archivedSessionIds,
-      lastResetAt: typeof parsed.lastResetAt === "string" && parsed.lastResetAt ? parsed.lastResetAt : void 0
-    };
-  } catch {
-    return { hasSession: false, archivedSessionIds: [] };
-  }
-}
-function saveGeminiBindingState(bindingDir, state2) {
-  const statePath = path7.join(bindingDir, ".binding-state.json");
-  const nextState = {
-    hasSession: state2.hasSession
-  };
-  if (state2.lastSessionId) {
-    nextState.lastSessionId = state2.lastSessionId;
-  }
-  if (state2.archivedSessionIds && state2.archivedSessionIds.length > 0) {
-    nextState.archivedSessionIds = [...new Set(state2.archivedSessionIds)];
-  }
-  if (state2.lastResetAt) {
-    nextState.lastResetAt = state2.lastResetAt;
-  }
-  fs8.writeFileSync(statePath, JSON.stringify(nextState), { mode: 384 });
-}
-function listGeminiBindingStates(extensionDir2) {
-  const bindingsRoot = resolveRuntimePaths(extensionDir2).bindingsDir;
-  if (!fs8.existsSync(bindingsRoot)) {
-    return [];
-  }
-  return fs8.readdirSync(bindingsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
-    const bindingDir = path7.join(bindingsRoot, entry.name);
-    const state2 = loadGeminiBindingState(bindingDir);
-    return {
-      workspace: entry.name,
-      hasSession: state2.hasSession,
-      lastSessionId: state2.lastSessionId,
-      archivedSessions: state2.archivedSessionIds?.length ?? 0,
-      lastResetAt: state2.lastResetAt
-    };
-  }).sort((left, right) => left.workspace.localeCompare(right.workspace));
-}
-function cleanupLegacyBindingContextFiles(extensionDir2) {
-  const bindingsRoot = resolveRuntimePaths(extensionDir2).bindingsDir;
-  if (!fs8.existsSync(bindingsRoot)) {
-    return 0;
-  }
-  let removed = 0;
-  for (const entry of fs8.readdirSync(bindingsRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    removed += removeLegacyBindingContextFiles(path7.join(bindingsRoot, entry.name));
-  }
-  return removed;
-}
-function recordGeminiBindingSession(bindingDir, sessionId) {
-  const current = loadGeminiBindingState(bindingDir);
-  const lastSessionId = sessionId ?? current.lastSessionId;
-  const nextState = {
-    hasSession: Boolean(lastSessionId),
-    lastSessionId,
-    archivedSessionIds: current.archivedSessionIds ?? [],
-    lastResetAt: current.lastResetAt
-  };
-  saveGeminiBindingState(bindingDir, nextState);
-  return nextState;
-}
-function removeLegacyBindingContextFiles(bindingDir) {
-  let removed = 0;
-  for (const fileName of ["GEMINI.md", "Gemini.md", "gemini.md"]) {
-    const target = path7.join(bindingDir, fileName);
-    if (!fs8.existsSync(target)) {
-      continue;
-    }
-    try {
-      fs8.rmSync(target, { force: true });
-      removed += 1;
-    } catch {
-    }
-  }
-  return removed;
-}
-function resetGeminiBindingSession(bindingDir) {
-  const current = loadGeminiBindingState(bindingDir);
-  const archivedSessionIds = [
-    ...current.lastSessionId ? [current.lastSessionId] : [],
-    ...current.archivedSessionIds ?? []
-  ];
-  const nextState = {
-    hasSession: false,
-    archivedSessionIds: [...new Set(archivedSessionIds)].slice(0, 20),
-    lastResetAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  saveGeminiBindingState(bindingDir, nextState);
-  return nextState;
-}
-function syncBindingProjectFile(extensionDir2, bindingDir, fileName) {
-  const source = path7.join(extensionDir2, fileName);
-  if (!fs8.existsSync(source)) {
-    return;
-  }
-  const target = path7.join(bindingDir, fileName);
-  const sourceMtime = fs8.statSync(source).mtimeMs;
-  const targetMtime = fs8.existsSync(target) ? fs8.statSync(target).mtimeMs : 0;
-  if (!fs8.existsSync(target) || sourceMtime > targetMtime) {
-    fs8.copyFileSync(source, target);
-  }
-}
-function toBindingSlug(bindingKey) {
-  return bindingKey.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-}
-function resolveBindingWorkspacePath(bindingsRoot, bindingKey) {
-  const legacyDir = path7.join(bindingsRoot, bindingKey);
-  const slugDir = path7.join(bindingsRoot, toBindingSlug(bindingKey));
-  if (fs8.existsSync(slugDir)) {
-    return slugDir;
-  }
-  if (!fs8.existsSync(legacyDir)) {
-    return slugDir;
-  }
-  try {
-    fs8.mkdirSync(bindingsRoot, { recursive: true });
-    fs8.renameSync(legacyDir, slugDir);
-    return slugDir;
-  } catch {
-    return legacyDir;
-  }
-}
-var fs8, path7;
-var init_binding = __esm({
-  "src/daemon/binding.ts"() {
-    "use strict";
-    fs8 = __toESM(require("node:fs"), 1);
-    path7 = __toESM(require("node:path"), 1);
-    init_runtime_paths();
-    init_dm_pairing();
-  }
-});
-
-// src/daemon/runtime.ts
-var runtimeStore;
-var init_runtime = __esm({
-  "src/daemon/runtime.ts"() {
-    "use strict";
-    runtimeStore = {
-      client: null,
-      memory: null,
-      queue: null,
-      geminiSemaphore: null,
-      cliPool: null,
-      isShuttingDown: false,
-      agentExchangeCount: /* @__PURE__ */ new Map(),
-      lastInteractiveMessageAt: null
-    };
-  }
-});
-
-// src/daemon/session-reset.ts
-function resetConversationSession(config, memory, extensionDir2, context) {
-  const dmUserId = context.guildId ? null : context.authorId ?? null;
-  const sessionKey = resolveSessionKey("channel", context.channelId, dmUserId);
-  const bindingKey = resolveGeminiBindingKey("channel", {
-    guildId: context.guildId,
-    channelId: context.channelId,
-    dmUserId
-  });
-  const bindingWorkspace = ensureGeminiBindingWorkspace(extensionDir2, bindingKey);
-  const bindingState = loadGeminiBindingState(bindingWorkspace.bindingDir);
-  memory.archiveAndReset(sessionKey, {
-    bindingKey,
-    lastSessionId: bindingState.lastSessionId
-  });
-  resetGeminiBindingSession(bindingWorkspace.bindingDir);
-  runtimeStore.cliPool?.kill(bindingKey);
-  return {
-    sessionKey,
-    bindingKey
-  };
-}
-var init_session_reset = __esm({
-  "src/daemon/session-reset.ts"() {
-    "use strict";
-    init_memory();
-    init_binding();
-    init_runtime();
   }
 });
 
@@ -89417,8 +89417,6 @@ function normalizeKeys(input) {
 var http = __toESM(require("node:http"), 1);
 var import_discord3 = __toESM(require_src(), 1);
 init_log();
-init_cron();
-init_channels();
 init_session_reset();
 init_dm_pairing();
 
@@ -90019,6 +90017,75 @@ async function handleMessageRoutes(req, res, pathname, parsed, deps) {
   return false;
 }
 
+// src/daemon/api/cron.ts
+init_cron();
+init_channels();
+async function handleCronRoutes(req, res, pathname, parsed, deps) {
+  const { config } = deps;
+  if (pathname === "/cron") {
+    if (!authorizeApiAction(req, res, config, "cron")) return true;
+    const cronExpression = String(parsed["cron_expression"] ?? "");
+    const legacyInstruction = String(parsed["instruction"] ?? "");
+    const message = String(parsed["message"] ?? legacyInstruction);
+    const requestedChannelId = parsed["channel_id"] == null ? "" : String(parsed["channel_id"]);
+    const requestedChannelName = parsed["channel_name"] == null ? "" : String(parsed["channel_name"]);
+    const authorId = String(parsed["author_id"] ?? config.discordBossUserId);
+    const runOnce = parsed["run_once"] === void 0 ? true : parsed["run_once"] === true;
+    const delayMinutes = parseOptionalNumber(parsed["delay_minutes"]);
+    const deliverAt = parseOptionalTimestamp(parsed["deliver_at"]);
+    if (!message || !cronExpression && delayMinutes === null && deliverAt === null) {
+      respond(res, 400, { error: "message plus cron_expression, delay_minutes, or deliver_at is required" });
+      return true;
+    }
+    try {
+      let channelId = requestedChannelId;
+      if (!requestedChannelId && requestedChannelName && deps.client) {
+        const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client, config);
+        if (!resolved) {
+          respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
+          return true;
+        }
+        channelId = resolved.id;
+      }
+      if (!channelId) {
+        respond(res, 400, {
+          error: "No proven Discord target is available. Provide channel_id or channel_name explicitly."
+        });
+        return true;
+      }
+      const jobId = cronExpression ? scheduleJob({
+        cronExpression,
+        message,
+        channelId,
+        authorId,
+        runOnce
+      }) : scheduleReminder({
+        message,
+        channelId,
+        authorId,
+        delayMinutes: delayMinutes ?? void 0,
+        runAt: deliverAt ?? void 0
+      });
+      respond(res, 200, { ok: true, job_id: jobId });
+    } catch (err) {
+      respond(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (pathname === "/cron/delete") {
+    if (!authorizeApiAction(req, res, config, "cron")) return true;
+    const jobId = String(parsed["job_id"] ?? "");
+    if (!jobId) {
+      respond(res, 400, { error: "job_id is required" });
+      return true;
+    }
+    const ok = deleteJob(jobId);
+    respond(res, 200, { ok });
+    return true;
+  }
+  return false;
+}
+
 // src/daemon/api.ts
 var DISCORD_SNOWFLAKE_RE3 = /^\d{15,25}$/;
 function startControlApi(deps) {
@@ -90067,6 +90134,7 @@ function startControlApi(deps) {
           return;
         }
         if (await handleMessageRoutes(req, res, pathname, parsed, deps)) return;
+        if (await handleCronRoutes(req, res, pathname, parsed, deps)) return;
         if (pathname === "/reset") {
           if (!authorizeApiAction(req, res, config, "session_reset")) return;
           const channelId = String(parsed["channel_id"] ?? "");
@@ -90078,67 +90146,6 @@ function startControlApi(deps) {
           const authorId = guildId ? null : resolveDmUserIdForChannel(extensionDir2, channelId);
           resetConversationSession(config, memory, extensionDir2, { channelId, guildId, authorId });
           respond(res, 200, { ok: true });
-          return;
-        }
-        if (pathname === "/cron") {
-          if (!authorizeApiAction(req, res, config, "cron")) return;
-          const cronExpression = String(parsed["cron_expression"] ?? "");
-          const legacyInstruction = String(parsed["instruction"] ?? "");
-          const message = String(parsed["message"] ?? legacyInstruction);
-          const requestedChannelId = parsed["channel_id"] == null ? "" : String(parsed["channel_id"]);
-          const requestedChannelName = parsed["channel_name"] == null ? "" : String(parsed["channel_name"]);
-          const authorId = String(parsed["author_id"] ?? config.discordBossUserId);
-          const runOnce = parsed["run_once"] === void 0 ? true : parsed["run_once"] === true;
-          const delayMinutes = parseOptionalNumber(parsed["delay_minutes"]);
-          const deliverAt = parseOptionalTimestamp(parsed["deliver_at"]);
-          if (!message || !cronExpression && delayMinutes === null && deliverAt === null) {
-            respond(res, 400, { error: "message plus cron_expression, delay_minutes, or deliver_at is required" });
-            return;
-          }
-          try {
-            let channelId = requestedChannelId;
-            if (!requestedChannelId && requestedChannelName && deps.client) {
-              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client, config);
-              if (!resolved) {
-                respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
-                return;
-              }
-              channelId = resolved.id;
-            }
-            if (!channelId) {
-              respond(res, 400, {
-                error: "No proven Discord target is available. Provide channel_id or channel_name explicitly."
-              });
-              return;
-            }
-            const jobId = cronExpression ? scheduleJob({
-              cronExpression,
-              message,
-              channelId,
-              authorId,
-              runOnce
-            }) : scheduleReminder({
-              message,
-              channelId,
-              authorId,
-              delayMinutes: delayMinutes ?? void 0,
-              runAt: deliverAt ?? void 0
-            });
-            respond(res, 200, { ok: true, job_id: jobId });
-          } catch (err) {
-            respond(res, 400, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-        if (pathname === "/cron/delete") {
-          if (!authorizeApiAction(req, res, config, "cron")) return;
-          const jobId = String(parsed["job_id"] ?? "");
-          if (!jobId) {
-            respond(res, 400, { error: "job_id is required" });
-            return;
-          }
-          const ok = deleteJob(jobId);
-          respond(res, 200, { ok });
           return;
         }
         if (pathname === "/moderation") {

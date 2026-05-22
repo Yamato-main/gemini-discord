@@ -1,6 +1,6 @@
 /**
  * HTTP control API — localhost-only, Bearer auth on mutating routes.
- * Provides /health, /status, /history, /send, /reply, /reset endpoints.
+ * Central router for health, status/discovery, message, session, cron, moderation, and admin routes.
  */
 
 import * as http from 'node:http';
@@ -9,8 +9,6 @@ import type {
   Config,
 } from '../shared/types.js';
 import { log } from './log.js';
-import { scheduleJob, scheduleReminder, deleteJob } from './cron.js';
-import { resolveDiscoveredChannel } from './channels.js';
 import { resetConversationSession } from './session-reset.js';
 import { resolveDmUserIdForChannel } from './dm-pairing.js';
 import {
@@ -26,6 +24,7 @@ import {
 import { handleStatusRoutes } from './api/status.js';
 import { handleDiscoveryRoutes } from './api/discovery.js';
 import { handleMessageRoutes } from './api/messages.js';
+import { handleCronRoutes } from './api/cron.js';
 
 const DISCORD_SNOWFLAKE_RE = /^\d{15,25}$/;
 
@@ -100,6 +99,7 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         }
 
         if (await handleMessageRoutes(req, res, pathname, parsed, deps)) return;
+        if (await handleCronRoutes(req, res, pathname, parsed, deps)) return;
 
         if (pathname === '/reset') {
           if (!authorizeApiAction(req, res, config, 'session_reset')) return;
@@ -112,75 +112,6 @@ export function startControlApi(deps: ApiDependencies): http.Server {
           const authorId = guildId ? null : resolveDmUserIdForChannel(extensionDir, channelId);
           resetConversationSession(config, memory, extensionDir, { channelId, guildId, authorId });
           respond(res, 200, { ok: true });
-          return;
-        }
-
-        if (pathname === '/cron') {
-          if (!authorizeApiAction(req, res, config, 'cron')) return;
-          const cronExpression = String(parsed['cron_expression'] ?? '');
-          const legacyInstruction = String(parsed['instruction'] ?? '');
-          const message = String(parsed['message'] ?? legacyInstruction);
-          const requestedChannelId = parsed['channel_id'] == null ? '' : String(parsed['channel_id']);
-          const requestedChannelName = parsed['channel_name'] == null ? '' : String(parsed['channel_name']);
-          const authorId = String(parsed['author_id'] ?? config.discordBossUserId);
-          const runOnce = parsed['run_once'] === undefined ? true : parsed['run_once'] === true;
-          const delayMinutes = parseOptionalNumber(parsed['delay_minutes']);
-          const deliverAt = parseOptionalTimestamp(parsed['deliver_at']);
-
-          if (!message || (!cronExpression && delayMinutes === null && deliverAt === null)) {
-            respond(res, 400, { error: 'message plus cron_expression, delay_minutes, or deliver_at is required' });
-            return;
-          }
-
-          try {
-            let channelId = requestedChannelId;
-            if (!requestedChannelId && requestedChannelName && deps.client) {
-              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client, config);
-              if (!resolved) {
-                respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
-                return;
-              }
-              channelId = resolved.id;
-            }
-
-            if (!channelId) {
-              respond(res, 400, {
-                error: 'No proven Discord target is available. Provide channel_id or channel_name explicitly.',
-              });
-              return;
-            }
-
-            const jobId = cronExpression
-              ? scheduleJob({
-                cronExpression,
-                message,
-                channelId,
-                authorId,
-                runOnce,
-              })
-              : scheduleReminder({
-                message,
-                channelId,
-                authorId,
-                delayMinutes: delayMinutes ?? undefined,
-                runAt: deliverAt ?? undefined,
-              });
-            respond(res, 200, { ok: true, job_id: jobId });
-          } catch (err) {
-            respond(res, 400, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-
-        if (pathname === '/cron/delete') {
-          if (!authorizeApiAction(req, res, config, 'cron')) return;
-          const jobId = String(parsed['job_id'] ?? '');
-          if (!jobId) {
-            respond(res, 400, { error: 'job_id is required' });
-            return;
-          }
-          const ok = deleteJob(jobId);
-          respond(res, 200, { ok });
           return;
         }
 
