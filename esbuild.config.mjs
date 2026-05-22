@@ -7,6 +7,7 @@ const shared = {
   format: 'cjs',
   legalComments: 'none',
   sourcemap: false,
+  preserveSymlinks: true,
 };
 
 await Promise.all([
