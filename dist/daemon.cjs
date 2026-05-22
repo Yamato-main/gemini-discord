@@ -77123,231 +77123,6 @@ var init_memory = __esm({
   }
 });
 
-// src/shared/chunker.ts
-function chunkMessage(text) {
-  if (!text || !text.trim()) {
-    return [];
-  }
-  let wasTruncated = false;
-  if (text.length > LARGE_RESPONSE_CUT) {
-    text = safeTruncate(text, LARGE_RESPONSE_CUT);
-    wasTruncated = true;
-  }
-  if (text.length <= CHUNK_LIMIT) {
-    const result = [text];
-    if (wasTruncated) {
-      result.push("\u26A0\uFE0F Response truncated. Ask me to continue or narrow the question.");
-    }
-    return result;
-  }
-  const chunks = [];
-  let remaining = text;
-  while (remaining.length > CHUNK_LIMIT) {
-    const splitAt = findSafeSplit(remaining, CHUNK_LIMIT);
-    const chunk = remaining.slice(0, splitAt).trim();
-    if (chunk) chunks.push(chunk);
-    remaining = remaining.slice(splitAt).trim();
-  }
-  if (remaining) chunks.push(remaining);
-  if (wasTruncated) {
-    chunks.push("\u26A0\uFE0F Response truncated. Ask me to continue or narrow the question.");
-  }
-  const repaired = repairFences(chunks.filter(Boolean));
-  return repaired;
-}
-function findSafeSplit(text, limit) {
-  let insideFence = false;
-  let lastSafeParaBreak = -1;
-  let lastSafeNewline = -1;
-  for (let i = 0; i < limit && i < text.length; i++) {
-    if (text[i] === "`" && i + 2 < text.length && text[i + 1] === "`" && text[i + 2] === "`") {
-      insideFence = !insideFence;
-      i += 2;
-      continue;
-    }
-    if (!insideFence) {
-      if (text[i] === "\n" && i + 1 < text.length && text[i + 1] === "\n") {
-        lastSafeParaBreak = i + 2;
-      }
-      if (text[i] === "\n") {
-        lastSafeNewline = i + 1;
-      }
-    }
-  }
-  if (lastSafeParaBreak > limit * 0.4) return lastSafeParaBreak;
-  if (lastSafeNewline > limit * 0.3) return lastSafeNewline;
-  return limit;
-}
-function safeTruncate(text, limit) {
-  const truncated = text.slice(0, limit);
-  let insideFence = false;
-  const fenceRegex = /^```/gm;
-  let match;
-  while ((match = fenceRegex.exec(truncated)) !== null) {
-    insideFence = !insideFence;
-  }
-  if (insideFence) {
-    return truncated + "\n```";
-  }
-  return truncated;
-}
-function repairFences(chunks) {
-  if (chunks.length <= 1) return chunks;
-  const repaired = [];
-  let carryFence = null;
-  for (let i = 0; i < chunks.length; i++) {
-    let chunk = chunks[i];
-    if (carryFence) {
-      chunk = carryFence + "\n" + chunk;
-      carryFence = null;
-    }
-    let insideFence = false;
-    let lastOpenFence = "";
-    const lines = chunk.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("```")) {
-        if (!insideFence) {
-          insideFence = true;
-          lastOpenFence = trimmed;
-        } else {
-          insideFence = false;
-          lastOpenFence = "";
-        }
-      }
-    }
-    if (insideFence && i < chunks.length - 1) {
-      chunk += "\n```";
-      carryFence = lastOpenFence || "```";
-    }
-    repaired.push(chunk);
-  }
-  return repaired;
-}
-var CHUNK_LIMIT, LARGE_RESPONSE_CUT;
-var init_chunker = __esm({
-  "src/shared/chunker.ts"() {
-    "use strict";
-    CHUNK_LIMIT = 1990;
-    LARGE_RESPONSE_CUT = 8e3;
-  }
-});
-
-// src/daemon/retry.ts
-async function withRetry(fn, maxAttempts = 4, baseDelayMs = 1e3) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const isRateLimit = isRateLimitError(err);
-      if (!isRateLimit || attempt === maxAttempts) {
-        throw err;
-      }
-      const retryAfter = getRetryAfter(err, baseDelayMs, attempt);
-      log.warn("Rate limited by Discord", { retryAfter, attempt, maxAttempts });
-      await sleep(retryAfter);
-    }
-  }
-  throw new Error("withRetry: unreachable");
-}
-async function retrySend(fn) {
-  return withRetry(fn);
-}
-function isRateLimitError(err) {
-  if (typeof err !== "object" || err === null) return false;
-  const e = err;
-  return e["status"] === 429 || e["httpStatus"] === 429 || e["code"] === 429;
-}
-function getRetryAfter(err, baseDelayMs, attempt) {
-  if (typeof err === "object" && err !== null) {
-    const e = err;
-    if (typeof e["retryAfter"] === "number") {
-      return e["retryAfter"] * 1e3;
-    }
-  }
-  return baseDelayMs * 2 ** (attempt - 1);
-}
-function sleep(ms) {
-  return new Promise((resolve2) => setTimeout(resolve2, ms));
-}
-var init_retry = __esm({
-  "src/daemon/retry.ts"() {
-    "use strict";
-    init_log();
-  }
-});
-
-// src/daemon/sender.ts
-async function sendDiscordMessage(channel, content, chunkFn, options = {}) {
-  const messageIds = [];
-  const attachments = await buildAttachments(options.files);
-  const chunks = content && content.trim() ? chunkFn(content) : [];
-  let replied = false;
-  const silentFlags = options.silent ? { flags: [import_discord2.MessageFlags.SuppressNotifications] } : {};
-  if (attachments.length > 0) {
-    const [firstChunk, ...remainingChunks] = chunks;
-    for (let index = 0; index < attachments.length; index += 10) {
-      const batch = attachments.slice(index, index + 10);
-      const payload = firstChunk && index === 0 ? { content: firstChunk, files: batch, ...silentFlags } : { files: batch, ...silentFlags };
-      let sent;
-      if (!replied && options.replyTo && index === 0) {
-        sent = await retrySend(() => options.replyTo.reply(payload));
-        replied = true;
-      } else {
-        sent = await retrySend(() => channel.send(payload));
-      }
-      messageIds.push(sent.id);
-    }
-    for (const chunk of remainingChunks) {
-      const sent = await retrySend(() => channel.send({ content: chunk, ...silentFlags }));
-      messageIds.push(sent.id);
-    }
-    return messageIds;
-  }
-  if (chunks.length > 0) {
-    for (const [index, chunk] of chunks.entries()) {
-      if (index === 0 && options.replyTo) {
-        const sent = await retrySend(() => options.replyTo.reply({ content: chunk, ...silentFlags }));
-        messageIds.push(sent.id);
-        replied = true;
-      } else {
-        const sent = await retrySend(() => channel.send({ content: chunk, ...silentFlags }));
-        messageIds.push(sent.id);
-      }
-    }
-  }
-  return messageIds;
-}
-async function buildAttachments(files) {
-  if (!files || files.length === 0) {
-    return [];
-  }
-  return Promise.all(files.map(async (filePath) => {
-    let stat3;
-    try {
-      stat3 = await fsp.stat(filePath);
-      await fsp.access(filePath, fs5.constants.R_OK);
-    } catch (err) {
-      throw new Error(`Attachment file is not readable: ${filePath} (${err instanceof Error ? err.message : String(err)})`);
-    }
-    if (!stat3.isFile()) {
-      throw new Error(`Attachment path is not a file: ${filePath}`);
-    }
-    return new import_discord2.AttachmentBuilder(filePath, { name: path4.basename(filePath) });
-  }));
-}
-var fs5, fsp, path4, import_discord2;
-var init_sender = __esm({
-  "src/daemon/sender.ts"() {
-    "use strict";
-    fs5 = __toESM(require("node:fs"), 1);
-    fsp = __toESM(require("node:fs/promises"), 1);
-    path4 = __toESM(require("node:path"), 1);
-    import_discord2 = __toESM(require_src(), 1);
-    init_retry();
-  }
-});
-
 // node_modules/cron-parser/dist/fields/types.js
 var require_types = __commonJS({
   "node_modules/cron-parser/dist/fields/types.js"(exports2) {
@@ -86513,6 +86288,231 @@ var require_dist11 = __commonJS({
   }
 });
 
+// src/shared/chunker.ts
+function chunkMessage(text) {
+  if (!text || !text.trim()) {
+    return [];
+  }
+  let wasTruncated = false;
+  if (text.length > LARGE_RESPONSE_CUT) {
+    text = safeTruncate(text, LARGE_RESPONSE_CUT);
+    wasTruncated = true;
+  }
+  if (text.length <= CHUNK_LIMIT) {
+    const result = [text];
+    if (wasTruncated) {
+      result.push("\u26A0\uFE0F Response truncated. Ask me to continue or narrow the question.");
+    }
+    return result;
+  }
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > CHUNK_LIMIT) {
+    const splitAt = findSafeSplit(remaining, CHUNK_LIMIT);
+    const chunk = remaining.slice(0, splitAt).trim();
+    if (chunk) chunks.push(chunk);
+    remaining = remaining.slice(splitAt).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  if (wasTruncated) {
+    chunks.push("\u26A0\uFE0F Response truncated. Ask me to continue or narrow the question.");
+  }
+  const repaired = repairFences(chunks.filter(Boolean));
+  return repaired;
+}
+function findSafeSplit(text, limit) {
+  let insideFence = false;
+  let lastSafeParaBreak = -1;
+  let lastSafeNewline = -1;
+  for (let i = 0; i < limit && i < text.length; i++) {
+    if (text[i] === "`" && i + 2 < text.length && text[i + 1] === "`" && text[i + 2] === "`") {
+      insideFence = !insideFence;
+      i += 2;
+      continue;
+    }
+    if (!insideFence) {
+      if (text[i] === "\n" && i + 1 < text.length && text[i + 1] === "\n") {
+        lastSafeParaBreak = i + 2;
+      }
+      if (text[i] === "\n") {
+        lastSafeNewline = i + 1;
+      }
+    }
+  }
+  if (lastSafeParaBreak > limit * 0.4) return lastSafeParaBreak;
+  if (lastSafeNewline > limit * 0.3) return lastSafeNewline;
+  return limit;
+}
+function safeTruncate(text, limit) {
+  const truncated = text.slice(0, limit);
+  let insideFence = false;
+  const fenceRegex = /^```/gm;
+  let match;
+  while ((match = fenceRegex.exec(truncated)) !== null) {
+    insideFence = !insideFence;
+  }
+  if (insideFence) {
+    return truncated + "\n```";
+  }
+  return truncated;
+}
+function repairFences(chunks) {
+  if (chunks.length <= 1) return chunks;
+  const repaired = [];
+  let carryFence = null;
+  for (let i = 0; i < chunks.length; i++) {
+    let chunk = chunks[i];
+    if (carryFence) {
+      chunk = carryFence + "\n" + chunk;
+      carryFence = null;
+    }
+    let insideFence = false;
+    let lastOpenFence = "";
+    const lines = chunk.split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("```")) {
+        if (!insideFence) {
+          insideFence = true;
+          lastOpenFence = trimmed;
+        } else {
+          insideFence = false;
+          lastOpenFence = "";
+        }
+      }
+    }
+    if (insideFence && i < chunks.length - 1) {
+      chunk += "\n```";
+      carryFence = lastOpenFence || "```";
+    }
+    repaired.push(chunk);
+  }
+  return repaired;
+}
+var CHUNK_LIMIT, LARGE_RESPONSE_CUT;
+var init_chunker = __esm({
+  "src/shared/chunker.ts"() {
+    "use strict";
+    CHUNK_LIMIT = 1990;
+    LARGE_RESPONSE_CUT = 8e3;
+  }
+});
+
+// src/daemon/retry.ts
+async function withRetry(fn, maxAttempts = 4, baseDelayMs = 1e3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isRateLimit = isRateLimitError(err);
+      if (!isRateLimit || attempt === maxAttempts) {
+        throw err;
+      }
+      const retryAfter = getRetryAfter(err, baseDelayMs, attempt);
+      log.warn("Rate limited by Discord", { retryAfter, attempt, maxAttempts });
+      await sleep(retryAfter);
+    }
+  }
+  throw new Error("withRetry: unreachable");
+}
+async function retrySend(fn) {
+  return withRetry(fn);
+}
+function isRateLimitError(err) {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err;
+  return e["status"] === 429 || e["httpStatus"] === 429 || e["code"] === 429;
+}
+function getRetryAfter(err, baseDelayMs, attempt) {
+  if (typeof err === "object" && err !== null) {
+    const e = err;
+    if (typeof e["retryAfter"] === "number") {
+      return e["retryAfter"] * 1e3;
+    }
+  }
+  return baseDelayMs * 2 ** (attempt - 1);
+}
+function sleep(ms) {
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
+}
+var init_retry = __esm({
+  "src/daemon/retry.ts"() {
+    "use strict";
+    init_log();
+  }
+});
+
+// src/daemon/sender.ts
+async function sendDiscordMessage(channel, content, chunkFn, options = {}) {
+  const messageIds = [];
+  const attachments = await buildAttachments(options.files);
+  const chunks = content && content.trim() ? chunkFn(content) : [];
+  let replied = false;
+  const silentFlags = options.silent ? { flags: [import_discord2.MessageFlags.SuppressNotifications] } : {};
+  if (attachments.length > 0) {
+    const [firstChunk, ...remainingChunks] = chunks;
+    for (let index = 0; index < attachments.length; index += 10) {
+      const batch = attachments.slice(index, index + 10);
+      const payload = firstChunk && index === 0 ? { content: firstChunk, files: batch, ...silentFlags } : { files: batch, ...silentFlags };
+      let sent;
+      if (!replied && options.replyTo && index === 0) {
+        sent = await retrySend(() => options.replyTo.reply(payload));
+        replied = true;
+      } else {
+        sent = await retrySend(() => channel.send(payload));
+      }
+      messageIds.push(sent.id);
+    }
+    for (const chunk of remainingChunks) {
+      const sent = await retrySend(() => channel.send({ content: chunk, ...silentFlags }));
+      messageIds.push(sent.id);
+    }
+    return messageIds;
+  }
+  if (chunks.length > 0) {
+    for (const [index, chunk] of chunks.entries()) {
+      if (index === 0 && options.replyTo) {
+        const sent = await retrySend(() => options.replyTo.reply({ content: chunk, ...silentFlags }));
+        messageIds.push(sent.id);
+        replied = true;
+      } else {
+        const sent = await retrySend(() => channel.send({ content: chunk, ...silentFlags }));
+        messageIds.push(sent.id);
+      }
+    }
+  }
+  return messageIds;
+}
+async function buildAttachments(files) {
+  if (!files || files.length === 0) {
+    return [];
+  }
+  return Promise.all(files.map(async (filePath) => {
+    let stat3;
+    try {
+      stat3 = await fsp.stat(filePath);
+      await fsp.access(filePath, fs5.constants.R_OK);
+    } catch (err) {
+      throw new Error(`Attachment file is not readable: ${filePath} (${err instanceof Error ? err.message : String(err)})`);
+    }
+    if (!stat3.isFile()) {
+      throw new Error(`Attachment path is not a file: ${filePath}`);
+    }
+    return new import_discord2.AttachmentBuilder(filePath, { name: path4.basename(filePath) });
+  }));
+}
+var fs5, fsp, path4, import_discord2;
+var init_sender = __esm({
+  "src/daemon/sender.ts"() {
+    "use strict";
+    fs5 = __toESM(require("node:fs"), 1);
+    fsp = __toESM(require("node:fs/promises"), 1);
+    path4 = __toESM(require("node:path"), 1);
+    import_discord2 = __toESM(require_src(), 1);
+    init_retry();
+  }
+});
+
 // src/daemon/cron.ts
 function initCron(config, client, extensionDir2) {
   storePath = resolveRuntimePaths(extensionDir2).cronFile;
@@ -89416,9 +89416,7 @@ function normalizeKeys(input) {
 // src/daemon/api.ts
 var http = __toESM(require("node:http"), 1);
 var import_discord3 = __toESM(require_src(), 1);
-init_chunker();
 init_log();
-init_sender();
 init_cron();
 init_channels();
 init_session_reset();
@@ -89696,6 +89694,331 @@ async function handleDiscoveryRoutes(req, res, url, deps) {
   return false;
 }
 
+// src/daemon/api/messages.ts
+init_chunker();
+init_sender();
+init_channels();
+async function handleMessageRoutes(req, res, pathname, parsed, deps) {
+  const { config, memory, extensionDir: extensionDir2 } = deps;
+  if (pathname === "/send") {
+    if (!authorizeApiAction(req, res, config, "outbound_discord")) return true;
+    const requestedChannelId = parsed["channel_id"] == null ? "" : String(parsed["channel_id"]);
+    const requestedChannelName = parsed["channel_name"] == null ? "" : String(parsed["channel_name"]);
+    const content = String(parsed["content"] ?? "");
+    const files = Array.isArray(parsed["files"]) ? parsed["files"].map(String) : void 0;
+    if (!content.trim() && (!files || files.length === 0)) {
+      respond(res, 400, { error: "content or files are required" });
+      return true;
+    }
+    let channelId = "";
+    try {
+      channelId = resolveSendChannelId(requestedChannelId);
+      if (!requestedChannelId && requestedChannelName) {
+        if (!deps.client) {
+          respond(res, 503, { error: "Client not ready" });
+          return true;
+        }
+        const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client, config);
+        if (!resolved) {
+          respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
+          return true;
+        }
+        channelId = resolved.id;
+      }
+      if (!channelId) {
+        respond(res, 400, {
+          error: "No proven Discord target is available. Provide channel_id or channel_name explicitly."
+        });
+        return true;
+      }
+      if (!deps.client) {
+        respond(res, 503, {
+          error: "Client not ready",
+          ...channelId ? { channel_id: channelId } : {}
+        });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based", channel_id: channelId });
+        return true;
+      }
+      if (!isWritableTarget(channelId, channel, config)) {
+        respond(res, 403, { error: `Channel ${channelId} is not allowed for sending`, channel_id: channelId });
+        return true;
+      }
+      const silent = parsed["silent"] === true;
+      const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { files, silent });
+      const sessionKey = resolveConversationSessionKey(
+        config,
+        extensionDir2,
+        channelId,
+        channel.guildId ?? null
+      );
+      const attachments = files?.map((f) => ({ name: f.split("/").pop() || "unknown_file" })) || [];
+      memory.add(sessionKey, {
+        role: "assistant",
+        content: content || "(Sent an attachment)",
+        speakerKind: "assistant",
+        authorId: deps.client.user?.id,
+        authorName: deps.client.user?.tag ?? "Assistant",
+        channelId: channel.id,
+        channelName: channel.name ?? "dm",
+        guildId: channel.guildId ?? null,
+        guildName: channel.guild?.name ?? null,
+        messageId: messageIds[0] ?? void 0,
+        trigger: "tool_send",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        attachments
+      });
+      respond(res, 200, { ok: true, chunks: messageIds.length, messageIds, channel_id: channelId });
+    } catch (err) {
+      respond(res, 500, {
+        error: err instanceof Error ? err.message : String(err),
+        ...channelId ? { channel_id: channelId } : {}
+      });
+    }
+    return true;
+  }
+  if (pathname === "/reply") {
+    if (!authorizeApiAction(req, res, config, "outbound_discord")) return true;
+    const channelId = String(parsed["channel_id"] ?? "");
+    const messageId = String(parsed["message_id"] ?? "");
+    const content = String(parsed["content"] ?? "");
+    const files = Array.isArray(parsed["files"]) ? parsed["files"].map(String) : void 0;
+    if (!channelId || !messageId || !content.trim() && (!files || files.length === 0)) {
+      respond(res, 400, { error: "channel_id, message_id, and either content or files are required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      if (!isWritableTarget(channelId, channel, config)) {
+        respond(res, 403, { error: `Channel ${channelId} is not allowed for replies` });
+        return true;
+      }
+      const msg = await channel.messages.fetch(messageId);
+      const silent = parsed["silent"] === true;
+      const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { replyTo: msg, files, silent });
+      const sessionKey = resolveConversationSessionKey(
+        config,
+        extensionDir2,
+        channelId,
+        channel.guildId ?? null
+      );
+      const attachments = files?.map((f) => ({ name: f.split("/").pop() || "unknown_file" })) || [];
+      memory.add(sessionKey, {
+        role: "assistant",
+        content: content || "(Sent an attachment)",
+        speakerKind: "assistant",
+        authorId: deps.client.user?.id,
+        authorName: deps.client.user?.tag ?? "Assistant",
+        channelId: channel.id,
+        channelName: channel.name ?? "dm",
+        guildId: channel.guildId ?? null,
+        guildName: channel.guild?.name ?? null,
+        messageId: messageIds[0] ?? void 0,
+        replyToMessageId: msg.id,
+        replyToAuthorId: msg.author.id,
+        replyToAuthorName: msg.author.tag,
+        trigger: "tool_reply",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        attachments
+      });
+      respond(res, 200, { ok: true, messageIds });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (pathname === "/react") {
+    if (!authorizeApiAction(req, res, config, "outbound_discord")) return true;
+    const channelId = String(parsed["channel_id"] ?? "");
+    const messageId = String(parsed["message_id"] ?? "");
+    const emoji = String(parsed["emoji"] ?? "");
+    if (!channelId || !messageId || !emoji) {
+      respond(res, 400, { error: "channel_id, message_id, and emoji are required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      const msg = await channel.messages.fetch(messageId);
+      await msg.react(emoji);
+      respond(res, 200, { ok: true });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (pathname === "/unreact") {
+    if (!authorizeApiAction(req, res, config, "outbound_discord")) return true;
+    const channelId = String(parsed["channel_id"] ?? "");
+    const messageId = String(parsed["message_id"] ?? "");
+    const emoji = parsed["emoji"] == null ? "" : String(parsed["emoji"]);
+    if (!channelId || !messageId) {
+      respond(res, 400, { error: "channel_id and message_id are required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      const msg = await channel.messages.fetch(messageId);
+      if (emoji) {
+        const reaction = msg.reactions.cache.find(
+          (r) => r.emoji.name === emoji || r.emoji.toString() === emoji
+        );
+        if (reaction) await reaction.users.remove(deps.client.user.id);
+      } else {
+        for (const reaction of msg.reactions.cache.values()) {
+          if (reaction.users.cache.has(deps.client.user.id)) {
+            await reaction.users.remove(deps.client.user.id);
+          }
+        }
+      }
+      respond(res, 200, { ok: true });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (pathname === "/edit") {
+    if (!authorizeApiAction(req, res, config, "outbound_discord")) return true;
+    const channelId = String(parsed["channel_id"] ?? "");
+    const messageId = String(parsed["message_id"] ?? "");
+    const content = String(parsed["content"] ?? "");
+    if (!channelId || !messageId || !content.trim()) {
+      respond(res, 400, { error: "channel_id, message_id, and content are required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      const msg = await channel.messages.fetch(messageId);
+      if (msg.author.id !== deps.client.user?.id) {
+        respond(res, 403, { error: "Can only edit own messages" });
+        return true;
+      }
+      await msg.edit(content);
+      respond(res, 200, { ok: true });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (pathname === "/delete") {
+    if (!authorizeApiAction(req, res, config, "outbound_discord")) return true;
+    const channelId = String(parsed["channel_id"] ?? "");
+    const messageId = String(parsed["message_id"] ?? "");
+    if (!channelId || !messageId) {
+      respond(res, 400, { error: "channel_id and message_id are required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      const msg = await channel.messages.fetch(messageId);
+      if (msg.author.id !== deps.client.user?.id) {
+        respond(res, 403, { error: "Can only delete own messages" });
+        return true;
+      }
+      await msg.delete();
+      respond(res, 200, { ok: true });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (pathname === "/pin") {
+    if (!authorizeApiAction(req, res, config, "outbound_discord")) return true;
+    const channelId = String(parsed["channel_id"] ?? "");
+    const messageId = String(parsed["message_id"] ?? "");
+    if (!channelId || !messageId) {
+      respond(res, 400, { error: "channel_id and message_id are required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      const msg = await channel.messages.fetch(messageId);
+      await msg.pin();
+      respond(res, 200, { ok: true });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (pathname === "/unpin") {
+    if (!authorizeApiAction(req, res, config, "outbound_discord")) return true;
+    const channelId = String(parsed["channel_id"] ?? "");
+    const messageId = String(parsed["message_id"] ?? "");
+    if (!channelId || !messageId) {
+      respond(res, 400, { error: "channel_id and message_id are required" });
+      return true;
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const channel = await fetchTextChannel(deps.client, channelId);
+      if (!channel) {
+        respond(res, 400, { error: "Channel is not text-based" });
+        return true;
+      }
+      const msg = await channel.messages.fetch(messageId);
+      await msg.unpin();
+      respond(res, 200, { ok: true });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  return false;
+}
+
 // src/daemon/api.ts
 var DISCORD_SNOWFLAKE_RE3 = /^\d{15,25}$/;
 function startControlApi(deps) {
@@ -89743,144 +90066,7 @@ function startControlApi(deps) {
           respond(res, 400, { error: "Invalid JSON" });
           return;
         }
-        if (pathname === "/send") {
-          if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
-          const requestedChannelId = parsed["channel_id"] == null ? "" : String(parsed["channel_id"]);
-          const requestedChannelName = parsed["channel_name"] == null ? "" : String(parsed["channel_name"]);
-          const content = String(parsed["content"] ?? "");
-          const files = Array.isArray(parsed["files"]) ? parsed["files"].map(String) : void 0;
-          if (!content.trim() && (!files || files.length === 0)) {
-            respond(res, 400, { error: "content or files are required" });
-            return;
-          }
-          let channelId = "";
-          try {
-            channelId = resolveSendChannelId(requestedChannelId);
-            if (!requestedChannelId && requestedChannelName) {
-              if (!deps.client) {
-                respond(res, 503, { error: "Client not ready" });
-                return;
-              }
-              const resolved = await resolveDiscoveredChannel(requestedChannelName, deps.client, config);
-              if (!resolved) {
-                respond(res, 400, { error: `Unknown channel: ${requestedChannelName}` });
-                return;
-              }
-              channelId = resolved.id;
-            }
-            if (!channelId) {
-              respond(res, 400, {
-                error: "No proven Discord target is available. Provide channel_id or channel_name explicitly."
-              });
-              return;
-            }
-            if (!deps.client) {
-              respond(res, 503, {
-                error: "Client not ready",
-                ...channelId ? { channel_id: channelId } : {}
-              });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based", channel_id: channelId });
-              return;
-            }
-            if (!isWritableTarget(channelId, channel, config)) {
-              respond(res, 403, { error: `Channel ${channelId} is not allowed for sending`, channel_id: channelId });
-              return;
-            }
-            const silent = parsed["silent"] === true;
-            const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { files, silent });
-            const sessionKey = resolveConversationSessionKey(
-              config,
-              extensionDir2,
-              channelId,
-              channel.guildId ?? null
-            );
-            const attachments = files?.map((f) => ({ name: f.split("/").pop() || "unknown_file" })) || [];
-            memory.add(sessionKey, {
-              role: "assistant",
-              content: content || "(Sent an attachment)",
-              speakerKind: "assistant",
-              authorId: deps.client.user?.id,
-              authorName: deps.client.user?.tag ?? "Assistant",
-              channelId: channel.id,
-              channelName: channel.name ?? "dm",
-              guildId: channel.guildId ?? null,
-              guildName: channel.guild?.name ?? null,
-              messageId: messageIds[0] ?? void 0,
-              trigger: "tool_send",
-              createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-              attachments
-            });
-            respond(res, 200, { ok: true, chunks: messageIds.length, messageIds, channel_id: channelId });
-          } catch (err) {
-            respond(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
-              ...channelId ? { channel_id: channelId } : {}
-            });
-          }
-          return;
-        }
-        if (pathname === "/reply") {
-          if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          const messageId = String(parsed["message_id"] ?? "");
-          const content = String(parsed["content"] ?? "");
-          const files = Array.isArray(parsed["files"]) ? parsed["files"].map(String) : void 0;
-          if (!channelId || !messageId || !content.trim() && (!files || files.length === 0)) {
-            respond(res, 400, { error: "channel_id, message_id, and either content or files are required" });
-            return;
-          }
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            if (!isWritableTarget(channelId, channel, config)) {
-              respond(res, 403, { error: `Channel ${channelId} is not allowed for replies` });
-              return;
-            }
-            const msg = await channel.messages.fetch(messageId);
-            const silent = parsed["silent"] === true;
-            const messageIds = await sendDiscordMessage(channel, content, chunkMessage, { replyTo: msg, files, silent });
-            const sessionKey = resolveConversationSessionKey(
-              config,
-              extensionDir2,
-              channelId,
-              channel.guildId ?? null
-            );
-            const attachments = files?.map((f) => ({ name: f.split("/").pop() || "unknown_file" })) || [];
-            memory.add(sessionKey, {
-              role: "assistant",
-              content: content || "(Sent an attachment)",
-              speakerKind: "assistant",
-              authorId: deps.client.user?.id,
-              authorName: deps.client.user?.tag ?? "Assistant",
-              channelId: channel.id,
-              channelName: channel.name ?? "dm",
-              guildId: channel.guildId ?? null,
-              guildName: channel.guild?.name ?? null,
-              messageId: messageIds[0] ?? void 0,
-              replyToMessageId: msg.id,
-              replyToAuthorId: msg.author.id,
-              replyToAuthorName: msg.author.tag,
-              trigger: "tool_reply",
-              createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-              attachments
-            });
-            respond(res, 200, { ok: true, messageIds });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
+        if (await handleMessageRoutes(req, res, pathname, parsed, deps)) return;
         if (pathname === "/reset") {
           if (!authorizeApiAction(req, res, config, "session_reset")) return;
           const channelId = String(parsed["channel_id"] ?? "");
@@ -89953,184 +90139,6 @@ function startControlApi(deps) {
           }
           const ok = deleteJob(jobId);
           respond(res, 200, { ok });
-          return;
-        }
-        if (pathname === "/react") {
-          if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          const messageId = String(parsed["message_id"] ?? "");
-          const emoji = String(parsed["emoji"] ?? "");
-          if (!channelId || !messageId || !emoji) {
-            respond(res, 400, { error: "channel_id, message_id, and emoji are required" });
-            return;
-          }
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            const msg = await channel.messages.fetch(messageId);
-            await msg.react(emoji);
-            respond(res, 200, { ok: true });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-        if (pathname === "/unreact") {
-          if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          const messageId = String(parsed["message_id"] ?? "");
-          const emoji = parsed["emoji"] == null ? "" : String(parsed["emoji"]);
-          if (!channelId || !messageId) {
-            respond(res, 400, { error: "channel_id and message_id are required" });
-            return;
-          }
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            const msg = await channel.messages.fetch(messageId);
-            if (emoji) {
-              const reaction = msg.reactions.cache.find(
-                (r) => r.emoji.name === emoji || r.emoji.toString() === emoji
-              );
-              if (reaction) await reaction.users.remove(deps.client.user.id);
-            } else {
-              for (const reaction of msg.reactions.cache.values()) {
-                if (reaction.users.cache.has(deps.client.user.id)) {
-                  await reaction.users.remove(deps.client.user.id);
-                }
-              }
-            }
-            respond(res, 200, { ok: true });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-        if (pathname === "/edit") {
-          if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          const messageId = String(parsed["message_id"] ?? "");
-          const content = String(parsed["content"] ?? "");
-          if (!channelId || !messageId || !content.trim()) {
-            respond(res, 400, { error: "channel_id, message_id, and content are required" });
-            return;
-          }
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            const msg = await channel.messages.fetch(messageId);
-            if (msg.author.id !== deps.client.user?.id) {
-              respond(res, 403, { error: "Can only edit own messages" });
-              return;
-            }
-            await msg.edit(content);
-            respond(res, 200, { ok: true });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-        if (pathname === "/delete") {
-          if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          const messageId = String(parsed["message_id"] ?? "");
-          if (!channelId || !messageId) {
-            respond(res, 400, { error: "channel_id and message_id are required" });
-            return;
-          }
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            const msg = await channel.messages.fetch(messageId);
-            if (msg.author.id !== deps.client.user?.id) {
-              respond(res, 403, { error: "Can only delete own messages" });
-              return;
-            }
-            await msg.delete();
-            respond(res, 200, { ok: true });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-        if (pathname === "/pin") {
-          if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          const messageId = String(parsed["message_id"] ?? "");
-          if (!channelId || !messageId) {
-            respond(res, 400, { error: "channel_id and message_id are required" });
-            return;
-          }
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            const msg = await channel.messages.fetch(messageId);
-            await msg.pin();
-            respond(res, 200, { ok: true });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-        if (pathname === "/unpin") {
-          if (!authorizeApiAction(req, res, config, "outbound_discord")) return;
-          const channelId = String(parsed["channel_id"] ?? "");
-          const messageId = String(parsed["message_id"] ?? "");
-          if (!channelId || !messageId) {
-            respond(res, 400, { error: "channel_id and message_id are required" });
-            return;
-          }
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const channel = await fetchTextChannel(deps.client, channelId);
-            if (!channel) {
-              respond(res, 400, { error: "Channel is not text-based" });
-              return;
-            }
-            const msg = await channel.messages.fetch(messageId);
-            await msg.unpin();
-            respond(res, 200, { ok: true });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
           return;
         }
         if (pathname === "/moderation") {
