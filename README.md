@@ -12,6 +12,8 @@ Your local Gemini CLI agent, reachable from Discord.
 
 Send a task from your phone. Your agent picks it up, works in the same workspace, and replies in the same channel. Sessions stay warm. Credentials stay local. Authority stays with one Discord user ID you control.
 
+This extension leverages native multimodal capabilities of Gemini models, allowing you to send images, video, audio, PDFs, and source files directly through the Discord interface for immediate, in-context interpretation by the agent.
+
 ---
 
 ## Discord Bot Setup
