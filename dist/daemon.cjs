@@ -89415,7 +89415,6 @@ function normalizeKeys(input) {
 
 // src/daemon/api.ts
 var http = __toESM(require("node:http"), 1);
-var import_discord3 = __toESM(require_src(), 1);
 init_log();
 init_session_reset();
 init_dm_pairing();
@@ -90086,8 +90085,102 @@ async function handleCronRoutes(req, res, pathname, parsed, deps) {
   return false;
 }
 
-// src/daemon/api.ts
+// src/daemon/api/moderation.ts
+var import_discord3 = __toESM(require_src(), 1);
 var DISCORD_SNOWFLAKE_RE3 = /^\d{15,25}$/;
+async function handleModerationRoutes(req, res, pathname, parsed, deps) {
+  const { config } = deps;
+  if (pathname === "/moderation") {
+    if (!authorizeApiAction(req, res, config, "moderation")) return true;
+    const action = String(parsed["action"] ?? "");
+    const userId = String(parsed["user_id"] ?? "").trim();
+    const guildId = String(parsed["guild_id"] ?? config.discordServerId ?? "").trim();
+    const reason = parsed["reason"] == null ? void 0 : String(parsed["reason"]);
+    const durationMinutes = parseOptionalNumber(parsed["duration_minutes"]);
+    if (!["kick", "timeout", "remove_timeout"].includes(action)) {
+      respond(res, 400, { error: "action must be kick, timeout, or remove_timeout" });
+      return true;
+    }
+    if (!userId) {
+      respond(res, 400, { error: "user_id is required" });
+      return true;
+    }
+    if (!DISCORD_SNOWFLAKE_RE3.test(userId)) {
+      respond(res, 400, { error: "user_id must be a stable numeric Discord user ID. Use user discovery to resolve names or mentions first." });
+      return true;
+    }
+    if (!guildId) {
+      respond(res, 400, { error: "guild_id is required because no Discord server is configured" });
+      return true;
+    }
+    if (userId === deps.client?.user?.id) {
+      respond(res, 400, { error: "Refusing to moderate the bot user" });
+      return true;
+    }
+    if (config.discordBossUserId && userId === config.discordBossUserId) {
+      respond(res, 400, { error: "Refusing to moderate the configured authorized Discord user" });
+      return true;
+    }
+    if (action === "timeout") {
+      if (durationMinutes === null || durationMinutes <= 0) {
+        respond(res, 400, { error: "duration_minutes must be greater than 0 for timeout" });
+        return true;
+      }
+      if (durationMinutes > 40320) {
+        respond(res, 400, { error: "duration_minutes cannot exceed 40320 minutes (28 days)" });
+        return true;
+      }
+    }
+    try {
+      if (!deps.client) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const guild = await deps.client.guilds.fetch(guildId);
+      const member = await guild.members.fetch(userId);
+      if (action === "kick") {
+        await member.kick(reason);
+      } else if (action === "timeout") {
+        await member.timeout((durationMinutes ?? 0) * 6e4, reason);
+      } else {
+        await member.timeout(null, reason);
+      }
+      respond(res, 200, { ok: true, action, user_id: userId, guild_id: guildId });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  if (pathname === "/presence") {
+    if (!authorizeApiAction(req, res, config, "admin_command")) return true;
+    const status = String(parsed["status"] ?? "online");
+    const activityType = String(parsed["activity_type"] ?? "");
+    const activityName = String(parsed["activity_name"] ?? "");
+    try {
+      if (!deps.client?.user) {
+        respond(res, 503, { error: "Client not ready" });
+        return true;
+      }
+      const validStatuses = ["online", "idle", "dnd", "invisible"];
+      const resolvedStatus = validStatuses.includes(status) ? status : "online";
+      const activityTypeMap = {
+        playing: import_discord3.ActivityType.Playing,
+        watching: import_discord3.ActivityType.Watching,
+        listening: import_discord3.ActivityType.Listening,
+        competing: import_discord3.ActivityType.Competing
+      };
+      const activities = activityName ? [{ name: activityName, type: activityTypeMap[activityType] ?? import_discord3.ActivityType.Playing }] : [];
+      deps.client.user.setPresence({ status: resolvedStatus, activities });
+      respond(res, 200, { ok: true, status: resolvedStatus, activities });
+    } catch (err) {
+      respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+  return false;
+}
+
+// src/daemon/api.ts
 function startControlApi(deps) {
   const { config, memory, extensionDir: extensionDir2, isShuttingDown, shutdown } = deps;
   const server = http.createServer(async (req, res) => {
@@ -90148,93 +90241,7 @@ function startControlApi(deps) {
           respond(res, 200, { ok: true });
           return;
         }
-        if (pathname === "/moderation") {
-          if (!authorizeApiAction(req, res, config, "moderation")) return;
-          const action = String(parsed["action"] ?? "");
-          const userId = String(parsed["user_id"] ?? "").trim();
-          const guildId = String(parsed["guild_id"] ?? config.discordServerId ?? "").trim();
-          const reason = parsed["reason"] == null ? void 0 : String(parsed["reason"]);
-          const durationMinutes = parseOptionalNumber(parsed["duration_minutes"]);
-          if (!["kick", "timeout", "remove_timeout"].includes(action)) {
-            respond(res, 400, { error: "action must be kick, timeout, or remove_timeout" });
-            return;
-          }
-          if (!userId) {
-            respond(res, 400, { error: "user_id is required" });
-            return;
-          }
-          if (!DISCORD_SNOWFLAKE_RE3.test(userId)) {
-            respond(res, 400, { error: "user_id must be a stable numeric Discord user ID. Use user discovery to resolve names or mentions first." });
-            return;
-          }
-          if (!guildId) {
-            respond(res, 400, { error: "guild_id is required because no Discord server is configured" });
-            return;
-          }
-          if (userId === deps.client?.user?.id) {
-            respond(res, 400, { error: "Refusing to moderate the bot user" });
-            return;
-          }
-          if (config.discordBossUserId && userId === config.discordBossUserId) {
-            respond(res, 400, { error: "Refusing to moderate the configured authorized Discord user" });
-            return;
-          }
-          if (action === "timeout") {
-            if (durationMinutes === null || durationMinutes <= 0) {
-              respond(res, 400, { error: "duration_minutes must be greater than 0 for timeout" });
-              return;
-            }
-            if (durationMinutes > 40320) {
-              respond(res, 400, { error: "duration_minutes cannot exceed 40320 minutes (28 days)" });
-              return;
-            }
-          }
-          try {
-            if (!deps.client) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const guild = await deps.client.guilds.fetch(guildId);
-            const member = await guild.members.fetch(userId);
-            if (action === "kick") {
-              await member.kick(reason);
-            } else if (action === "timeout") {
-              await member.timeout((durationMinutes ?? 0) * 6e4, reason);
-            } else {
-              await member.timeout(null, reason);
-            }
-            respond(res, 200, { ok: true, action, user_id: userId, guild_id: guildId });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
-        if (pathname === "/presence") {
-          if (!authorizeApiAction(req, res, config, "admin_command")) return;
-          const status = String(parsed["status"] ?? "online");
-          const activityType = String(parsed["activity_type"] ?? "");
-          const activityName = String(parsed["activity_name"] ?? "");
-          try {
-            if (!deps.client?.user) {
-              respond(res, 503, { error: "Client not ready" });
-              return;
-            }
-            const validStatuses = ["online", "idle", "dnd", "invisible"];
-            const resolvedStatus = validStatuses.includes(status) ? status : "online";
-            const activityTypeMap = {
-              playing: import_discord3.ActivityType.Playing,
-              watching: import_discord3.ActivityType.Watching,
-              listening: import_discord3.ActivityType.Listening,
-              competing: import_discord3.ActivityType.Competing
-            };
-            const activities = activityName ? [{ name: activityName, type: activityTypeMap[activityType] ?? import_discord3.ActivityType.Playing }] : [];
-            deps.client.user.setPresence({ status: resolvedStatus, activities });
-            respond(res, 200, { ok: true, status: resolvedStatus, activities });
-          } catch (err) {
-            respond(res, 500, { error: err instanceof Error ? err.message : String(err) });
-          }
-          return;
-        }
+        if (await handleModerationRoutes(req, res, pathname, parsed, deps)) return;
       }
       respond(res, 404, { error: "Not found" });
     } catch (err) {
