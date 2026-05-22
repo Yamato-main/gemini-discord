@@ -183,6 +183,7 @@ var ENV = {
   DISCORD_ALLOWED_USER_IDS: "DISCORD_ALLOWED_USER_IDS",
   DISCORD_ALLOWED_AGENT_IDS: "DISCORD_ALLOWED_AGENT_IDS",
   DISCORD_ENABLE_GUESTS: "DISCORD_ENABLE_GUESTS",
+  DISCORD_ENABLE_SERVER_MEMBERS_INTENT: "DISCORD_ENABLE_SERVER_MEMBERS_INTENT",
   DAEMON_API_TOKEN: "DAEMON_API_TOKEN",
   DISCORD_PREFIX: "DISCORD_PREFIX",
   DISCORD_RESET_CMD: "DISCORD_RESET_CMD",
@@ -217,6 +218,7 @@ var CONFIG_ENV_KEYS = [
   ENV.DISCORD_ALLOWED_USER_IDS,
   ENV.DISCORD_ALLOWED_AGENT_IDS,
   ENV.DISCORD_ENABLE_GUESTS,
+  ENV.DISCORD_ENABLE_SERVER_MEMBERS_INTENT,
   ENV.DAEMON_API_TOKEN,
   ENV.DISCORD_PREFIX,
   ENV.DISCORD_RESET_CMD,
@@ -427,6 +429,7 @@ function loadConfig(extensionDir) {
     queueMaxDepth: parseInt(get(ENV.QUEUE_MAX_DEPTH, "20"), 10),
     enableDMs: parseBoolean(get(ENV.ENABLE_DMS, "true"), true),
     enableGuests: parseBoolean(get(ENV.DISCORD_ENABLE_GUESTS), false),
+    enableServerMembersIntent: parseBoolean(get(ENV.DISCORD_ENABLE_SERVER_MEMBERS_INTENT, "true"), true),
     requireMention: parseBoolean(get(ENV.REQUIRE_MENTION, "true"), true),
     respondToReplies: parseBoolean(get(ENV.RESPOND_TO_REPLIES, "true"), true),
     memoryScope: parseMemoryScope(get(ENV.MEMORY_SCOPE, "channel")),
@@ -653,7 +656,17 @@ async function main() {
     installDependencies(extensionDir);
     buildExtension(extensionDir);
     await restartDaemon(loadConfig(extensionDir), extensionDir);
-    import_node_process.stdout.write("\nSetup complete. A Discord DM confirmation will be sent when the bot finishes startup.\n");
+    import_node_process.stdout.write("\n");
+    import_node_process.stdout.write("\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n");
+    import_node_process.stdout.write("\u2502  IMPORTANT: Enable these Privileged Gateway Intents     \u2502\n");
+    import_node_process.stdout.write("\u2502  in the Discord Developer Portal \u2192 Bot settings:        \u2502\n");
+    import_node_process.stdout.write("\u2502                                                         \u2502\n");
+    import_node_process.stdout.write("\u2502  \u2713 Message Content Intent (MANDATORY)                   \u2502\n");
+    import_node_process.stdout.write("\u2502  \u2713 Server Members Intent (optional; enabled by default)  \u2502\n");
+    import_node_process.stdout.write("\u2502                                                         \u2502\n");
+    import_node_process.stdout.write("\u2502  https://discord.com/developers/applications            \u2502\n");
+    import_node_process.stdout.write("\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n");
+    import_node_process.stdout.write("Setup complete. A Discord DM confirmation will be sent when the bot finishes startup.\n");
   } finally {
     rl.close();
   }

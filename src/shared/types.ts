@@ -73,6 +73,7 @@ export interface Config {
   queueMaxDepth: number;
   enableDMs: boolean;
   enableGuests: boolean;
+  enableServerMembersIntent?: boolean;
   requireMention: boolean;
   respondToReplies: boolean;
   memoryScope: MemoryScope;

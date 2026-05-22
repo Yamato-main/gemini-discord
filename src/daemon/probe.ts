@@ -5,6 +5,7 @@ export interface ProbeResult {
   botId: string | null;
   botTag: string | null;
   hasMessageContent: boolean;
+  hasGuildMembers: boolean;
   error: string | null;
 }
 
@@ -18,9 +19,9 @@ export async function probeDiscordGateway(token: string): Promise<ProbeResult> {
     
     if (!userRes.ok) {
       if (userRes.status === 401) {
-        return { ok: false, botId: null, botTag: null, hasMessageContent: false, error: 'Invalid or missing bot token' };
+        return { ok: false, botId: null, botTag: null, hasMessageContent: false, hasGuildMembers: false, error: 'Invalid or missing bot token' };
       }
-      return { ok: false, botId: null, botTag: null, hasMessageContent: false, error: `Failed to fetch bot user: HTTP ${userRes.status}` };
+      return { ok: false, botId: null, botTag: null, hasMessageContent: false, hasGuildMembers: false, error: `Failed to fetch bot user: HTTP ${userRes.status}` };
     }
     
     const userBody = (await userRes.json()) as any;
@@ -35,16 +36,22 @@ export async function probeDiscordGateway(token: string): Promise<ProbeResult> {
     });
     
     let hasMessageContent = false;
+    let hasGuildMembers = false;
     if (appRes.ok) {
       const appBody = (await appRes.json()) as any;
       const flags = appBody.flags || 0;
-      // Gateway Message Content (1 << 15) and Gateway Message Content Limited (1 << 19)
-      const GATEWAY_MESSAGE_CONTENT = 1 << 15;
+      // Gateway Guild Members (1 << 14) and Gateway Guild Members Limited (1 << 15)
+      // Gateway Message Content (1 << 18) and Gateway Message Content Limited (1 << 19)
+      const GATEWAY_GUILD_MEMBERS = 1 << 14;
+      const GATEWAY_GUILD_MEMBERS_LIMITED = 1 << 15;
+      const GATEWAY_MESSAGE_CONTENT = 1 << 18;
       const GATEWAY_MESSAGE_CONTENT_LIMITED = 1 << 19;
       hasMessageContent = ((flags & GATEWAY_MESSAGE_CONTENT) !== 0) || ((flags & GATEWAY_MESSAGE_CONTENT_LIMITED) !== 0);
+      hasGuildMembers = ((flags & GATEWAY_GUILD_MEMBERS) !== 0) || ((flags & GATEWAY_GUILD_MEMBERS_LIMITED) !== 0);
     } else {
       log.warn('Failed to fetch bot application intents. Proceeding without explicit verification.');
       hasMessageContent = true; // Assume true if we can't fetch it, to avoid breaking legacy setups.
+      hasGuildMembers = true;
     }
     
     return {
@@ -52,10 +59,11 @@ export async function probeDiscordGateway(token: string): Promise<ProbeResult> {
       botId,
       botTag,
       hasMessageContent,
+      hasGuildMembers,
       error: null,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, botId: null, botTag: null, hasMessageContent: false, error: message };
+    return { ok: false, botId: null, botTag: null, hasMessageContent: false, hasGuildMembers: false, error: message };
   }
 }

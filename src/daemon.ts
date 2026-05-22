@@ -135,7 +135,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   if (!probe.hasMessageContent) {
-    log.warn('Message Content Intent appears to be missing or disabled. The bot may not receive message text.');
+    log.warn('Message Content Intent appears to be missing or disabled in the Discord Developer Portal. The bot will not be able to read message content!');
+  }
+  if (config.enableServerMembersIntent !== false && !probe.hasGuildMembers) {
+    log.warn('Server Members Intent is not enabled in the Discord Developer Portal, but the bot is configured to request it.');
+    log.warn('To prevent a fatal 4014 (Disallowed Intents) disconnect, we are automatically disabling the Guild Members intent for this connection.');
+    log.warn('Note: User discovery and some role-based features will be limited. Enable the "Server Members Intent" in the Developer Portal to restore them.');
+    config.enableServerMembersIntent = false;
   }
 
   log.info('Discord Gateway probe succeeded', { botTag: probe.botTag });

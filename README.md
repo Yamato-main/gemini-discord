@@ -20,7 +20,7 @@ You need a bot application before installing:
 
 1. Create an application at [discord.com/developers/applications](https://discord.com/developers/applications).
 2. Go to **Bot** → Reset Token → copy it. This is `DISCORD_BOT_TOKEN`.
-3. Enable **Message Content Intent** (required). Enable **Server Members Intent** if you want user discovery.
+3. Enable **Message Content Intent** (required) and **Server Members Intent** (required by default; requested unless `DISCORD_ENABLE_SERVER_MEMBERS_INTENT` is set to `false`). Ensure both are toggled ON in the Developer Portal under the **Bot** tab.
 4. Go to **OAuth2 → URL Generator**. Scopes: `bot`, `applications.commands`. Minimum permissions: View Channels, Read Message History, Send Messages, Attach Files, Use Slash Commands, Add Reactions.
 5. Open the generated URL to invite the bot to your server.
 6. Enable Developer Mode in Discord (Settings → Advanced), then right-click your username and copy your User ID. This is `DISCORD_BOSS_USER_ID`.
@@ -155,6 +155,30 @@ Before releasing: run typecheck + tests + build, commit `dist/`, keep `.env` and
 
 ---
 
+## Troubleshooting
+
+### Disallowed Intents (Close Code 4014)
+If the daemon log shows a `Fatal disconnect (code 4014)` or the probe logs a warning about missing intents:
+1. Ensure both **Message Content Intent** and **Server Members Intent** are enabled in the Discord Developer Portal under the **Bot** settings page.
+2. If you do not want to enable the Server Members Intent, add `DISCORD_ENABLE_SERVER_MEMBERS_INTENT=false` to your configuration (either in `.env` or using config tool). The daemon will automatically detect missing portal permissions and fall back to disabling this intent to connect successfully.
+
+### Invalid Bot Token (Close Code 4004)
+If you see a `Fatal disconnect (code 4004)`:
+1. The Discord token configured in your setup is invalid or expired.
+2. Reset your token in the Discord Developer Portal and update your configuration.
+
+### Log Files
+To view detailed logs for diagnostic purposes, look at:
+- `.gemini-discord/daemon.log` inside the extension installation directory.
+
+---
+
+## Security Warning: Plaintext Token Storage
+> [!CAUTION]
+> **Plaintext Bot Token Exposure**: The extension stores `DISCORD_BOT_TOKEN` in plaintext inside the `.gemini-discord/config.json` managed configuration file. While `.gemini-discord/` is ignored by git, anyone with local access to the file system can read this token. Keep your system secure and do not share your extension data directory.
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -162,3 +186,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 [MIT](LICENSE)
+

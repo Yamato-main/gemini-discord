@@ -21,6 +21,7 @@ These are auto-derived from the core settings above unless explicitly overridden
 | `DISCORD_OWNER_IDS` | *(derived from `DISCORD_BOSS_USER_ID`)* | Comma-separated list of Discord User IDs for legacy routing. Auto-derived from Boss User ID when absent. **Does not grant Boss authority.** |
 | `DISCORD_ADMIN_ID` | *(derived from owner IDs)* | ID for admin-specific notifications. Defaults to the first owner ID (i.e. Boss User ID). |
 | `DISCORD_ENABLE_GUESTS` | `false` | Set to `true` to allow non-boss, non-allowlisted human users to interact with the bot. |
+| `DISCORD_ENABLE_SERVER_MEMBERS_INTENT` | `true` | Set to `false` to disable the Server Members gateway intent. This avoids the need to enable the Server Members Intent toggle in the Discord Developer Portal, but limits user discovery and dynamic name pairing. The daemon automatically falls back to `false` if it detects that the Developer Portal toggle is disabled. |
 | `DISCORD_CHANNEL_ID` | - | Optional. Primary channel for daemon startup notifications. Auto-discovered on first connect. |
 | `DISCORD_ALLOWED_CHANNEL_IDS`| - | Comma-separated list of channel IDs where the bot is allowed to respond. Leave blank to allow all channels in `DISCORD_SERVER_ID`; this is not derived from `DISCORD_CHANNEL_ID`. |
 | `DISCORD_ALLOWED_USER_IDS` | - | Comma-separated list of human user IDs allowed to interact with the bot even when `DISCORD_ENABLE_GUESTS=false`. Empty means no allowlisted humans. |

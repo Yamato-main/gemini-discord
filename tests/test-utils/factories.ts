@@ -27,6 +27,7 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     queueMaxDepth: 20,
     enableDMs: true,
     enableGuests: false,
+    enableServerMembersIntent: true,
     requireMention: false,
     respondToReplies: true,
     memoryScope: 'channel',

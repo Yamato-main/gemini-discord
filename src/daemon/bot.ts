@@ -48,11 +48,14 @@ export function createClient(config: Config): Client {
   log.info('Client creating', { enableDMs: config.enableDMs, bossConfigured: Boolean(config.discordBossUserId) });
   const intents = [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildIntegrations,
     GatewayIntentBits.MessageContent,
   ];
+
+  if (config.enableServerMembersIntent !== false) {
+    intents.push(GatewayIntentBits.GuildMembers);
+  }
 
   if (config.enableDMs) {
     intents.push(GatewayIntentBits.DirectMessages);
@@ -88,6 +91,13 @@ export function setupReconnectHandlers(
     const fatal = [4004, 4010, 4011, 4012, 4013, 4014];
     if (fatal.includes(event.code)) {
       log.error('Fatal disconnect', { code: event.code });
+      if (event.code === 4014) {
+        log.error('Fatal disconnect: Disallowed Intents (code 4014).');
+        log.error('This means the bot requested Privileged Gateway Intents that are not authorized in the Discord Developer Portal.');
+        log.error('Please visit the Discord Developer Portal at https://discord.com/developers/applications, select your application, navigate to the "Bot" tab, scroll down to "Privileged Gateway Intents", and ensure the following are enabled:');
+        log.error(' - Message Content Intent (MANDATORY)');
+        log.error(' - Server Members Intent (required unless DISCORD_ENABLE_SERVER_MEMBERS_INTENT is set to false)');
+      }
       notifyOwner(client, config, `Bot disconnected fatally (code ${event.code}). Check token and intents.`);
       process.exit(1);
     }

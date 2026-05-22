@@ -32,7 +32,17 @@ async function main(): Promise<void> {
     buildExtension(extensionDir);
 
     await restartDaemon(loadConfig(extensionDir), extensionDir);
-    output.write('\nSetup complete. A Discord DM confirmation will be sent when the bot finishes startup.\n');
+    output.write('\n');
+    output.write('┌─────────────────────────────────────────────────────────┐\n');
+    output.write('│  IMPORTANT: Enable these Privileged Gateway Intents     │\n');
+    output.write('│  in the Discord Developer Portal → Bot settings:        │\n');
+    output.write('│                                                         │\n');
+    output.write('│  ✓ Message Content Intent (MANDATORY)                   │\n');
+    output.write('│  ✓ Server Members Intent (optional; enabled by default)  │\n');
+    output.write('│                                                         │\n');
+    output.write('│  https://discord.com/developers/applications            │\n');
+    output.write('└─────────────────────────────────────────────────────────┘\n\n');
+    output.write('Setup complete. A Discord DM confirmation will be sent when the bot finishes startup.\n');
   } finally {
     rl.close();
   }
