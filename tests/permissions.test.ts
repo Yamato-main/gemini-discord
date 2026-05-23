@@ -224,6 +224,36 @@ describe('BOSS/GUEST permissions', () => {
     });
   });
 
+  it('prefers configured boss over stale guest role env for local MCP', () => {
+    const previous = {
+      role: process.env.GEMINI_DISCORD_ROLE,
+      senderId: process.env.GEMINI_DISCORD_SENDER_ID,
+      senderLabel: process.env.GEMINI_DISCORD_SENDER_LABEL,
+    };
+
+    process.env.GEMINI_DISCORD_ROLE = 'GUEST';
+    process.env.GEMINI_DISCORD_SENDER_ID = GUEST_ID;
+    process.env.GEMINI_DISCORD_SENDER_LABEL = 'Guest#0001';
+
+    try {
+      expect(authorizeMcpToolAction('user_discovery', createConfig({ discordBossUserId: BOSS_ID }))).toMatchObject({
+        decision: 'allow',
+        reason: 'boss',
+      });
+      expect(authorizeMcpToolAction('admin_command', createConfig({ discordBossUserId: BOSS_ID }))).toMatchObject({
+        decision: 'allow',
+        reason: 'boss',
+      });
+    } finally {
+      if (previous.role === undefined) delete process.env.GEMINI_DISCORD_ROLE;
+      else process.env.GEMINI_DISCORD_ROLE = previous.role;
+      if (previous.senderId === undefined) delete process.env.GEMINI_DISCORD_SENDER_ID;
+      else process.env.GEMINI_DISCORD_SENDER_ID = previous.senderId;
+      if (previous.senderLabel === undefined) delete process.env.GEMINI_DISCORD_SENDER_LABEL;
+      else process.env.GEMINI_DISCORD_SENDER_LABEL = previous.senderLabel;
+    }
+  });
+
   it('fails closed for MCP tool calls without Discord role context or boss config', () => {
     expect(authorizeMcpToolAction('outbound_discord', createConfig({ discordBossUserId: '' }))).toMatchObject({
       decision: 'deny',

@@ -139,8 +139,8 @@ export function authorizeApiAction(
   config: Config,
   action: PermissionAction,
 ): boolean {
-  const roleContext = roleContextFromRequest(req, config)
-    ?? roleContextFromLocalControlToken(req, config);
+  const roleContext = roleContextFromLocalControlToken(req, config)
+    ?? roleContextFromRequest(req, config);
   if (!roleContext) {
     respond(res, 403, {
       error: 'Missing Discord role context. Use the bridge from an authorized boss message in Discord, or call the local MCP server with a valid daemon token.',

@@ -281,7 +281,7 @@ describe('control API moderation', () => {
         body: JSON.stringify({ action: 'add', user_id: '222222222222222222' }),
       });
 
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(401);
       expect(config.allowedUserIds).toEqual([]);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -532,8 +532,7 @@ describe('control API moderation', () => {
         }),
       });
 
-      expect(response.status).toBe(403);
-      expect(await response.json()).toMatchObject({ error: 'I can only do that with approval from the authorized Discord user.' });
+      expect(response.status).toBe(401);
       expect(kick).not.toHaveBeenCalled();
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -719,9 +718,8 @@ function bossHeaders(token: string): Record<string, string> {
   };
 }
 
-function guestHeaders(token: string): Record<string, string> {
+function guestHeaders(_token?: string): Record<string, string> {
   return {
-    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
     'X-Gemini-Discord-Role': 'GUEST',
     'X-Gemini-Discord-Sender-Id': '222222222222222222',

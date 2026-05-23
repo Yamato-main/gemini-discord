@@ -14,6 +14,10 @@ import { registerHistoryTool } from './tools/history.js';
 import { registerFindMediaTool } from './tools/find-media.js';
 import { registerCronTools } from './tools/cron.js';
 import { ensureDaemonRunning } from './shared/daemon-runtime.js';
+import { clearInheritedDiscordRoleEnv } from './daemon/permissions.js';
+
+// Local MCP is the operator control plane — never inherit guest markers from CLI.
+clearInheritedDiscordRoleEnv();
 
 // Resolve extension directory
 let tmpDir = process.cwd();

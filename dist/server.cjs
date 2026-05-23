@@ -21754,8 +21754,21 @@ function resolveLocalMcpBossContext(config3) {
     displayLabel: "local-mcp"
   });
 }
+function resolveMcpToolRoleContext(config3) {
+  return resolveLocalMcpBossContext(config3) ?? resolveMcpRoleContextFromEnv(process.env, config3);
+}
+var DISCORD_ROLE_ENV_KEYS = [
+  "GEMINI_DISCORD_ROLE",
+  "GEMINI_DISCORD_SENDER_ID",
+  "GEMINI_DISCORD_SENDER_LABEL"
+];
+function clearInheritedDiscordRoleEnv(env = process.env) {
+  for (const key of DISCORD_ROLE_ENV_KEYS) {
+    delete env[key];
+  }
+}
 function authorizeMcpToolAction(action, config3) {
-  const roleContext = resolveMcpRoleContextFromEnv(process.env, config3) ?? resolveLocalMcpBossContext(config3);
+  const roleContext = resolveMcpToolRoleContext(config3);
   if (!roleContext) {
     return { decision: "deny", action, reason: "missing_discord_role_context" };
   }
@@ -21833,7 +21846,7 @@ async function requestOnce(opts) {
   });
 }
 function discordRoleHeaders(config3) {
-  const roleContext = resolveMcpRoleContextFromEnv(process.env, config3) ?? resolveLocalMcpBossContext(config3);
+  const roleContext = resolveMcpToolRoleContext(config3);
   if (!roleContext) {
     return {};
   }
@@ -22756,6 +22769,7 @@ function registerCronTools(server2, config3) {
 }
 
 // src/server.ts
+clearInheritedDiscordRoleEnv();
 var tmpDir = process.cwd();
 try {
   tmpDir = __dirname;
