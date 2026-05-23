@@ -59,6 +59,14 @@ export function startControlApi(deps: ApiDependencies): http.Server {
         return;
       }
 
+      const publicGet = req.method === 'GET' && pathname === '/health';
+      const controlGet = req.method === 'GET' && !publicGet;
+
+      if (controlGet && !requireAuth(req, config)) {
+        respond(res, 401, { error: 'Unauthorized' });
+        return;
+      }
+
       if (req.method === 'POST' && pathname === '/shutdown') {
         if (!requireAuth(req, config)) {
           respond(res, 401, { error: 'Unauthorized' });

@@ -12,6 +12,7 @@ import {
   resolveDiscordRole,
   resolveMcpRoleContextFromEnv,
   validateBossConfig,
+  resolveEffectiveToolMode,
   type PermissionAction,
 } from '../src/daemon/permissions.js';
 import { createConfig } from './test-utils/factories.js';
@@ -258,6 +259,50 @@ describe('BOSS/GUEST permissions', () => {
     expect(authorizeMcpToolAction('outbound_discord', createConfig({ discordBossUserId: '' }))).toMatchObject({
       decision: 'deny',
       reason: 'missing_discord_role_context',
+    });
+  });
+
+  it('never grants Discord bridge tools to GUEST across tool modes', () => {
+    const config = createConfig({ discordBossUserId: BOSS_ID });
+    const guestRole = resolveDiscordRole(config, { discordUserId: GUEST_ID });
+
+    for (const mode of ['chat', 'web', 'discord', 'web_discord', 'full'] as const) {
+      const allowed = resolveGeminiAllowedTools(guestRole, mode);
+      expect(allowed).not.toContain('discord_');
+      expect(allowed).not.toBe('all');
+    }
+  });
+
+  it('grants Discord bridge tools only to BOSS for discord/web_discord and all to BOSS + full', () => {
+    const config = createConfig({ discordBossUserId: BOSS_ID });
+    const bossRole = resolveDiscordRole(config, { discordUserId: BOSS_ID });
+
+    expect(resolveGeminiAllowedTools(bossRole, 'discord')).toContain('discord_message');
+    expect(resolveGeminiAllowedTools(bossRole, 'web_discord')).toContain('discord_message');
+    expect(resolveGeminiAllowedTools(bossRole, 'full')).toBe('all');
+  });
+
+  describe('resolveEffectiveToolMode', () => {
+    it('downgrades GUEST requested tool modes appropriately', () => {
+      const config = createConfig({ discordBossUserId: BOSS_ID });
+      const guestRole = resolveDiscordRole(config, { discordUserId: GUEST_ID });
+
+      const mode1 = resolveEffectiveToolMode(guestRole, 'discord', 'cron');
+      expect(mode1).toBe('chat');
+
+      const mode2 = resolveEffectiveToolMode(guestRole, 'discord', 'outbound_discord');
+      expect(mode2).toBe('chat');
+
+      const mode3 = resolveEffectiveToolMode(guestRole, 'web', 'public_web_search');
+      expect(mode3).toBe('web');
+    });
+
+    it('retains requested tool mode for BOSS', () => {
+      const config = createConfig({ discordBossUserId: BOSS_ID });
+      const bossRole = resolveDiscordRole(config, { discordUserId: BOSS_ID });
+
+      const mode = resolveEffectiveToolMode(bossRole, 'discord', 'cron');
+      expect(mode).toBe('discord');
     });
   });
 });

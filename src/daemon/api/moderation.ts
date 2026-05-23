@@ -57,6 +57,40 @@ export async function handleModerationRoutes(
       }
     }
 
+    if (action === 'add') {
+      const isBridgeAdmin = (deps.state?.bridgeAdminUserId && userId === deps.state.bridgeAdminUserId) ||
+        (deps.client?.user?.id && userId === deps.client.user.id);
+      if (isBridgeAdmin) {
+        respond(res, 400, { error: 'Refusing to add the bridge admin bot to the human guest allowlist.' });
+        return true;
+      }
+
+      if (config.discordBossUserId && userId === config.discordBossUserId) {
+        respond(res, 400, {
+          error: 'Refusing to add the boss user to the guest allowlist. Boss authority comes from DISCORD_BOSS_USER_ID, not DISCORD_ALLOWED_USER_IDS.',
+        });
+        return true;
+      }
+
+      if (config.allowedAgentIds.includes(userId)) {
+        respond(res, 400, { error: 'Refusing to allowlist an agent/bot user ID in the human guest allowlist.' });
+        return true;
+      }
+
+      if (deps.client && config.discordServerId) {
+        try {
+          const guild = await deps.client.guilds.fetch(config.discordServerId);
+          const member = await guild.members.fetch(userId);
+          if (member?.user?.bot) {
+            respond(res, 400, { error: 'Refusing to allowlist an agent/bot user ID in the human guest allowlist.' });
+            return true;
+          }
+        } catch {
+          // Ignore and continue if fetch fails
+        }
+      }
+    }
+
     const current = new Set(config.allowedUserIds);
     if (action === 'add') {
       current.add(userId);

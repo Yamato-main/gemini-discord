@@ -374,3 +374,13 @@ export function authorizeMcpToolAction(action: PermissionAction, config?: Config
   }
   return authorizeAction(action, roleContext);
 }
+
+export function resolveEffectiveToolMode(
+  roleContext: RoleContext,
+  requestedToolMode: ToolMode,
+  turnDecisionAction: PermissionAction,
+): ToolMode {
+  return isBoss(roleContext)
+    ? requestedToolMode
+    : turnDecisionAction === 'public_web_search' ? 'web' : 'chat';
+}

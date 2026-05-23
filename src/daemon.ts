@@ -3,7 +3,10 @@
  * Startup sequence: preflight → config → probe → HTTP API → gateway (Discord bot).
  */
 
-import { loadConfig, resolveExtensionDir } from './shared/config.js';
+import * as http from 'node:http';
+import { loadConfig, resolveExtensionDir, persistConfigEnvUpdates } from './shared/config.js';
+import { sanitizeAllowedUserIds } from './shared/config-sanitize.js';
+import { ENV } from './shared/config-vars.js';
 import { runPreflight } from './daemon/preflight.js';
 import { ConversationMemory } from './daemon/memory.js';
 import { ChannelQueue } from './daemon/queue.js';
@@ -35,6 +38,8 @@ const state: DaemonState = {
   lastMessageAt: null,
   lastError: null,
   exchangeLog: [],
+  bridgeAdminUserId: null,
+  bridgeAdminTag: null,
 };
 
 async function main(): Promise<void> {
@@ -82,6 +87,8 @@ async function main(): Promise<void> {
   runtimeStore.geminiSemaphore = geminiSemaphore;
   runtimeStore.cliPool = cliPool;
 
+  let apiServer: http.Server | null = null;
+
   async function shutdown(signal: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -118,17 +125,6 @@ async function main(): Promise<void> {
     }, 35_000);
   }
 
-  const apiServer = startControlApi({
-    config,
-    state,
-    memory,
-    queue,
-    extensionDir,
-    get client() { return runtimeStore.client; },
-    isShuttingDown: () => shuttingDown,
-    shutdown,
-  });
-
   const probe = await probeDiscordGateway(config.discordBotToken);
   if (!probe.ok) {
     log.error('Discord Gateway probe failed', { error: probe.error });
@@ -145,6 +141,40 @@ async function main(): Promise<void> {
   }
 
   log.info('Discord Gateway probe succeeded', { botTag: probe.botTag });
+
+  state.bridgeAdminUserId = probe.botId;
+  state.bridgeAdminTag = probe.botTag;
+
+  const sanitizeResult = sanitizeAllowedUserIds(config, probe.botId);
+
+  if (sanitizeResult.changed) {
+    log.info('Sanitized non-human guest IDs from human guest allowlist on startup', {
+      original: config.allowedUserIds,
+      sanitized: sanitizeResult.allowedUserIds,
+    });
+    for (const warning of sanitizeResult.warnings) {
+      log.warn('Sanitize warning:', { warning });
+    }
+    config.allowedUserIds = sanitizeResult.allowedUserIds;
+    try {
+      persistConfigEnvUpdates(extensionDir, {
+        [ENV.DISCORD_ALLOWED_USER_IDS]: sanitizeResult.allowedUserIds.join(','),
+      });
+    } catch (e) {
+      log.warn('Failed to persist sanitized allowlist config', { error: String(e) });
+    }
+  }
+
+  apiServer = startControlApi({
+    config,
+    state,
+    memory,
+    queue,
+    extensionDir,
+    get client() { return runtimeStore.client; },
+    isShuttingDown: () => shuttingDown,
+    shutdown,
+  });
 
   const { initGateway } = await import('./daemon/gateway.js');
   await initGateway(config, state, memory, queue, apiServer, extensionDir);

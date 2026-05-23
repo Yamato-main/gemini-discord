@@ -29,6 +29,8 @@ export interface DaemonState {
   lastMessageAt: string | null;
   lastError: string | null;
   exchangeLog: ExchangeLog[];
+  bridgeAdminUserId: string | null;
+  bridgeAdminTag: string | null;
 }
 
 export interface ApiDependencies {
@@ -139,8 +141,8 @@ export function authorizeApiAction(
   config: Config,
   action: PermissionAction,
 ): boolean {
-  const roleContext = roleContextFromLocalControlToken(req, config)
-    ?? roleContextFromRequest(req, config);
+  const roleContext = roleContextFromRequest(req, config)
+    ?? roleContextFromLocalControlToken(req, config);
   if (!roleContext) {
     respond(res, 403, {
       error: 'Missing Discord role context. Use the bridge from an authorized boss message in Discord, or call the local MCP server with a valid daemon token.',

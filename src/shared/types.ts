@@ -173,6 +173,8 @@ export interface DaemonStatus {
   streaming: boolean;
   botTag: string | null;
   botId: string | null;
+  bridgeAdminUserId?: string | null;
+  bridgeAdminTag?: string | null;
   wsPing: number;
   channelId: string;
   serverId?: string;

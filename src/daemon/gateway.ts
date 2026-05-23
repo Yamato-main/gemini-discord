@@ -25,6 +25,7 @@ import {
   formatPermissionDenial,
   isBoss,
   resolveDiscordRole,
+  resolveEffectiveToolMode,
 } from './permissions.js';
 import {
   bootstrapManagedDiscordConfig,
@@ -300,9 +301,7 @@ async function processMessage(
     attachmentCount: message.attachments.size,
     toolMode: requestedToolMode,
   }, accepted.roleContext);
-  const toolMode = isBoss(accepted.roleContext)
-    ? requestedToolMode
-    : turnDecision.action === 'public_web_search' ? 'web' : 'chat';
+  const toolMode = resolveEffectiveToolMode(accepted.roleContext, requestedToolMode, turnDecision.action);
   const attachmentMetadata = isBoss(accepted.roleContext) ? getSupportedAttachmentMetadata(message) : [];
   let effectiveAttachmentMetadata = attachmentMetadata;
 
