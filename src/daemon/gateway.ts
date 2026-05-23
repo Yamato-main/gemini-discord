@@ -31,8 +31,6 @@ import {
   rememberPrimaryChannelFromMessage,
 } from './onboarding.js';
 import { sanitizeAllowedUserIds } from '../shared/config-sanitize.js';
-import { persistConfigEnvUpdates } from '../shared/config.js';
-import { ENV } from '../shared/config-vars.js';
 
 const MAX_AGENT_EXCHANGES = 6;
 

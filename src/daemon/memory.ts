@@ -516,7 +516,7 @@ export function formatIncomingDiscordMessage(
   }
 
   const replyContext = formatReplyContextBlock(input);
-  const mentionBlock = formatMentionContextBlock(input.mentionContext ?? null);
+  const mentionBlock = formatMentionContextBlock(input.mentionContext);
   const blocks = [header];
   if (mentionBlock) blocks.push(mentionBlock);
   if (replyContext) blocks.push(replyContext);
@@ -590,7 +590,7 @@ export function formatConversationMessageForContext(
 
   const timestamp = entry.createdAt ? ` [${new Date(entry.createdAt).toLocaleTimeString()}]` : '';
 
-  const mentionBlock = formatMentionContextBlock(entry.mentionContext ?? null);
+  const mentionBlock = formatMentionContextBlock(entry.mentionContext, 'compact');
   let result = `[${location} | ${speaker} (${label})]${attachments}${timestamp}`;
   if (mentionBlock) {
     result += `\n${mentionBlock}`;

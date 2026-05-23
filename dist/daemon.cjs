@@ -76491,9 +76491,31 @@ function extractMentionContext(message, botUser) {
     channels
   };
 }
-function formatMentionContextBlock(context) {
+function formatMentionContextBlock(context, mode = "full") {
   if (!context) {
     return "";
+  }
+  if (mode === "compact") {
+    const parts = [];
+    if (context.pingedBot) {
+      parts.push("pingedBot");
+    }
+    if (context.everyoneOrHere) {
+      parts.push("@everyone/@here");
+    }
+    if (context.users.length > 0) {
+      parts.push(`users: ${context.users.map((u) => `${u.displayName} (${u.id})`).join(", ")}`);
+    }
+    if (context.roles.length > 0) {
+      parts.push(`roles: ${context.roles.map((r) => `@${r.name}`).join(", ")}`);
+    }
+    if (context.channels.length > 0) {
+      parts.push(`channels: ${context.channels.map((c) => `#${c.name}`).join(", ")}`);
+    }
+    if (parts.length === 0) {
+      return "";
+    }
+    return `[Mentions: ${parts.join(" | ")}]`;
   }
   const lines = [
     "[Mentions]",
@@ -76621,7 +76643,7 @@ function formatIncomingDiscordMessage(input, options = {}) {
     header += ` (Reply to ${input.replyToAuthorName})`;
   }
   const replyContext = formatReplyContextBlock(input);
-  const mentionBlock = formatMentionContextBlock(input.mentionContext ?? null);
+  const mentionBlock = formatMentionContextBlock(input.mentionContext);
   const blocks = [header];
   if (mentionBlock) blocks.push(mentionBlock);
   if (replyContext) blocks.push(replyContext);
@@ -76676,7 +76698,7 @@ function formatConversationMessageForContext(entry, options = {}) {
   const imageRefs = formatImageRefsBlock(entry.attachments);
   const content = truncateText(entry.content || (attachments ? "" : "(no text)"), TRANSCRIPT_ENTRY_CHAR_LIMIT);
   const timestamp = entry.createdAt ? ` [${new Date(entry.createdAt).toLocaleTimeString()}]` : "";
-  const mentionBlock = formatMentionContextBlock(entry.mentionContext ?? null);
+  const mentionBlock = formatMentionContextBlock(entry.mentionContext, "compact");
   let result = `[${location} | ${speaker} (${label})]${attachments}${timestamp}`;
   if (mentionBlock) {
     result += `
@@ -89471,6 +89493,8 @@ var init_gateway = __esm({
     init_retry();
     init_tool_mode();
     init_attachments();
+    init_config();
+    init_config_vars();
     init_runtime();
     init_cron();
     init_session_reset();
@@ -89478,8 +89502,6 @@ var init_gateway = __esm({
     init_permissions();
     init_onboarding();
     init_config_sanitize();
-    init_config();
-    init_config_vars();
     MAX_AGENT_EXCHANGES = 6;
   }
 });

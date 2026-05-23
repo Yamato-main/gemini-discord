@@ -81,4 +81,18 @@ describe('mention context', () => {
     expect(block).toContain('`999999999999999999`');
     expect(block).toContain('did **not** ping this bot');
   });
+
+  it('formats mention context compactly when mode is compact', () => {
+    const context = extractMentionContext(
+      mockMessage({
+        content: 'hello <@222222222222222222>',
+        users: [{ id: '222222222222222222', username: 'dpunk', globalName: 'Dpunk' }],
+        roles: [{ id: '333333333333333333', name: 'mods' }],
+        everyone: true,
+      }),
+      botUser,
+    );
+    const block = formatMentionContextBlock(context, 'compact');
+    expect(block).toBe('[Mentions: @everyone/@here | users: Dpunk (222222222222222222) | roles: @mods]');
+  });
 });

@@ -3,6 +3,24 @@ import type { DiscordMentionContext } from '../shared/types.js';
 
 export type { DiscordMentionContext };
 
+export interface MentionedUserSnapshot {
+  id: string;
+  username: string;
+  displayName: string;
+  bot: boolean;
+  isSelf: boolean;
+}
+
+export interface MentionedRoleSnapshot {
+  id: string;
+  name: string;
+}
+
+export interface MentionedChannelSnapshot {
+  id: string;
+  name: string;
+}
+
 export function extractMentionContext(
   message: Message,
   botUser: { id: string; username: string; tag?: string | null; globalName?: string | null } | null,
@@ -50,9 +68,35 @@ export function extractMentionContext(
   };
 }
 
-export function formatMentionContextBlock(context: DiscordMentionContext | undefined): string {
+export function formatMentionContextBlock(
+  context: DiscordMentionContext | null | undefined,
+  mode: 'full' | 'compact' = 'full'
+): string {
   if (!context) {
     return '';
+  }
+
+  if (mode === 'compact') {
+    const parts: string[] = [];
+    if (context.pingedBot) {
+      parts.push('pingedBot');
+    }
+    if (context.everyoneOrHere) {
+      parts.push('@everyone/@here');
+    }
+    if (context.users.length > 0) {
+      parts.push(`users: ${context.users.map((u) => `${u.displayName} (${u.id})`).join(', ')}`);
+    }
+    if (context.roles.length > 0) {
+      parts.push(`roles: ${context.roles.map((r) => `@${r.name}`).join(', ')}`);
+    }
+    if (context.channels.length > 0) {
+      parts.push(`channels: ${context.channels.map((c) => `#${c.name}`).join(', ')}`);
+    }
+    if (parts.length === 0) {
+      return '';
+    }
+    return `[Mentions: ${parts.join(' | ')}]`;
   }
 
   const lines: string[] = [
