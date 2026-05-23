@@ -187,6 +187,7 @@ export async function initGateway(
         replyToAuthorName: trackOnlyContext.replyToAuthorName,
         replyToContent: trackOnlyContext.replyToContent,
         replyToAttachments: isBoss(roleContext) ? trackOnlyContext.replyToAttachments : [],
+        mentionContext: trackOnlyContext.mentionContext,
         trigger: 'tracked',
         createdAt: new Date().toISOString(),
       });
@@ -357,6 +358,7 @@ async function processMessage(
         replyToAuthorName: accepted.replyToAuthorName,
         replyToContent: accepted.replyToContent,
         replyToAttachments: accepted.replyToAttachments,
+        mentionContext: accepted.mentionContext,
         trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
         createdAt: now,
       });

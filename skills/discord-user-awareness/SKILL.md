@@ -1,6 +1,6 @@
 ---
 name: discord-user-awareness
-description: Resolve human Discord members before allowlist or moderation actions. Use when a user asks to allowlist someone, mentions "the other user", or you need a stable user ID.
+description: Resolve human Discord members and interpret @ pings correctly before allowlist, moderation, or targeting actions. Use when a user asks to allowlist someone, mentions "the other user", uses @mentions, or you need a stable user ID.
 ---
 
 # Discord user awareness
@@ -10,6 +10,22 @@ description: Resolve human Discord members before allowlist or moderation action
 - The user wants to add or remove someone from the guest allowlist.
 - The request refers to another person, "the other user", a display name, or a vague target.
 - You need a stable numeric Discord user ID for `allowlist_add`, `kick`, or `timeout`.
+- The message includes `@` pings and you must not confuse users, roles, channels, @everyone/@here, or this bot.
+
+## @ mention rules
+
+Every incoming Discord message includes a `[Mentions]` block. Trust it over guesswork:
+
+| Signal | Meaning |
+|--------|---------|
+| **User pings** | Real `<@userId>` mentions — humans or bots, each with a stable id |
+| **This bot** | Your bridge identity — never "the other user" |
+| **Role pings** | `<@&roleId>` — not a user; do not allowlist or moderate as a person |
+| **Channel refs** | `<#channelId>` — use channel discovery, not user discovery |
+| **@everyone / @here** | Broadcast only — not a specific member |
+| Plain `@Name` in text | **Not** a ping unless it appears under **User pings** |
+
+When the user says "the other user" while pinging you, the target is a **different human** from the **User pings** list (or run `users` discovery).
 
 ## Workflow
 

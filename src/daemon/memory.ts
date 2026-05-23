@@ -16,6 +16,7 @@ import type {
   ConversationArchive,
   ConversationAttachment,
   ConversationMessage,
+  DiscordMentionContext,
   HistoryChannel,
   HistoryParticipant,
   MemoryScope,
@@ -23,6 +24,7 @@ import type {
 import { ensureRuntimePaths } from '../shared/runtime-paths.js';
 import { log } from './log.js';
 import { getChannelMapContext } from './channels.js';
+import { formatMentionContextBlock } from './mentions.js';
 import { GUEST_PERMISSION_REFUSAL, validateBossConfig, type RoleContext } from './permissions.js';
 
 const MEMORY_FILE_VERSION = 4;
@@ -57,6 +59,8 @@ interface MemoryFileV4 {
   archives?: Record<string, ConversationArchive[]>;
 }
 
+export type { DiscordMentionContext };
+
 export interface PromptInput {
   content: string;
   attachments?: ConversationAttachment[];
@@ -74,6 +78,7 @@ export interface PromptInput {
   replyToAuthorName?: string | null;
   replyToContent?: string | null;
   replyToAttachments?: ConversationAttachment[];
+  mentionContext?: DiscordMentionContext | null;
   trigger?: string;
   roleContext?: RoleContext;
 }
@@ -481,6 +486,8 @@ export function buildDiscordAdapterInstruction(
     '- Use Discord tools only when the user asks for Discord actions such as sending elsewhere, reading history, resetting, scheduling, checking status, or discovering server users/channels.',
     '- The bot\'s own Discord user ID is exposed in discord_admin status as Bot (...). Never add that ID to the human guest allowlist.',
     '- When a user asks to allowlist, moderate, or otherwise target "the other user", another person, or someone besides themselves, run discord_admin action "users" (with query if helpful) before allowlist_add, kick, or timeout. Do not guess IDs and do not allowlist the bot account.',
+    '- Read the [Mentions] block on each message. Only listed user pings are real `<@userId>` mentions. Role pings (`<@&…>`), channel refs (`<#…>`), @everyone/@here, and plain @text are different — never confuse them with a human user target.',
+    '- Your own bot identity (name, username, id) is listed under [Mentions]. Do not treat a ping of yourself as "the other user", and do not allowlist your own bot id.',
     '- For any requested Discord action, completion means the user-visible outcome happened in Discord or explicitly failed with the reason.',
     '- Finding a file/media item, checking status, restarting, or troubleshooting is not completion. If any requested send, reply, media post, reset, schedule, deletion, or other Discord action fails, keep the original action pending.',
     '- After fixing a bridge, tool, permission, or environment issue, automatically retry the original pending action before finalizing.',
@@ -508,7 +515,12 @@ export function formatIncomingDiscordMessage(
   }
 
   const replyContext = formatReplyContextBlock(input);
-  return `${header}${replyContext ? `\n${replyContext}` : ''}\n${content}`;
+  const mentionBlock = formatMentionContextBlock(input.mentionContext ?? null);
+  const blocks = [header];
+  if (mentionBlock) blocks.push(mentionBlock);
+  if (replyContext) blocks.push(replyContext);
+  blocks.push(content);
+  return blocks.join('\n');
 }
 
 export function buildActiveParticipantRoster(
@@ -534,6 +546,7 @@ export function buildActiveParticipantRoster(
     replyToAuthorName: incoming.replyToAuthorName,
     replyToContent: incoming.replyToContent,
     replyToAttachments: incoming.replyToAttachments,
+    mentionContext: incoming.mentionContext ?? null,
   });
 
   const seen = new Set<string>();
@@ -576,7 +589,12 @@ export function formatConversationMessageForContext(
 
   const timestamp = entry.createdAt ? ` [${new Date(entry.createdAt).toLocaleTimeString()}]` : '';
 
-  let result = `[${location} | ${speaker} (${label})]${attachments}${timestamp}\n${content}`;
+  const mentionBlock = formatMentionContextBlock(entry.mentionContext ?? null);
+  let result = `[${location} | ${speaker} (${label})]${attachments}${timestamp}`;
+  if (mentionBlock) {
+    result += `\n${mentionBlock}`;
+  }
+  result += `\n${content}`;
   const replyContext = formatReplyContextBlock(entry);
   if (replyContext) {
     result += `\n${replyContext}`;
@@ -797,8 +815,76 @@ function coerceMessage(entry: Record<string, unknown>): ConversationMessage {
     replyToAuthorName: optionalNullableString(entry.replyToAuthorName),
     replyToContent: optionalNullableString(entry.replyToContent),
     replyToAttachments: coerceAttachments(entry.replyToAttachments),
+    mentionContext: coerceMentionContext(entry.mentionContext),
     trigger: optionalString(entry.trigger),
     createdAt: optionalString(entry.createdAt),
+  };
+}
+
+function coerceMentionContext(value: unknown): DiscordMentionContext | null | undefined {
+  if (value == null) {
+    return value === null ? null : undefined;
+  }
+  if (typeof value !== 'object') {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const bot = record.bot;
+  if (typeof bot !== 'object' || bot === null) {
+    return undefined;
+  }
+  const botRecord = bot as Record<string, unknown>;
+  const botId = optionalString(botRecord.id);
+  const botUsername = optionalString(botRecord.username);
+  if (!botId || !botUsername) {
+    return undefined;
+  }
+
+  const users = Array.isArray(record.users)
+    ? record.users
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      .map((entry) => ({
+        id: optionalString(entry.id) ?? '',
+        username: optionalString(entry.username) ?? '',
+        displayName: optionalString(entry.displayName) ?? optionalString(entry.username) ?? '',
+        bot: entry.bot === true,
+        isSelf: entry.isSelf === true,
+      }))
+      .filter((entry) => entry.id)
+    : [];
+
+  const roles = Array.isArray(record.roles)
+    ? record.roles
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      .map((entry) => ({
+        id: optionalString(entry.id) ?? '',
+        name: optionalString(entry.name) ?? '',
+      }))
+      .filter((entry) => entry.id)
+    : [];
+
+  const channels = Array.isArray(record.channels)
+    ? record.channels
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      .map((entry) => ({
+        id: optionalString(entry.id) ?? '',
+        name: optionalString(entry.name) ?? '',
+      }))
+      .filter((entry) => entry.id)
+    : [];
+
+  return {
+    bot: {
+      id: botId,
+      username: botUsername,
+      tag: optionalString(botRecord.tag) ?? botUsername,
+      displayName: optionalString(botRecord.displayName) ?? botUsername,
+    },
+    pingedBot: record.pingedBot === true,
+    everyoneOrHere: record.everyoneOrHere === true,
+    users,
+    roles,
+    channels,
   };
 }
 

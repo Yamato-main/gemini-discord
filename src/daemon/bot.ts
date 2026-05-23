@@ -14,6 +14,8 @@ import { log } from './log.js';
 import { getSupportedAttachmentMetadata } from './attachments.js';
 import { isDirectMessageAuthorAllowed, shouldAcceptMessage } from './routing.js';
 import { isBoss, resolveDiscordRole, type RoleContext } from './permissions.js';
+import type { DiscordMentionContext } from '../shared/types.js';
+import { extractMentionContext } from './mentions.js';
 
 export interface AcceptedDiscordMessage {
   content: string;
@@ -27,6 +29,7 @@ export interface AcceptedDiscordMessage {
   replyToAuthorName: string | null;
   replyToContent: string | null;
   replyToAttachments: ReturnType<typeof getSupportedAttachmentMetadata>;
+  mentionContext: DiscordMentionContext | null;
   roleContext: RoleContext;
 }
 
@@ -175,6 +178,7 @@ export function setupMessageHandler(
       discordUserId: message.author.id,
       displayLabel: message.author.tag,
     });
+    const mentionContext = extractMentionContext(message, client.user);
 
     const decision = shouldAcceptMessage({
       authorId: message.author.id,
@@ -206,6 +210,7 @@ export function setupMessageHandler(
           replyToAuthorName: replyContext?.authorName ?? null,
           replyToContent: replyContext?.content ?? null,
           replyToAttachments: isBoss(roleContext) ? replyContext?.attachments ?? [] : [],
+          mentionContext,
         });
       }
       return;
@@ -238,6 +243,7 @@ export function setupMessageHandler(
           replyToAuthorName: replyContext?.authorName ?? null,
           replyToContent: replyContext?.content ?? null,
           replyToAttachments: isBoss(roleContext) ? replyContext?.attachments ?? [] : [],
+          mentionContext,
           roleContext,
         });
       }

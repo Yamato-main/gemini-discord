@@ -21978,7 +21978,7 @@ function registerAdminTool(server2, config3) {
       '\u2022 "restart" \u2014 restart the daemon process',
       '\u2022 "reset" \u2014 clear the current conversation and archive the session',
       '\u2022 "channels" \u2014 list discovered channels (optional query filter)',
-      '\u2022 "users" \u2014 list discovered server users or resolve a user lookup hint (always run this before allowlist/moderation when the target is ambiguous)',
+      '\u2022 "users" \u2014 list discovered server users or resolve a user lookup hint (use when [Mentions] has no matching human, or the target is ambiguous)',
       '\u2022 "allowlist_add" \u2014 add a human user to the guest allowlist (never the bot itself; resolve with users discovery first)',
       '\u2022 "allowlist_remove" \u2014 remove a human user from the guest allowlist',
       `\u2022 "set_presence" \u2014 change the bot's online status and activity`,

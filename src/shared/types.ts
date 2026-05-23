@@ -39,6 +39,27 @@ export interface ConversationAttachment {
   url?: string;
 }
 
+/** Resolved Discord mention metadata attached to an incoming message. */
+export interface DiscordMentionContext {
+  bot: {
+    id: string;
+    username: string;
+    tag: string;
+    displayName: string;
+  };
+  pingedBot: boolean;
+  everyoneOrHere: boolean;
+  users: Array<{
+    id: string;
+    username: string;
+    displayName: string;
+    bot: boolean;
+    isSelf: boolean;
+  }>;
+  roles: Array<{ id: string; name: string }>;
+  channels: Array<{ id: string; name: string }>;
+}
+
 /** Frozen config object parsed from .env */
 export interface Config {
   // Required
@@ -103,6 +124,7 @@ export interface ConversationMessage {
   replyToAuthorName?: string | null;
   replyToContent?: string | null;
   replyToAttachments?: ConversationAttachment[];
+  mentionContext?: DiscordMentionContext | null;
   trigger?: string;
   createdAt?: string;
 }

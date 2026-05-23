@@ -76453,6 +76453,93 @@ var init_channels = __esm({
   }
 });
 
+// src/daemon/mentions.ts
+function extractMentionContext(message, botUser) {
+  if (!botUser) {
+    return null;
+  }
+  const botTag = botUser.tag ?? botUser.username;
+  const botDisplayName = botUser.globalName?.trim() || botUser.username;
+  const users = [];
+  for (const user of message.mentions.users.values()) {
+    const displayName = user.globalName?.trim() || user.displayName?.trim() || user.username;
+    users.push({
+      id: user.id,
+      username: user.username,
+      displayName,
+      bot: user.bot,
+      isSelf: user.id === botUser.id
+    });
+  }
+  const roles = [];
+  for (const role of message.mentions.roles.values()) {
+    roles.push({ id: role.id, name: role.name });
+  }
+  const channels = [];
+  for (const channel of message.mentions.channels.values()) {
+    const name = "name" in channel && typeof channel.name === "string" ? channel.name : channel.id;
+    channels.push({ id: channel.id, name });
+  }
+  const pingedBot = message.mentions.has(botUser.id);
+  const everyoneOrHere = message.mentions.everyone;
+  return {
+    bot: { id: botUser.id, username: botUser.username, tag: botTag, displayName: botDisplayName },
+    pingedBot,
+    everyoneOrHere,
+    users,
+    roles,
+    channels
+  };
+}
+function formatMentionContextBlock(context) {
+  if (!context) {
+    return "";
+  }
+  const lines = [
+    "[Mentions]",
+    `- This bridge bot: **${context.bot.displayName}** (@${context.bot.username}) \u2014 id \`${context.bot.id}\` \u2014 tag ${context.bot.tag}`
+  ];
+  if (context.pingedBot) {
+    lines.push("- The incoming message **pinged this bot** (`<@\u2026>` user mention). Respond to the user.");
+  } else {
+    lines.push("- The incoming message did **not** ping this bot.");
+  }
+  if (context.everyoneOrHere) {
+    lines.push("- Contains **@everyone or @here** (broadcast mention, not a specific user).");
+  }
+  if (context.users.length > 0) {
+    lines.push("- **User pings** (real `<@userId>` mentions \u2014 not plain @text):");
+    for (const user of context.users) {
+      const kind = user.isSelf ? "this bot" : user.bot ? "bot account" : "human";
+      lines.push(`  - ${user.displayName} (@${user.username}, ${kind}): \`${user.id}\``);
+    }
+  } else {
+    lines.push("- No **user** pings in this message.");
+  }
+  if (context.roles.length > 0) {
+    lines.push("- **Role pings** (`<@&roleId>` \u2014 not users):");
+    for (const role of context.roles) {
+      lines.push(`  - @${role.name}: \`${role.id}\``);
+    }
+  }
+  if (context.channels.length > 0) {
+    lines.push("- **Channel references** (`<#channelId>`):");
+    for (const channel of context.channels) {
+      lines.push(`  - #${channel.name}: \`${channel.id}\``);
+    }
+  }
+  lines.push(
+    "- Plain `@Name` text without a resolved user ping above is **not** a Discord mention. Use `discord_admin` action `users` to resolve people by name.",
+    "- Do not treat role pings, channel refs, @everyone/@here, or this bot's username as a human user target unless the user clearly means that."
+  );
+  return lines.join("\n");
+}
+var init_mentions = __esm({
+  "src/daemon/mentions.ts"() {
+    "use strict";
+  }
+});
+
 // src/daemon/memory.ts
 function resolveSessionKey(memoryScope, channelId, dmUserId) {
   if (memoryScope !== "channel") {
@@ -76509,6 +76596,8 @@ ${options.backgroundContext}` : "";
     "- Use Discord tools only when the user asks for Discord actions such as sending elsewhere, reading history, resetting, scheduling, checking status, or discovering server users/channels.",
     "- The bot's own Discord user ID is exposed in discord_admin status as Bot (...). Never add that ID to the human guest allowlist.",
     '- When a user asks to allowlist, moderate, or otherwise target "the other user", another person, or someone besides themselves, run discord_admin action "users" (with query if helpful) before allowlist_add, kick, or timeout. Do not guess IDs and do not allowlist the bot account.',
+    "- Read the [Mentions] block on each message. Only listed user pings are real `<@userId>` mentions. Role pings (`<@&\u2026>`), channel refs (`<#\u2026>`), @everyone/@here, and plain @text are different \u2014 never confuse them with a human user target.",
+    '- Your own bot identity (name, username, id) is listed under [Mentions]. Do not treat a ping of yourself as "the other user", and do not allowlist your own bot id.',
     "- For any requested Discord action, completion means the user-visible outcome happened in Discord or explicitly failed with the reason.",
     "- Finding a file/media item, checking status, restarting, or troubleshooting is not completion. If any requested send, reply, media post, reset, schedule, deletion, or other Discord action fails, keep the original action pending.",
     "- After fixing a bridge, tool, permission, or environment issue, automatically retry the original pending action before finalizing."
@@ -76531,9 +76620,12 @@ function formatIncomingDiscordMessage(input, options = {}) {
     header += ` (Reply to ${input.replyToAuthorName})`;
   }
   const replyContext = formatReplyContextBlock(input);
-  return `${header}${replyContext ? `
-${replyContext}` : ""}
-${content}`;
+  const mentionBlock = formatMentionContextBlock(input.mentionContext ?? null);
+  const blocks = [header];
+  if (mentionBlock) blocks.push(mentionBlock);
+  if (replyContext) blocks.push(replyContext);
+  blocks.push(content);
+  return blocks.join("\n");
 }
 function buildActiveParticipantRoster(history, incoming, options = {}) {
   const recentMessages = [...history.slice(-12)];
@@ -76553,7 +76645,8 @@ function buildActiveParticipantRoster(history, incoming, options = {}) {
     replyToAuthorId: incoming.replyToAuthorId,
     replyToAuthorName: incoming.replyToAuthorName,
     replyToContent: incoming.replyToContent,
-    replyToAttachments: incoming.replyToAttachments
+    replyToAttachments: incoming.replyToAttachments,
+    mentionContext: incoming.mentionContext ?? null
   });
   const seen = /* @__PURE__ */ new Set();
   const participants = [];
@@ -76582,7 +76675,13 @@ function formatConversationMessageForContext(entry, options = {}) {
   const imageRefs = formatImageRefsBlock(entry.attachments);
   const content = truncateText(entry.content || (attachments ? "" : "(no text)"), TRANSCRIPT_ENTRY_CHAR_LIMIT);
   const timestamp = entry.createdAt ? ` [${new Date(entry.createdAt).toLocaleTimeString()}]` : "";
-  let result = `[${location} | ${speaker} (${label})]${attachments}${timestamp}
+  const mentionBlock = formatMentionContextBlock(entry.mentionContext ?? null);
+  let result = `[${location} | ${speaker} (${label})]${attachments}${timestamp}`;
+  if (mentionBlock) {
+    result += `
+${mentionBlock}`;
+  }
+  result += `
 ${content}`;
   const replyContext = formatReplyContextBlock(entry);
   if (replyContext) {
@@ -76737,8 +76836,56 @@ function coerceMessage(entry) {
     replyToAuthorName: optionalNullableString(entry.replyToAuthorName),
     replyToContent: optionalNullableString(entry.replyToContent),
     replyToAttachments: coerceAttachments(entry.replyToAttachments),
+    mentionContext: coerceMentionContext(entry.mentionContext),
     trigger: optionalString(entry.trigger),
     createdAt: optionalString(entry.createdAt)
+  };
+}
+function coerceMentionContext(value) {
+  if (value == null) {
+    return value === null ? null : void 0;
+  }
+  if (typeof value !== "object") {
+    return void 0;
+  }
+  const record = value;
+  const bot = record.bot;
+  if (typeof bot !== "object" || bot === null) {
+    return void 0;
+  }
+  const botRecord = bot;
+  const botId = optionalString(botRecord.id);
+  const botUsername = optionalString(botRecord.username);
+  if (!botId || !botUsername) {
+    return void 0;
+  }
+  const users = Array.isArray(record.users) ? record.users.filter((entry) => typeof entry === "object" && entry !== null).map((entry) => ({
+    id: optionalString(entry.id) ?? "",
+    username: optionalString(entry.username) ?? "",
+    displayName: optionalString(entry.displayName) ?? optionalString(entry.username) ?? "",
+    bot: entry.bot === true,
+    isSelf: entry.isSelf === true
+  })).filter((entry) => entry.id) : [];
+  const roles = Array.isArray(record.roles) ? record.roles.filter((entry) => typeof entry === "object" && entry !== null).map((entry) => ({
+    id: optionalString(entry.id) ?? "",
+    name: optionalString(entry.name) ?? ""
+  })).filter((entry) => entry.id) : [];
+  const channels = Array.isArray(record.channels) ? record.channels.filter((entry) => typeof entry === "object" && entry !== null).map((entry) => ({
+    id: optionalString(entry.id) ?? "",
+    name: optionalString(entry.name) ?? ""
+  })).filter((entry) => entry.id) : [];
+  return {
+    bot: {
+      id: botId,
+      username: botUsername,
+      tag: optionalString(botRecord.tag) ?? botUsername,
+      displayName: optionalString(botRecord.displayName) ?? botUsername
+    },
+    pingedBot: record.pingedBot === true,
+    everyoneOrHere: record.everyoneOrHere === true,
+    users,
+    roles,
+    channels
   };
 }
 function coerceArchive(entry) {
@@ -76859,6 +77006,7 @@ var init_memory = __esm({
     init_runtime_paths();
     init_log();
     init_channels();
+    init_mentions();
     init_permissions();
     MEMORY_FILE_VERSION = 4;
     SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
@@ -87637,6 +87785,7 @@ function setupMessageHandler(client, config, callbacks, isShuttingDown) {
         discordUserId: message.author.id,
         displayLabel: message.author.tag
       });
+      const mentionContext = extractMentionContext(message, client.user);
       const decision = shouldAcceptMessage({
         authorId: message.author.id,
         authorTag: message.author.tag,
@@ -87665,7 +87814,8 @@ function setupMessageHandler(client, config, callbacks, isShuttingDown) {
             replyToAuthorId: replyContext?.authorId ?? null,
             replyToAuthorName: replyContext?.authorName ?? null,
             replyToContent: replyContext?.content ?? null,
-            replyToAttachments: isBoss(roleContext) ? replyContext?.attachments ?? [] : []
+            replyToAttachments: isBoss(roleContext) ? replyContext?.attachments ?? [] : [],
+            mentionContext
           });
         }
         return;
@@ -87695,6 +87845,7 @@ function setupMessageHandler(client, config, callbacks, isShuttingDown) {
           replyToAuthorName: replyContext?.authorName ?? null,
           replyToContent: replyContext?.content ?? null,
           replyToAttachments: isBoss(roleContext) ? replyContext?.attachments ?? [] : [],
+          mentionContext,
           roleContext
         });
       }
@@ -87777,6 +87928,7 @@ var init_bot = __esm({
     init_attachments();
     init_routing();
     init_permissions();
+    init_mentions();
   }
 });
 
@@ -88361,6 +88513,7 @@ async function processViaCli(message, accepted, config, memory, processingContex
     replyToContent: accepted.replyToContent,
     replyToAttachments: accepted.replyToAttachments,
     trigger: accepted.trigger,
+    mentionContext: accepted.mentionContext,
     roleContext: accepted.roleContext
   };
   let prompt;
@@ -89036,6 +89189,7 @@ async function initGateway(config, state2, memory, queue, apiServer, extensionDi
         replyToAuthorName: trackOnlyContext.replyToAuthorName,
         replyToContent: trackOnlyContext.replyToContent,
         replyToAttachments: isBoss(roleContext) ? trackOnlyContext.replyToAttachments : [],
+        mentionContext: trackOnlyContext.mentionContext,
         trigger: "tracked",
         createdAt: (/* @__PURE__ */ new Date()).toISOString()
       });
@@ -89176,6 +89330,7 @@ async function processMessage(message, accepted, config, memory, state2, process
         replyToAuthorName: accepted.replyToAuthorName,
         replyToContent: accepted.replyToContent,
         replyToAttachments: accepted.replyToAttachments,
+        mentionContext: accepted.mentionContext,
         trigger: `${accepted.trigger}:${processingContext.sessionKey}`,
         createdAt: now
       });

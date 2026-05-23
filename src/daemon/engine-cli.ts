@@ -112,6 +112,7 @@ export async function processViaCli(
     replyToContent: accepted.replyToContent,
     replyToAttachments: accepted.replyToAttachments,
     trigger: accepted.trigger,
+    mentionContext: accepted.mentionContext,
     roleContext: accepted.roleContext,
   } as const;
 

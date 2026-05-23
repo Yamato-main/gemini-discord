@@ -23,7 +23,7 @@ export function registerAdminTool(server: McpServer, config: Config): void {
       '• "restart" — restart the daemon process',
       '• "reset" — clear the current conversation and archive the session',
       '• "channels" — list discovered channels (optional query filter)',
-      '• "users" — list discovered server users or resolve a user lookup hint (always run this before allowlist/moderation when the target is ambiguous)',
+      '• "users" — list discovered server users or resolve a user lookup hint (use when [Mentions] has no matching human, or the target is ambiguous)',
       '• "allowlist_add" — add a human user to the guest allowlist (never the bot itself; resolve with users discovery first)',
       '• "allowlist_remove" — remove a human user from the guest allowlist',
       '• "set_presence" — change the bot\'s online status and activity',
