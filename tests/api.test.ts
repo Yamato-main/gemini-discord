@@ -327,6 +327,94 @@ describe('control API moderation', () => {
     }
   });
 
+  it('refuses to allowlist the bot user', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-allowlist-bot-'));
+    const botId = '888888888888888888';
+    const client = createModerationClient({ member: { timeout: vi.fn(), kick: vi.fn() } });
+    (client.user as { id: string }).id = botId;
+    const config = createConfig({
+      daemonPort: 0,
+      discordBossUserId: '111111111111111111',
+      allowedUserIds: [],
+    });
+    const server = startControlApi({
+      config,
+      state: createState(),
+      memory: {} as any,
+      queue: { depth: () => 0 } as any,
+      extensionDir: tmpDir,
+      client: client as any,
+      isShuttingDown: () => false,
+      shutdown: async () => {},
+    });
+
+    try {
+      await once(server, 'listening');
+      const port = (server.address() as AddressInfo).port;
+      const response = await fetch(`http://127.0.0.1:${port}/allowlist`, {
+        method: 'POST',
+        headers: bossHeaders(config.daemonApiToken),
+        body: JSON.stringify({ action: 'add', user_id: botId }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: 'Refusing to allowlist the bot user. Use user discovery to find a human member instead.',
+      });
+      expect(config.allowedUserIds).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to allowlist a discovered bot member', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-allowlist-bot-member-'));
+    const botMemberId = '777777777777777777';
+    const client = createModerationClient({
+      member: {
+        timeout: vi.fn(),
+        kick: vi.fn(),
+        user: { bot: true },
+      },
+    });
+    const config = createConfig({
+      daemonPort: 0,
+      discordServerId: 'guild-1',
+      discordBossUserId: '111111111111111111',
+      allowedUserIds: [],
+    });
+    const server = startControlApi({
+      config,
+      state: createState(),
+      memory: {} as any,
+      queue: { depth: () => 0 } as any,
+      extensionDir: tmpDir,
+      client: client as any,
+      isShuttingDown: () => false,
+      shutdown: async () => {},
+    });
+
+    try {
+      await once(server, 'listening');
+      const port = (server.address() as AddressInfo).port;
+      const response = await fetch(`http://127.0.0.1:${port}/allowlist`, {
+        method: 'POST',
+        headers: bossHeaders(config.daemonApiToken),
+        body: JSON.stringify({ action: 'add', user_id: botMemberId }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: 'Refusing to allowlist a bot account. Use user discovery to find a human member instead.',
+      });
+      expect(config.allowedUserIds).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('times out a guild member for an authorized Discord request', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-moderation-'));
     const timeout = vi.fn().mockResolvedValue({});
@@ -551,9 +639,13 @@ function createState(): DaemonState {
   };
 }
 
-function createModerationClient({ member }: { member: { timeout: ReturnType<typeof vi.fn>; kick: ReturnType<typeof vi.fn> } }) {
+function createModerationClient({
+  member,
+}: {
+  member: { timeout: ReturnType<typeof vi.fn>; kick: ReturnType<typeof vi.fn>; user?: { bot?: boolean } };
+}) {
   return {
-    user: { id: 'bot-user', tag: 'Bot#0001' },
+    user: { id: '888888888888888888', tag: 'Bot#0001' },
     ws: { ping: 0 },
     guilds: {
       fetch: vi.fn().mockResolvedValue({

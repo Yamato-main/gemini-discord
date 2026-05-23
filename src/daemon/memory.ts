@@ -479,6 +479,8 @@ export function buildDiscordAdapterInstruction(
     '- Do not call Discord send/reply tools for an ordinary response to the current message.',
     '- If the user asks you to send or attach something "here", use the incoming message channel ID shown below as an explicit channel_id. Never omit channel_id for Discord send tools.',
     '- Use Discord tools only when the user asks for Discord actions such as sending elsewhere, reading history, resetting, scheduling, checking status, or discovering server users/channels.',
+    '- The bot\'s own Discord user ID is exposed in discord_admin status as Bot (...). Never add that ID to the human guest allowlist.',
+    '- When a user asks to allowlist, moderate, or otherwise target "the other user", another person, or someone besides themselves, run discord_admin action "users" (with query if helpful) before allowlist_add, kick, or timeout. Do not guess IDs and do not allowlist the bot account.',
     '- For any requested Discord action, completion means the user-visible outcome happened in Discord or explicitly failed with the reason.',
     '- Finding a file/media item, checking status, restarting, or troubleshooting is not completion. If any requested send, reply, media post, reset, schedule, deletion, or other Discord action fails, keep the original action pending.',
     '- After fixing a bridge, tool, permission, or environment issue, automatically retry the original pending action before finalizing.',

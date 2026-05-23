@@ -30,8 +30,31 @@ export async function handleModerationRoutes(
       return true;
     }
     if (!userId || !DISCORD_SNOWFLAKE_RE.test(userId)) {
-      respond(res, 400, { error: 'Valid user_id is required' });
+      respond(res, 400, {
+        error: 'user_id must be a stable numeric Discord user ID. Use user discovery to resolve names or mentions first.',
+      });
       return true;
+    }
+    if (userId === deps.client?.user?.id) {
+      respond(res, 400, { error: 'Refusing to allowlist the bot user. Use user discovery to find a human member instead.' });
+      return true;
+    }
+    if (config.allowedAgentIds.includes(userId)) {
+      respond(res, 400, { error: 'Refusing to allowlist an agent/bot user ID in the human guest allowlist.' });
+      return true;
+    }
+
+    if (action === 'add' && deps.client && config.discordServerId) {
+      try {
+        const guild = await deps.client.guilds.fetch(config.discordServerId);
+        const member = await guild.members.fetch(userId);
+        if (member.user.bot) {
+          respond(res, 400, { error: 'Refusing to allowlist a bot account. Use user discovery to find a human member instead.' });
+          return true;
+        }
+      } catch {
+        // If discovery cannot confirm membership, still allow boss-provided stable IDs.
+      }
     }
 
     const current = new Set(config.allowedUserIds);

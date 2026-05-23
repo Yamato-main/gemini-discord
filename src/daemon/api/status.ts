@@ -34,6 +34,7 @@ export function handleStatusRoutes(
       queueDepth: queue.depth(queueKey),
       streaming: config.streaming,
       botTag: deps.client?.user?.tag ?? null,
+      botId: deps.client?.user?.id ?? null,
       wsPing: deps.client?.ws?.ping ?? -1,
       channelId: config.discordChannelId,
       serverId: config.discordServerId || undefined,

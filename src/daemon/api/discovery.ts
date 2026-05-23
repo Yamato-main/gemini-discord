@@ -38,7 +38,12 @@ export async function handleDiscoveryRoutes(
           || (entry.tag ?? '').toLowerCase().includes(needle);
       })
       .slice(0, 50);
-    respond(res, 200, { ok: true, users, resolved });
+    respond(res, 200, {
+      ok: true,
+      users,
+      resolved,
+      bot_id: deps.client.user?.id ?? null,
+    });
     return true;
   }
 

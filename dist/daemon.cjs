@@ -76507,6 +76507,8 @@ ${options.backgroundContext}` : "";
     "- Do not call Discord send/reply tools for an ordinary response to the current message.",
     '- If the user asks you to send or attach something "here", use the incoming message channel ID shown below as an explicit channel_id. Never omit channel_id for Discord send tools.',
     "- Use Discord tools only when the user asks for Discord actions such as sending elsewhere, reading history, resetting, scheduling, checking status, or discovering server users/channels.",
+    "- The bot's own Discord user ID is exposed in discord_admin status as Bot (...). Never add that ID to the human guest allowlist.",
+    '- When a user asks to allowlist, moderate, or otherwise target "the other user", another person, or someone besides themselves, run discord_admin action "users" (with query if helpful) before allowlist_add, kick, or timeout. Do not guess IDs and do not allowlist the bot account.',
     "- For any requested Discord action, completion means the user-visible outcome happened in Discord or explicitly failed with the reason.",
     "- Finding a file/media item, checking status, restarting, or troubleshooting is not completion. If any requested send, reply, media post, reset, schedule, deletion, or other Discord action fails, keep the original action pending.",
     "- After fixing a bridge, tool, permission, or environment issue, automatically retry the original pending action before finalizing."
@@ -89553,6 +89555,7 @@ function handleStatusRoutes(req, res, url, deps) {
       queueDepth: queue.depth(queueKey),
       streaming: config.streaming,
       botTag: deps.client?.user?.tag ?? null,
+      botId: deps.client?.user?.id ?? null,
       wsPing: deps.client?.ws?.ping ?? -1,
       channelId: config.discordChannelId,
       serverId: config.discordServerId || void 0,
@@ -89619,7 +89622,12 @@ async function handleDiscoveryRoutes(req, res, url, deps) {
       const needle = query.trim().toLowerCase();
       return entry.id.includes(needle) || entry.username.toLowerCase().includes(needle) || (entry.displayName ?? "").toLowerCase().includes(needle) || (entry.globalName ?? "").toLowerCase().includes(needle) || (entry.tag ?? "").toLowerCase().includes(needle);
     }).slice(0, 50);
-    respond(res, 200, { ok: true, users, resolved });
+    respond(res, 200, {
+      ok: true,
+      users,
+      resolved,
+      bot_id: deps.client.user?.id ?? null
+    });
     return true;
   }
   if (req.method === "GET" && pathname === "/reactions") {
@@ -90110,8 +90118,29 @@ async function handleModerationRoutes(req, res, pathname, parsed, deps) {
       return true;
     }
     if (!userId || !DISCORD_SNOWFLAKE_RE3.test(userId)) {
-      respond(res, 400, { error: "Valid user_id is required" });
+      respond(res, 400, {
+        error: "user_id must be a stable numeric Discord user ID. Use user discovery to resolve names or mentions first."
+      });
       return true;
+    }
+    if (userId === deps.client?.user?.id) {
+      respond(res, 400, { error: "Refusing to allowlist the bot user. Use user discovery to find a human member instead." });
+      return true;
+    }
+    if (config.allowedAgentIds.includes(userId)) {
+      respond(res, 400, { error: "Refusing to allowlist an agent/bot user ID in the human guest allowlist." });
+      return true;
+    }
+    if (action === "add" && deps.client && config.discordServerId) {
+      try {
+        const guild = await deps.client.guilds.fetch(config.discordServerId);
+        const member = await guild.members.fetch(userId);
+        if (member.user.bot) {
+          respond(res, 400, { error: "Refusing to allowlist a bot account. Use user discovery to find a human member instead." });
+          return true;
+        }
+      } catch {
+      }
     }
     const current = new Set(config.allowedUserIds);
     if (action === "add") {

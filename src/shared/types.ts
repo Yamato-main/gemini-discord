@@ -150,6 +150,7 @@ export interface DaemonStatus {
   queueDepth: number;
   streaming: boolean;
   botTag: string | null;
+  botId: string | null;
   wsPing: number;
   channelId: string;
   serverId?: string;

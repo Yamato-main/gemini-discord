@@ -21978,8 +21978,8 @@ function registerAdminTool(server2, config3) {
       '\u2022 "restart" \u2014 restart the daemon process',
       '\u2022 "reset" \u2014 clear the current conversation and archive the session',
       '\u2022 "channels" \u2014 list discovered channels (optional query filter)',
-      '\u2022 "users" \u2014 list discovered server users or resolve a user lookup hint',
-      '\u2022 "allowlist_add" \u2014 add a human user to the guest allowlist',
+      '\u2022 "users" \u2014 list discovered server users or resolve a user lookup hint (always run this before allowlist/moderation when the target is ambiguous)',
+      '\u2022 "allowlist_add" \u2014 add a human user to the guest allowlist (never the bot itself; resolve with users discovery first)',
       '\u2022 "allowlist_remove" \u2014 remove a human user from the guest allowlist',
       `\u2022 "set_presence" \u2014 change the bot's online status and activity`,
       '\u2022 "kick" \u2014 remove a member from the server',
@@ -21993,7 +21993,7 @@ function registerAdminTool(server2, config3) {
       status: external_exports.enum(["online", "idle", "dnd", "invisible"]).optional().describe("Bot online status (only for set_presence)."),
       activity_type: external_exports.enum(["playing", "watching", "listening", "competing"]).optional().describe("Activity type (only for set_presence)."),
       activity_name: external_exports.string().optional().describe('Activity name, e.g. "with fire" (only for set_presence).'),
-      user_id: external_exports.string().optional().describe("Stable numeric Discord user ID of the member to moderate or allowlist. Use users discovery to resolve names or mentions first."),
+      user_id: external_exports.string().optional().describe('Stable numeric Discord user ID of the human member to moderate or allowlist. Required for allowlist/moderation. Run action "users" first when the request mentions another person, "the other user", a display name, or @mention.'),
       guild_id: external_exports.string().optional().describe("Discord server/guild ID. Defaults to the configured server (only for kick/timeout/remove_timeout)."),
       reason: external_exports.string().optional().describe("Optional audit-log reason (only for kick/timeout/remove_timeout)."),
       duration_minutes: external_exports.number().optional().describe("Timeout duration in minutes. Required for timeout. Maximum 40320 (28 days).")
@@ -22019,7 +22019,7 @@ function registerAdminTool(server2, config3) {
           const s = res.data;
           const lines = [
             `**Status:** ${statusEmoji(s.status)} ${s.status}`,
-            `**Bot:** ${s.botTag ?? "not connected"}`,
+            `**Bot:** ${s.botTag ?? "not connected"}${s.botId ? ` (\`${s.botId}\`)` : ""}`,
             `**WebSocket Ping:** ${s.wsPing}ms`,
             `**Gemini:** ${s.geminiReachable ? "\u2705 reachable" : "\u274C unreachable"} (${s.geminiVersion})`,
             `**Streaming:** ${s.streaming ? "enabled" : "disabled"}`,
@@ -22145,14 +22145,34 @@ ${retryMessage}` : ""}` }]
           if (users.length === 0) {
             return text(query ? `No discovered users matched "${query}".` : "No users have been discovered yet.");
           }
+          const humans = users.filter((user) => !user.bot);
+          const bots = users.filter((user) => user.bot);
           const lines = [];
           if (resolved?.id) {
-            lines.push(`Resolved stable user ID: \`${resolved.id}\``, "");
+            const resolvedUser = users.find((user) => user.id === resolved.id);
+            if (resolvedUser?.bot) {
+              lines.push(`Resolved ID \`${resolved.id}\` is a bot account \u2014 pick a human user for allowlist actions.`, "");
+            } else {
+              lines.push(`Resolved stable human user ID: \`${resolved.id}\``, "");
+            }
           }
-          for (const user of users) {
-            const label = user.displayName || user.globalName || user.username;
-            const bot = user.bot ? " bot" : "";
-            lines.push(`- **${label}**${bot}: \`${user.id}\`${user.tag ? ` (${user.tag})` : ""}`);
+          if (humans.length > 0) {
+            lines.push("### Humans");
+            for (const user of humans) {
+              const label = user.displayName || user.globalName || user.username;
+              lines.push(`- **${label}**: \`${user.id}\`${user.tag ? ` (${user.tag})` : ""}`);
+            }
+          }
+          if (bots.length > 0) {
+            if (lines.length > 0) lines.push("");
+            lines.push("### Bots (not valid guest allowlist targets)");
+            for (const user of bots) {
+              const label = user.displayName || user.globalName || user.username;
+              lines.push(`- **${label}**: \`${user.id}\`${user.tag ? ` (${user.tag})` : ""}`);
+            }
+          }
+          if (humans.length === 0 && bots.length === 0) {
+            return text(query ? `No discovered users matched "${query}".` : "No users have been discovered yet.");
           }
           return text(lines.join("\n"));
         }
