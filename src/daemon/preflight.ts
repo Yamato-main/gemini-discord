@@ -77,15 +77,7 @@ export async function runPreflight(extensionDir: string): Promise<PreflightResul
     process.exit(1);
   }
 
-  // 7. DAEMON_PORT is not already bound
-  const port = parseInt(envVars[ENV.DAEMON_PORT] ?? '18790', 10);
-  const portInUse = await checkPortInUse(port);
-  if (portInUse) {
-    log.error('Port in use. Is the daemon already running?', { port });
-    process.exit(1);
-  }
-
-  // 8. Gemini CLI version probe (non-fatal)
+  // 7. Gemini CLI version probe (non-fatal)
   let geminiVersion = 'unknown';
 
   try {
@@ -100,7 +92,7 @@ export async function runPreflight(extensionDir: string): Promise<PreflightResul
     log.warn('Could not determine gemini CLI version');
   }
 
-  log.info('Preflight complete', { checks: 8, geminiReachable: true });
+  log.info('Preflight complete', { checks: 7, geminiReachable: true });
 
   return { geminiReachable: true, geminiVersion };
 }
