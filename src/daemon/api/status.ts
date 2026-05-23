@@ -4,6 +4,7 @@ import { getChannelMapEntries } from '../channels.js';
 import { listJobs } from '../cron.js';
 import { listGeminiBindingStates } from '../binding.js';
 import { listDmPairings } from '../dm-pairing.js';
+import { sanitizeAllowedUserIds } from '../../shared/config-sanitize.js';
 import {
   respond,
   authorizeApiAction,
@@ -47,6 +48,7 @@ export function handleStatusRoutes(
       useGeminiCliSessions: config.useGeminiCliSessions,
       allowlistedUsers: config.allowedUserIds.length,
       allowlistedAgents: config.allowedAgentIds.length,
+      configWarnings: sanitizeAllowedUserIds(config, deps.client?.user?.id ?? null).warnings,
       requireMention: config.requireMention,
       channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
       cronJobs: listJobs(),

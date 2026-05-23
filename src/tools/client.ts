@@ -7,7 +7,7 @@ import * as http from 'node:http';
 import type { Config } from '../shared/types.js';
 import { resolveExtensionDir } from '../shared/config.js';
 import { ensureDaemonRunning, resolveActivePort } from '../shared/daemon-runtime.js';
-import { resolveMcpRoleContextFromEnv } from '../daemon/permissions.js';
+import { resolveLocalMcpBossContext, resolveMcpRoleContextFromEnv } from '../daemon/permissions.js';
 
 interface RequestOptions {
   method: 'GET' | 'POST';
@@ -65,7 +65,7 @@ async function requestOnce(opts: RequestOptions): Promise<DaemonResponse> {
         headers: {
           'Content-Type': 'application/json',
           ...discordRoleHeaders(config),
-          ...(method === 'POST' && config.daemonApiToken
+          ...(config.daemonApiToken
             ? { Authorization: `Bearer ${config.daemonApiToken}` }
             : {}),
           ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
@@ -102,7 +102,8 @@ async function requestOnce(opts: RequestOptions): Promise<DaemonResponse> {
 }
 
 function discordRoleHeaders(config: Config): Record<string, string> {
-  const roleContext = resolveMcpRoleContextFromEnv(process.env, config);
+  const roleContext = resolveMcpRoleContextFromEnv(process.env, config)
+    ?? resolveLocalMcpBossContext(config);
   if (!roleContext) {
     return {};
   }

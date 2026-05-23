@@ -84,8 +84,11 @@ export function registerAdminTool(server: McpServer, config: Config): void {
             `**Gemini Session Binding Scope:** ${s.geminiSessionBindingScope}`,
             `**Gemini Headless Mode:** ${s.headlessMode ?? 'unknown'}`,
             `**Require Mention:** ${s.requireMention ? 'yes' : 'no'}`,
-            `**Allowlisted Humans:** ${s.allowlistedUsers}`,
+            `**Allowlisted Humans:** ${s.allowlistedUsers} (chat-only guests; not bridge admins)`,
             `**Allowlisted Agents:** ${s.allowlistedAgents}`,
+            ...(s.configWarnings && s.configWarnings.length > 0
+              ? ['', '### Config warnings', ...s.configWarnings.map((warning) => `- ${warning}`)]
+              : []),
             `**Messages Handled:** ${s.messagesHandled}`,
             `**Last Message:** ${s.lastMessageAt ?? 'none'}`,
             `**Queue Depth:** ${s.queueDepth}`,

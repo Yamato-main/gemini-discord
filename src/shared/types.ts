@@ -185,6 +185,7 @@ export interface DaemonStatus {
   useGeminiCliSessions: boolean;
   allowlistedUsers: number;
   allowlistedAgents: number;
+  configWarnings?: string[];
   requireMention: boolean;
   channels?: Array<{ name: string; id: string }>;
   cronJobs?: CronJobSnapshot[];

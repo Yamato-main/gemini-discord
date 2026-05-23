@@ -254,7 +254,9 @@ export function formatPermissionDenial(_decision: PermissionDecision): string {
     case 'status':
     case 'bot_introspection':
     case 'user_discovery':
-      return 'I cannot expose bridge internals, history, or server metadata to guests.';
+      return _decision.reason === 'guest_requires_boss'
+        ? 'Guest allowlist users can chat here but cannot list server members or run bridge admin tools. Those require the configured boss account (DISCORD_BOSS_USER_ID), not the bot and not the guest allowlist.'
+        : 'I cannot expose bridge internals, history, or server metadata to guests.';
     case 'cron':
       return 'I cannot schedule reminders or background Discord actions for guests.';
     case 'moderation':
@@ -323,8 +325,25 @@ export function resolveMcpRoleContextFromEnv(
   };
 }
 
+export function resolveLocalMcpBossContext(config?: Config): RoleContext | null {
+  if (!config) {
+    return null;
+  }
+
+  const validation = validateBossConfig(config);
+  if (!validation.valid) {
+    return null;
+  }
+
+  return resolveDiscordRole(config, {
+    discordUserId: validation.bossUserId,
+    displayLabel: 'local-mcp',
+  });
+}
+
 export function authorizeMcpToolAction(action: PermissionAction, config?: Config): PermissionDecision {
-  const roleContext = resolveMcpRoleContextFromEnv(process.env, config);
+  const roleContext = resolveMcpRoleContextFromEnv(process.env, config)
+    ?? resolveLocalMcpBossContext(config);
   if (!roleContext) {
     return { decision: 'deny', action, reason: 'missing_discord_role_context' };
   }

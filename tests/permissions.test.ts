@@ -217,8 +217,15 @@ describe('BOSS/GUEST permissions', () => {
     expect(authorizeAction('outbound_discord', role!)).toMatchObject({ decision: 'deny' });
   });
 
-  it('fails closed for MCP tool calls without Discord role context', () => {
-    expect(authorizeMcpToolAction('outbound_discord', createConfig())).toMatchObject({
+  it('treats local MCP calls without role env as the configured boss', () => {
+    expect(authorizeMcpToolAction('user_discovery', createConfig({ discordBossUserId: BOSS_ID }))).toMatchObject({
+      decision: 'allow',
+      reason: 'boss',
+    });
+  });
+
+  it('fails closed for MCP tool calls without Discord role context or boss config', () => {
+    expect(authorizeMcpToolAction('outbound_discord', createConfig({ discordBossUserId: '' }))).toMatchObject({
       decision: 'deny',
       reason: 'missing_discord_role_context',
     });

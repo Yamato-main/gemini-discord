@@ -485,6 +485,7 @@ export function buildDiscordAdapterInstruction(
     '- If the user asks you to send or attach something "here", use the incoming message channel ID shown below as an explicit channel_id. Never omit channel_id for Discord send tools.',
     '- Use Discord tools only when the user asks for Discord actions such as sending elsewhere, reading history, resetting, scheduling, checking status, or discovering server users/channels.',
     '- The bot\'s own Discord user ID is exposed in discord_admin status as Bot (...). Never add that ID to the human guest allowlist.',
+    '- DISCORD_BOSS_USER_ID is the human operator with full bridge admin tools. DISCORD_ALLOWED_USER_IDS is chat-only guest access and does not grant user discovery, allowlist edits, or server management.',
     '- When a user asks to allowlist, moderate, or otherwise target "the other user", another person, or someone besides themselves, run discord_admin action "users" (with query if helpful) before allowlist_add, kick, or timeout. Do not guess IDs and do not allowlist the bot account.',
     '- Read the [Mentions] block on each message. Only listed user pings are real `<@userId>` mentions. Role pings (`<@&…>`), channel refs (`<#…>`), @everyone/@here, and plain @text are different — never confuse them with a human user target.',
     '- Your own bot identity (name, username, id) is listed under [Mentions]. Do not treat a ping of yourself as "the other user", and do not allowlist your own bot id.',

@@ -13,6 +13,7 @@ import {
   formatPermissionDenial,
   GUEST_PERMISSION_REFUSAL,
   resolveDiscordRole,
+  validateBossConfig,
   type PermissionAction,
   type RoleContext,
 } from './permissions.js';
@@ -106,15 +107,44 @@ export function roleContextFromRequest(req: http.IncomingMessage, config: Config
   return resolveDiscordRole(config, { discordUserId: senderDiscordId, displayLabel: senderDisplayLabel });
 }
 
+function roleContextFromLocalControlToken(
+  req: http.IncomingMessage,
+  config: Config,
+): RoleContext | null {
+  const rawAuth = req.headers.authorization;
+  const header = Array.isArray(rawAuth) ? rawAuth[0] : rawAuth;
+  if (!header?.startsWith('Bearer ') || !config.daemonApiToken) {
+    return null;
+  }
+
+  const token = header.slice('Bearer '.length).trim();
+  if (!token || token !== config.daemonApiToken) {
+    return null;
+  }
+
+  const boss = validateBossConfig(config);
+  if (!boss.valid) {
+    return null;
+  }
+
+  return resolveDiscordRole(config, {
+    discordUserId: boss.bossUserId,
+    displayLabel: 'local-control-api',
+  });
+}
+
 export function authorizeApiAction(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   config: Config,
   action: PermissionAction,
 ): boolean {
-  const roleContext = roleContextFromRequest(req, config);
+  const roleContext = roleContextFromRequest(req, config)
+    ?? roleContextFromLocalControlToken(req, config);
   if (!roleContext) {
-    respond(res, 403, { error: GUEST_PERMISSION_REFUSAL });
+    respond(res, 403, {
+      error: 'Missing Discord role context. Use the bridge from an authorized boss message in Discord, or call the local MCP server with a valid daemon token.',
+    });
     return false;
   }
 

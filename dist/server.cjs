@@ -21708,7 +21708,7 @@ function formatPermissionDenial(_decision) {
     case "status":
     case "bot_introspection":
     case "user_discovery":
-      return "I cannot expose bridge internals, history, or server metadata to guests.";
+      return _decision.reason === "guest_requires_boss" ? "Guest allowlist users can chat here but cannot list server members or run bridge admin tools. Those require the configured boss account (DISCORD_BOSS_USER_ID), not the bot and not the guest allowlist." : "I cannot expose bridge internals, history, or server metadata to guests.";
     case "cron":
       return "I cannot schedule reminders or background Discord actions for guests.";
     case "moderation":
@@ -21741,8 +21741,21 @@ function resolveMcpRoleContextFromEnv(env = process.env, config3) {
     bossConfigReason: "missing"
   };
 }
+function resolveLocalMcpBossContext(config3) {
+  if (!config3) {
+    return null;
+  }
+  const validation = validateBossConfig(config3);
+  if (!validation.valid) {
+    return null;
+  }
+  return resolveDiscordRole(config3, {
+    discordUserId: validation.bossUserId,
+    displayLabel: "local-mcp"
+  });
+}
 function authorizeMcpToolAction(action, config3) {
-  const roleContext = resolveMcpRoleContextFromEnv(process.env, config3);
+  const roleContext = resolveMcpRoleContextFromEnv(process.env, config3) ?? resolveLocalMcpBossContext(config3);
   if (!roleContext) {
     return { decision: "deny", action, reason: "missing_discord_role_context" };
   }
@@ -21789,7 +21802,7 @@ async function requestOnce(opts) {
         headers: {
           "Content-Type": "application/json",
           ...discordRoleHeaders(config3),
-          ...method === "POST" && config3.daemonApiToken ? { Authorization: `Bearer ${config3.daemonApiToken}` } : {},
+          ...config3.daemonApiToken ? { Authorization: `Bearer ${config3.daemonApiToken}` } : {},
           ...payload ? { "Content-Length": Buffer.byteLength(payload) } : {}
         },
         timeout: timeoutMs ?? 5e3
@@ -21820,7 +21833,7 @@ async function requestOnce(opts) {
   });
 }
 function discordRoleHeaders(config3) {
-  const roleContext = resolveMcpRoleContextFromEnv(process.env, config3);
+  const roleContext = resolveMcpRoleContextFromEnv(process.env, config3) ?? resolveLocalMcpBossContext(config3);
   if (!roleContext) {
     return {};
   }
@@ -22031,8 +22044,9 @@ function registerAdminTool(server2, config3) {
             `**Gemini Session Binding Scope:** ${s.geminiSessionBindingScope}`,
             `**Gemini Headless Mode:** ${s.headlessMode ?? "unknown"}`,
             `**Require Mention:** ${s.requireMention ? "yes" : "no"}`,
-            `**Allowlisted Humans:** ${s.allowlistedUsers}`,
+            `**Allowlisted Humans:** ${s.allowlistedUsers} (chat-only guests; not bridge admins)`,
             `**Allowlisted Agents:** ${s.allowlistedAgents}`,
+            ...s.configWarnings && s.configWarnings.length > 0 ? ["", "### Config warnings", ...s.configWarnings.map((warning) => `- ${warning}`)] : [],
             `**Messages Handled:** ${s.messagesHandled}`,
             `**Last Message:** ${s.lastMessageAt ?? "none"}`,
             `**Queue Depth:** ${s.queueDepth}`,

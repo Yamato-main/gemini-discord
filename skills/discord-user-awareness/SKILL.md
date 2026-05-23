@@ -5,6 +5,15 @@ description: Resolve human Discord members and interpret @ pings correctly befor
 
 # Discord user awareness
 
+## Boss vs guest allowlist (critical)
+
+| Setting | Who | Powers |
+|---------|-----|--------|
+| `DISCORD_BOSS_USER_ID` | One human operator | Full bridge: user discovery, allowlist, admin, moderation |
+| `DISCORD_ALLOWED_USER_IDS` | Other humans | **Chat only** when guests are disabled — no user lists, no admin tools |
+
+Never put the **bot's** user ID in either field. Putting the bot on the guest allowlist does not give it admin powers — it only pollutes config.
+
 ## When to use
 
 - The user wants to add or remove someone from the guest allowlist.

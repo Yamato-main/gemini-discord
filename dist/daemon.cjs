@@ -665,7 +665,7 @@ function formatPermissionDenial(_decision) {
     case "status":
     case "bot_introspection":
     case "user_discovery":
-      return "I cannot expose bridge internals, history, or server metadata to guests.";
+      return _decision.reason === "guest_requires_boss" ? "Guest allowlist users can chat here but cannot list server members or run bridge admin tools. Those require the configured boss account (DISCORD_BOSS_USER_ID), not the bot and not the guest allowlist." : "I cannot expose bridge internals, history, or server metadata to guests.";
     case "cron":
       return "I cannot schedule reminders or background Discord actions for guests.";
     case "moderation":
@@ -76595,6 +76595,7 @@ ${options.backgroundContext}` : "";
     '- If the user asks you to send or attach something "here", use the incoming message channel ID shown below as an explicit channel_id. Never omit channel_id for Discord send tools.',
     "- Use Discord tools only when the user asks for Discord actions such as sending elsewhere, reading history, resetting, scheduling, checking status, or discovering server users/channels.",
     "- The bot's own Discord user ID is exposed in discord_admin status as Bot (...). Never add that ID to the human guest allowlist.",
+    "- DISCORD_BOSS_USER_ID is the human operator with full bridge admin tools. DISCORD_ALLOWED_USER_IDS is chat-only guest access and does not grant user discovery, allowlist edits, or server management.",
     '- When a user asks to allowlist, moderate, or otherwise target "the other user", another person, or someone besides themselves, run discord_admin action "users" (with query if helpful) before allowlist_add, kick, or timeout. Do not guess IDs and do not allowlist the bot account.',
     "- Read the [Mentions] block on each message. Only listed user pings are real `<@userId>` mentions. Role pings (`<@&\u2026>`), channel refs (`<#\u2026>`), @everyone/@here, and plain @text are different \u2014 never confuse them with a human user target.",
     '- Your own bot identity (name, username, id) is listed under [Mentions]. Do not treat a ping of yourself as "the other user", and do not allowlist your own bot id.',
@@ -87192,6 +87193,51 @@ var init_cron = __esm({
   }
 });
 
+// src/shared/config-sanitize.ts
+function sanitizeAllowedUserIds(config, botUserId) {
+  const warnings = [];
+  const drop = /* @__PURE__ */ new Set();
+  if (botUserId?.trim()) {
+    drop.add(botUserId.trim());
+  }
+  const boss = validateBossConfig(config);
+  if (boss.valid) {
+    drop.add(boss.bossUserId);
+  }
+  const before = config.allowedUserIds;
+  const allowedUserIds = before.filter((id) => {
+    if (!drop.has(id)) {
+      return true;
+    }
+    if (botUserId && id === botUserId) {
+      warnings.push(
+        `Removed bot user ${id} from DISCORD_ALLOWED_USER_IDS. The guest allowlist is for humans only; the bot must never be allowlisted.`
+      );
+    } else if (boss.valid && id === boss.bossUserId) {
+      warnings.push(
+        `Removed boss user ${id} from DISCORD_ALLOWED_USER_IDS. Boss authority comes from DISCORD_BOSS_USER_ID, not the guest allowlist.`
+      );
+    }
+    return false;
+  });
+  if (boss.valid && botUserId && boss.bossUserId === botUserId) {
+    warnings.push(
+      "DISCORD_BOSS_USER_ID matches the bot account. Set it to the human operator's numeric Discord user ID or privileged actions will fail."
+    );
+  }
+  return {
+    allowedUserIds,
+    changed: allowedUserIds.length !== before.length,
+    warnings
+  };
+}
+var init_config_sanitize = __esm({
+  "src/shared/config-sanitize.ts"() {
+    "use strict";
+    init_permissions();
+  }
+});
+
 // src/daemon/users.ts
 async function buildGuildUserMap(client, config, options = {}) {
   userAliasMap.clear();
@@ -89068,6 +89114,27 @@ async function initGateway(config, state2, memory, queue, apiServer, extensionDi
   client.once("clientReady", async () => {
     log.info("Discord bot connected", { tag: client.user?.tag });
     await bootstrapManagedDiscordConfig(client, config, extensionDir2);
+    const identitySanitize = sanitizeAllowedUserIds(config, client.user?.id ?? null);
+    if (identitySanitize.changed) {
+      config.allowedUserIds = identitySanitize.allowedUserIds;
+      try {
+        persistConfigEnvUpdates(extensionDir2, {
+          [ENV.DISCORD_ALLOWED_USER_IDS]: identitySanitize.allowedUserIds.join(",")
+        });
+        log.info("Sanitized DISCORD_ALLOWED_USER_IDS on disk", { allowedUserIds: config.allowedUserIds });
+      } catch (err) {
+        log.warn("Failed to persist sanitized allowlist", {
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
+    }
+    for (const warning of identitySanitize.warnings) {
+      log.warn("Bridge identity configuration warning", { warning });
+    }
+    if (identitySanitize.warnings.some((warning) => warning.includes("DISCORD_BOSS_USER_ID matches the bot"))) {
+      state2.status = "degraded";
+      state2.lastError = identitySanitize.warnings.join(" ");
+    }
     if (config.discordChannelId) {
       try {
         const channel = await client.channels.fetch(config.discordChannelId);
@@ -89404,14 +89471,15 @@ var init_gateway = __esm({
     init_retry();
     init_tool_mode();
     init_attachments();
-    init_config();
-    init_config_vars();
     init_runtime();
     init_cron();
     init_session_reset();
     init_dm_pairing();
     init_permissions();
     init_onboarding();
+    init_config_sanitize();
+    init_config();
+    init_config_vars();
     MAX_AGENT_EXCHANGES = 6;
   }
 });
@@ -89634,10 +89702,31 @@ function roleContextFromRequest(req, config) {
   const senderDisplayLabel = (Array.isArray(rawSenderLabel) ? rawSenderLabel[0] : rawSenderLabel)?.trim() || senderDiscordId;
   return resolveDiscordRole(config, { discordUserId: senderDiscordId, displayLabel: senderDisplayLabel });
 }
+function roleContextFromLocalControlToken(req, config) {
+  const rawAuth = req.headers.authorization;
+  const header = Array.isArray(rawAuth) ? rawAuth[0] : rawAuth;
+  if (!header?.startsWith("Bearer ") || !config.daemonApiToken) {
+    return null;
+  }
+  const token = header.slice("Bearer ".length).trim();
+  if (!token || token !== config.daemonApiToken) {
+    return null;
+  }
+  const boss = validateBossConfig(config);
+  if (!boss.valid) {
+    return null;
+  }
+  return resolveDiscordRole(config, {
+    discordUserId: boss.bossUserId,
+    displayLabel: "local-control-api"
+  });
+}
 function authorizeApiAction(req, res, config, action) {
-  const roleContext = roleContextFromRequest(req, config);
+  const roleContext = roleContextFromRequest(req, config) ?? roleContextFromLocalControlToken(req, config);
   if (!roleContext) {
-    respond(res, 403, { error: GUEST_PERMISSION_REFUSAL });
+    respond(res, 403, {
+      error: "Missing Discord role context. Use the bridge from an authorized boss message in Discord, or call the local MCP server with a valid daemon token."
+    });
     return false;
   }
   const decision = authorizeAction(action, roleContext);
@@ -89693,6 +89782,7 @@ init_channels();
 init_cron();
 init_binding();
 init_dm_pairing();
+init_config_sanitize();
 function handleStatusRoutes(req, res, url, deps) {
   const pathname = url.pathname;
   const { config, state: state2, memory, queue, extensionDir: extensionDir2 } = deps;
@@ -89723,6 +89813,7 @@ function handleStatusRoutes(req, res, url, deps) {
       useGeminiCliSessions: config.useGeminiCliSessions,
       allowlistedUsers: config.allowedUserIds.length,
       allowlistedAgents: config.allowedAgentIds.length,
+      configWarnings: sanitizeAllowedUserIds(config, deps.client?.user?.id ?? null).warnings,
       requireMention: config.requireMention,
       channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
       cronJobs: listJobs(),
