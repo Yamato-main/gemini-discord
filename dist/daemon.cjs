@@ -42,6 +42,7 @@ function resolveRuntimePaths(extensionDir2) {
     managedConfigFile: resolveManagedRuntimePath(extensionDir2, "config.json"),
     daemonTokenFile: resolveManagedRuntimePath(extensionDir2, "daemon-token", ".daemon-token"),
     daemonLogFile: resolveManagedRuntimePath(extensionDir2, "daemon.log", "daemon.log"),
+    daemonPortFile: resolveManagedRuntimePath(extensionDir2, "daemon.port", ".daemon-port"),
     memoryFile: resolveManagedRuntimePath(extensionDir2, "memory.json", ".memory.json"),
     memoryTmpFile: resolveManagedRuntimePath(extensionDir2, "memory.json.tmp", ".memory.json.tmp"),
     cronFile: resolveManagedRuntimePath(extensionDir2, "cron.json", ".cron.json"),
@@ -2124,7 +2125,7 @@ var require_util = __commonJS({
     var { kDestroyed, kBodyUsed, kListeners, kBody } = require_symbols();
     var { IncomingMessage } = require("node:http");
     var stream = require("node:stream");
-    var net2 = require("node:net");
+    var net = require("node:net");
     var { Blob: Blob2 } = require("node:buffer");
     var nodeUtil = require("node:util");
     var { stringify } = require("node:querystring");
@@ -2269,7 +2270,7 @@ var require_util = __commonJS({
       }
       assert(typeof host === "string");
       const servername = getHostname(host);
-      if (net2.isIP(servername)) {
+      if (net.isIP(servername)) {
         return "";
       }
       return servername;
@@ -3591,7 +3592,7 @@ var require_timers = __commonJS({
 var require_connect = __commonJS({
   "node_modules/undici/lib/core/connect.js"(exports2, module2) {
     "use strict";
-    var net2 = require("node:net");
+    var net = require("node:net");
     var assert = require("node:assert");
     var util = require_util();
     var { InvalidArgumentError, ConnectTimeoutError } = require_errors();
@@ -3687,7 +3688,7 @@ var require_connect = __commonJS({
         } else {
           assert(!httpSocket, "httpSocket can only be sent on TLS update");
           port = port || 80;
-          socket = net2.connect({
+          socket = net.connect({
             highWaterMark: 64 * 1024,
             // Same as nodejs fs streams.
             ...options,
@@ -8557,7 +8558,7 @@ var require_client = __commonJS({
   "node_modules/undici/lib/dispatcher/client.js"(exports2, module2) {
     "use strict";
     var assert = require("node:assert");
-    var net2 = require("node:net");
+    var net = require("node:net");
     var http2 = require("node:http");
     var util = require_util();
     var { channels } = require_diagnostics();
@@ -8705,7 +8706,7 @@ var require_client = __commonJS({
         if (maxRequestsPerClient != null && (!Number.isInteger(maxRequestsPerClient) || maxRequestsPerClient < 0)) {
           throw new InvalidArgumentError("maxRequestsPerClient must be a positive number");
         }
-        if (localAddress != null && (typeof localAddress !== "string" || net2.isIP(localAddress) === 0)) {
+        if (localAddress != null && (typeof localAddress !== "string" || net.isIP(localAddress) === 0)) {
           throw new InvalidArgumentError("localAddress must be valid string IP address");
         }
         if (maxResponseSize != null && (!Number.isInteger(maxResponseSize) || maxResponseSize < -1)) {
@@ -8869,7 +8870,7 @@ var require_client = __commonJS({
         const idx = hostname.indexOf("]");
         assert(idx !== -1);
         const ip = hostname.substring(1, idx);
-        assert(net2.isIP(ip));
+        assert(net.isIP(ip));
         hostname = ip;
       }
       client[kConnecting] = true;
@@ -36300,7 +36301,7 @@ var require_DataResolver = __commonJS({
   "node_modules/discord.js/src/util/DataResolver.js"(exports2, module2) {
     "use strict";
     var { Buffer: Buffer2 } = require("node:buffer");
-    var fs11 = require("node:fs/promises");
+    var fs12 = require("node:fs/promises");
     var path13 = require("node:path");
     var { fetch: fetch2 } = require_undici();
     var { DiscordjsError: DiscordjsError2, DiscordjsTypeError: DiscordjsTypeError2, ErrorCodes: ErrorCodes2 } = require_errors2();
@@ -36328,9 +36329,9 @@ var require_DataResolver = __commonJS({
           return { data: Buffer2.from(await res.arrayBuffer()), contentType: res.headers.get("content-type") };
         }
         const file = path13.resolve(resource);
-        const stats = await fs11.stat(file);
+        const stats = await fs12.stat(file);
         if (!stats.isFile()) throw new DiscordjsError2(ErrorCodes2.FileNotFound, file);
-        return { data: await fs11.readFile(file) };
+        return { data: await fs12.readFile(file) };
       }
       throw new DiscordjsTypeError2(ErrorCodes2.ReqResourceType);
     }
@@ -63500,7 +63501,7 @@ var require_websocket2 = __commonJS({
     var EventEmitter = require("events");
     var https = require("https");
     var http2 = require("http");
-    var net2 = require("net");
+    var net = require("net");
     var tls = require("tls");
     var { randomBytes: randomBytes2, createHash } = require("crypto");
     var { Duplex, Readable } = require("stream");
@@ -64234,12 +64235,12 @@ var require_websocket2 = __commonJS({
     }
     function netConnect(options) {
       options.path = options.socketPath;
-      return net2.connect(options);
+      return net.connect(options);
     }
     function tlsConnect(options) {
       options.path = void 0;
       if (!options.servername && options.servername !== "") {
-        options.servername = net2.isIP(options.host) ? "" : options.host;
+        options.servername = net.isIP(options.host) ? "" : options.host;
       }
       return tls.connect(options);
     }
@@ -75276,7 +75277,7 @@ var require_ShardingManager = __commonJS({
   "node_modules/discord.js/src/sharding/ShardingManager.js"(exports2, module2) {
     "use strict";
     var EventEmitter = require("node:events");
-    var fs11 = require("node:fs");
+    var fs12 = require("node:fs");
     var path13 = require("node:path");
     var process2 = require("node:process");
     var { setTimeout: sleep2 } = require("node:timers/promises");
@@ -75323,7 +75324,7 @@ var require_ShardingManager = __commonJS({
         this.file = file;
         if (!file) throw new DiscordjsError2(ErrorCodes2.ClientInvalidOption, "File", "specified.");
         if (!path13.isAbsolute(file)) this.file = path13.resolve(process2.cwd(), file);
-        const stats = fs11.statSync(this.file);
+        const stats = fs12.statSync(this.file);
         if (!stats.isFile()) throw new DiscordjsError2(ErrorCodes2.ClientInvalidOption, "File", "a file");
         this.shardList = _options.shardList ?? "auto";
         if (this.shardList !== "auto") {
@@ -87190,7 +87191,7 @@ async function downloadSupportedAttachments(message, attachmentsRootDir, geminiP
     return [];
   }
   const targetDir = path10.join(attachmentsRootDir, sanitizeFilename(message.id));
-  await fs10.mkdir(targetDir, { recursive: true });
+  await fs11.mkdir(targetDir, { recursive: true });
   const downloads = attachments.map(async (attachment, index) => {
     try {
       const response = await fetch(attachment.url);
@@ -87200,7 +87201,7 @@ async function downloadSupportedAttachments(message, attachmentsRootDir, geminiP
       const buffer = Buffer.from(await response.arrayBuffer());
       const safeName = sanitizeFilename(attachment.name || `${attachment.kind}-${index + 1}.bin`);
       const localPath = path10.join(targetDir, `${index + 1}-${safeName}`);
-      await fs10.writeFile(localPath, buffer);
+      await fs11.writeFile(localPath, buffer);
       const relativePath = path10.relative(geminiProjectDir, localPath);
       const metadata = toConversationAttachment({
         ...attachment,
@@ -87228,7 +87229,7 @@ async function downloadSupportedAttachments(message, attachmentsRootDir, geminiP
     (item) => item !== null
   );
   if (downloaded.length === 0) {
-    await fs10.rm(targetDir, { recursive: true, force: true }).catch(() => {
+    await fs11.rm(targetDir, { recursive: true, force: true }).catch(() => {
     });
   }
   return downloaded;
@@ -87354,11 +87355,11 @@ function toConversationAttachment(attachment) {
 function sanitizeFilename(filename) {
   return filename.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
-var fs10, path10, MAX_SUPPORTED_ATTACHMENTS, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MAX_AUDIO_BYTES, MAX_PDF_BYTES, MAX_TEXT_BYTES, MAX_INLINE_ATTACHMENT_BYTES, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, PDF_EXTENSIONS, TEXT_EXTENSIONS;
+var fs11, path10, MAX_SUPPORTED_ATTACHMENTS, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MAX_AUDIO_BYTES, MAX_PDF_BYTES, MAX_TEXT_BYTES, MAX_INLINE_ATTACHMENT_BYTES, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, PDF_EXTENSIONS, TEXT_EXTENSIONS;
 var init_attachments = __esm({
   "src/daemon/attachments.ts"() {
     "use strict";
-    fs10 = __toESM(require("node:fs/promises"), 1);
+    fs11 = __toESM(require("node:fs/promises"), 1);
     path10 = __toESM(require("node:path"), 1);
     init_log();
     MAX_SUPPORTED_ATTACHMENTS = 4;
@@ -89262,7 +89263,6 @@ var init_gateway = __esm({
 init_config();
 
 // src/daemon/preflight.ts
-var net = __toESM(require("node:net"), 1);
 var import_node_child_process = require("node:child_process");
 init_log();
 init_config();
@@ -89312,12 +89312,6 @@ async function runPreflight(extensionDir2) {
     log.error("Install and authenticate Gemini CLI before using gemini-discord.");
     process.exit(1);
   }
-  const port = parseInt(envVars[ENV.DAEMON_PORT] ?? "18790", 10);
-  const portInUse = await checkPortInUse(port);
-  if (portInUse) {
-    log.error("Port in use. Is the daemon already running?", { port });
-    process.exit(1);
-  }
   let geminiVersion = "unknown";
   try {
     const versionOut = (0, import_node_child_process.execSync)(`${shellEscape(geminiPath)} --version 2>/dev/null || true`, {
@@ -89330,32 +89324,8 @@ async function runPreflight(extensionDir2) {
   } catch {
     log.warn("Could not determine gemini CLI version");
   }
-  log.info("Preflight complete", { checks: 8, geminiReachable: true });
+  log.info("Preflight complete", { checks: 7, geminiReachable: true });
   return { geminiReachable: true, geminiVersion };
-}
-function checkPortInUse(port) {
-  return new Promise((resolve2) => {
-    const socket = net.createConnection({ host: "127.0.0.1", port });
-    let settled = false;
-    const finish = (inUse) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      socket.destroy();
-      resolve2(inUse);
-    };
-    socket.setTimeout(750);
-    socket.once("connect", () => finish(true));
-    socket.once("timeout", () => finish(false));
-    socket.once("error", (error) => {
-      if (error.code === "ECONNREFUSED" || error.code === "EPERM" || error.code === "EACCES") {
-        finish(false);
-        return;
-      }
-      finish(true);
-    });
-  });
 }
 function shellEscape(value) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -89444,6 +89414,7 @@ function normalizeKeys(input) {
 
 // src/daemon/api.ts
 var http = __toESM(require("node:http"), 1);
+var fs9 = __toESM(require("node:fs"), 1);
 init_log();
 init_session_reset();
 init_dm_pairing();
@@ -90051,6 +90022,14 @@ init_cron();
 init_channels();
 async function handleCronRoutes(req, res, pathname, parsed, deps) {
   const { config } = deps;
+  if (req.method === "GET" && pathname === "/cron") {
+    if (!authorizeApiAction(req, res, config, "cron")) return true;
+    respond(res, 200, { jobs: listJobs() });
+    return true;
+  }
+  if (req.method !== "POST" || parsed === null) {
+    return false;
+  }
   if (pathname === "/cron") {
     if (!authorizeApiAction(req, res, config, "cron")) return true;
     const cronExpression = String(parsed["cron_expression"] ?? "");
@@ -90243,6 +90222,7 @@ async function handleModerationRoutes(req, res, pathname, parsed, deps) {
 }
 
 // src/daemon/api.ts
+init_runtime_paths();
 function startControlApi(deps) {
   const { config, memory, extensionDir: extensionDir2, isShuttingDown, shutdown } = deps;
   const server = http.createServer(async (req, res) => {
@@ -90251,7 +90231,9 @@ function startControlApi(deps) {
         respond(res, 503, { error: "shutting down" });
         return;
       }
-      const url = new URL(req.url ?? "/", `http://localhost:${config.daemonPort}`);
+      const address = server.address();
+      const currentPort = typeof address === "string" ? config.daemonPort : address?.port ?? config.daemonPort;
+      const url = new URL(req.url ?? "/", `http://localhost:${currentPort}`);
       const pathname = url.pathname;
       if (req.method === "GET" && pathname === "/health") {
         respond(res, 200, { ok: true });
@@ -90269,6 +90251,7 @@ function startControlApi(deps) {
       }
       if (handleStatusRoutes(req, res, url, deps)) return;
       if (await handleDiscoveryRoutes(req, res, url, deps)) return;
+      if (await handleCronRoutes(req, res, pathname, null, deps)) return;
       if (req.method === "POST") {
         if (!requireAuth(req, config)) {
           respond(res, 401, { error: "Unauthorized" });
@@ -90311,9 +90294,34 @@ function startControlApi(deps) {
       respond(res, 500, { error: "Internal server error" });
     }
   });
-  server.listen(config.daemonPort, "127.0.0.1", () => {
-    log.info("Control API listening", { port: config.daemonPort, host: "127.0.0.1" });
-  });
+  const tryListen = (port, retryCount = 0) => {
+    server.listen(port, "127.0.0.1", () => {
+      const addr = server.address();
+      const actualPort = typeof addr === "string" ? port : addr?.port ?? port;
+      log.info("Control API listening", { port: actualPort, host: "127.0.0.1" });
+      config.daemonPort = actualPort;
+      try {
+        const portPath = ensureRuntimePaths(extensionDir2).daemonPortFile;
+        fs9.writeFileSync(portPath, String(actualPort), "utf-8");
+      } catch (e) {
+        log.warn("Failed to write daemon port discovery file", { error: String(e) });
+      }
+    });
+    server.once("error", (err) => {
+      if (err.code === "EADDRINUSE") {
+        if (retryCount < 10) {
+          log.info(`Port ${port} in use, trying next...`);
+          tryListen(port + 1, retryCount + 1);
+        } else {
+          log.info("Many ports in use, falling back to system-assigned random port");
+          tryListen(0);
+        }
+      } else {
+        log.error("Control API listen error", { error: err.message });
+      }
+    });
+  };
+  tryListen(config.daemonPort);
   return server;
 }
 
@@ -91181,7 +91189,7 @@ init_cron();
 init_binding();
 
 // src/daemon/attachment-cleanup.ts
-var fs9 = __toESM(require("node:fs/promises"), 1);
+var fs10 = __toESM(require("node:fs/promises"), 1);
 var path9 = __toESM(require("node:path"), 1);
 init_log();
 var DEFAULT_TMP_ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1e3;
@@ -91193,7 +91201,7 @@ async function cleanupStaleTmpAttachments(extensionDir2, options = {}) {
   const cutoffMs = nowMs - ttlMs;
   let entries;
   try {
-    entries = await fs9.readdir(root, { withFileTypes: true });
+    entries = await fs10.readdir(root, { withFileTypes: true });
   } catch (err) {
     if (err.code === "ENOENT") {
       return { checked: 0, removed: 0, root };
@@ -91207,14 +91215,14 @@ async function cleanupStaleTmpAttachments(extensionDir2, options = {}) {
     checked++;
     let stat3;
     try {
-      stat3 = await fs9.stat(target);
+      stat3 = await fs10.stat(target);
     } catch {
       continue;
     }
     if (stat3.mtimeMs > cutoffMs) {
       continue;
     }
-    await fs9.rm(target, { recursive: true, force: true });
+    await fs10.rm(target, { recursive: true, force: true });
     removed++;
   }
   return { checked, removed, root };

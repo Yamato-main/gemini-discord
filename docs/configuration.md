@@ -31,7 +31,7 @@ These are auto-derived from the core settings above unless explicitly overridden
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DAEMON_PORT` | `18790` | Localhost port for the daemon control API. |
+| `DAEMON_PORT` | `18790` | Preferred localhost port for the daemon control API. If the port is occupied, the daemon automatically binds the next available port and writes it to `.gemini-discord/daemon.port` for MCP tools to discover. |
 | `GEMINI_PATH` | `gemini` | Command or path to the Gemini CLI executable. |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | The Gemini model to use for conversations. |
 | `GEMINI_TIMEOUT_MS` | `900000` | Network timeout (ms) for Gemini CLI calls. |

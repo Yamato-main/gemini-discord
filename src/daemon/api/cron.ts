@@ -1,5 +1,5 @@
 import * as http from 'node:http';
-import { scheduleJob, scheduleReminder, deleteJob } from '../cron.js';
+import { scheduleJob, scheduleReminder, deleteJob, listJobs } from '../cron.js';
 import { resolveDiscoveredChannel } from '../channels.js';
 import {
   respond,
@@ -13,10 +13,20 @@ export async function handleCronRoutes(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   pathname: string,
-  parsed: Record<string, unknown>,
+  parsed: Record<string, unknown> | null,
   deps: ApiDependencies,
 ): Promise<boolean> {
   const { config } = deps;
+
+  if (req.method === 'GET' && pathname === '/cron') {
+    if (!authorizeApiAction(req, res, config, 'cron')) return true;
+    respond(res, 200, { jobs: listJobs() });
+    return true;
+  }
+
+  if (req.method !== 'POST' || parsed === null) {
+    return false;
+  }
 
   if (pathname === '/cron') {
     if (!authorizeApiAction(req, res, config, 'cron')) return true;

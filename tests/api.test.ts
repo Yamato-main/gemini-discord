@@ -20,6 +20,65 @@ describe('resolveSendChannelId', () => {
 });
 
 describe('control API Discord role gates', () => {
+  it('persists the actual listening port for clients to discover', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-port-'));
+    const config = createConfig({ daemonPort: 0 });
+    const server = startControlApi({
+      config,
+      state: createState(),
+      memory: {} as any,
+      queue: { depth: () => 0 } as any,
+      extensionDir: tmpDir,
+      client: null,
+      isShuttingDown: () => false,
+      shutdown: async () => {},
+    });
+
+    try {
+      await once(server, 'listening');
+      const port = (server.address() as AddressInfo).port;
+      const portPath = resolveRuntimePaths(tmpDir).daemonPortFile;
+
+      expect(config.daemonPort).toBe(port);
+      expect(fs.readFileSync(portPath, 'utf-8')).toBe(String(port));
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('lists cron jobs through the authenticated control API', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-cron-'));
+    const config = createConfig({
+      daemonPort: 0,
+      discordBossUserId: '111111111111111111',
+    });
+    const server = startControlApi({
+      config,
+      state: createState(),
+      memory: {} as any,
+      queue: { depth: () => 0 } as any,
+      extensionDir: tmpDir,
+      client: null,
+      isShuttingDown: () => false,
+      shutdown: async () => {},
+    });
+
+    try {
+      await once(server, 'listening');
+      const port = (server.address() as AddressInfo).port;
+      const response = await fetch(`http://127.0.0.1:${port}/cron`, {
+        headers: bossHeaders(config.daemonApiToken),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ jobs: expect.any(Array) });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('does not expose status without re-resolvable Discord role context', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-permissions-'));
     const config = createConfig({ daemonPort: 0 });

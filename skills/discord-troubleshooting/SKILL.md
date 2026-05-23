@@ -18,7 +18,7 @@ Start by checking if the daemon is running and what its current status is:
 2. Look for the last startup sequence and any errors, specifically gateway close codes or startup failures:
    - **4014 (Disallowed Intents)**: The bot is requesting privileged intents (Message Content and/or Server Members) that are not enabled in the Discord Developer Portal.
    - **4004 (Invalid Token)**: The configured `DISCORD_BOT_TOKEN` is invalid or expired.
-   - **Port in use**: The daemon fails to start with `❌ ERROR Port in use. Is the daemon already running?`.
+   - **Port in use**: The daemon logs `Port <number> in use, trying next...` or older installs fail with `❌ ERROR Port in use. Is the daemon already running?`.
    - **ECONNREFUSED**: The daemon control API server is not running or unreachable on its configured port.
 
 ### 2. Resolve Intent Issues (4014 / Disallowed Intents)
@@ -44,11 +44,12 @@ If the Message Content Intent itself is missing, the bot *cannot* connect and yo
 
 ### 3. Resolve Port Conflicts
 
-If you identify a "Port in use" error:
-1. Check if another instance is already running using `ps -ef | grep node`.
-2. If another user's process is blocking the port and cannot be killed, change the `DAEMON_PORT` in `.env` and `.gemini-discord/config.json`.
-3. If the bot is used as an MCP server, also update the `DAEMON_PORT` in the `env` section of `gemini-extension.json`.
-4. Restart the daemon.
+If you identify a port conflict:
+1. Read `.gemini-discord/daemon.log` and check whether the daemon recovered with `Control API listening` on a later port.
+2. Read `.gemini-discord/daemon.port` to find the active control API port used by MCP tools.
+3. If the bot is connected but MCP tools still report `daemon_offline`, restart the Gemini CLI session so the MCP server reloads runtime state.
+4. For older installs that still exit on port conflicts, check if another instance is already running with `ps -ef | grep node`.
+5. Only change `DAEMON_PORT` in `.env` and `.gemini-discord/config.json` if the user needs a stable preferred port. Do not edit `gemini-extension.json` for routine conflicts now that MCP clients discover `.gemini-discord/daemon.port`.
 
 ### 4. Resolve Token Issues (4004 / Invalid Token)
 

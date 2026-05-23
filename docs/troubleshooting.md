@@ -6,6 +6,16 @@ Use this page when `gemini-discord` does not come online after setup.
 
 Check `.gemini-discord/daemon.log` in the extension installation directory.
 
+## Port Conflicts
+
+The daemon treats `DAEMON_PORT` as a preferred port, not a hard requirement. If the configured port is already occupied, it tries subsequent ports and records the active port in `.gemini-discord/daemon.port` so MCP tools can reconnect automatically.
+
+Fix:
+1. Read `.gemini-discord/daemon.log` and look for `Port <number> in use, trying next...` followed by `Control API listening`.
+2. Check `.gemini-discord/daemon.port` to confirm the active control API port.
+3. If MCP tools still report the daemon as offline, restart Gemini CLI so the extension process reloads runtime state.
+4. Only change `DAEMON_PORT` manually if you need a stable preferred port; do not edit `gemini-extension.json` for routine conflicts.
+
 ## Disallowed Intents (4014)
 
 Discord closes the gateway with code `4014` when the bot requests privileged intents that are not enabled in the Discord Developer Portal.

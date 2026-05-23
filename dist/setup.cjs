@@ -58,6 +58,7 @@ function resolveRuntimePaths(extensionDir) {
     managedConfigFile: resolveManagedRuntimePath(extensionDir, "config.json"),
     daemonTokenFile: resolveManagedRuntimePath(extensionDir, "daemon-token", ".daemon-token"),
     daemonLogFile: resolveManagedRuntimePath(extensionDir, "daemon.log", "daemon.log"),
+    daemonPortFile: resolveManagedRuntimePath(extensionDir, "daemon.port", ".daemon-port"),
     memoryFile: resolveManagedRuntimePath(extensionDir, "memory.json", ".memory.json"),
     memoryTmpFile: resolveManagedRuntimePath(extensionDir, "memory.json.tmp", ".memory.json.tmp"),
     cronFile: resolveManagedRuntimePath(extensionDir, "cron.json", ".cron.json"),
@@ -477,8 +478,23 @@ var import_node_child_process = require("node:child_process");
 var startupPromise = null;
 var HEALTH_POLL_MS = 500;
 var STOP_TIMEOUT_MS = 45e3;
+async function resolveActivePort(config, extensionDir) {
+  try {
+    const portPath = resolveRuntimePaths(extensionDir).daemonPortFile;
+    if (fs4.existsSync(portPath)) {
+      const content = fs4.readFileSync(portPath, "utf-8").trim();
+      const port = parseInt(content, 10);
+      if (Number.isInteger(port) && port > 0 && port <= 65535 && String(port) === content) {
+        return port;
+      }
+    }
+  } catch {
+  }
+  return config.daemonPort;
+}
 async function ensureDaemonRunning(config, extensionDir) {
-  if (await isDaemonHealthy(config.daemonPort)) {
+  const activePort = await resolveActivePort(config, extensionDir);
+  if (await isDaemonHealthy(activePort)) {
     return;
   }
   if (startupPromise) {
@@ -489,15 +505,16 @@ async function ensureDaemonRunning(config, extensionDir) {
   });
   return startupPromise;
 }
-async function shutdownDaemon(config) {
-  if (!await isDaemonHealthy(config.daemonPort)) {
+async function shutdownDaemon(config, extensionDir) {
+  const activePort = await resolveActivePort(config, extensionDir);
+  if (!await isDaemonHealthy(activePort)) {
     return;
   }
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
         hostname: "127.0.0.1",
-        port: config.daemonPort,
+        port: activePort,
         path: "/shutdown",
         method: "POST",
         headers: {
@@ -521,18 +538,20 @@ async function shutdownDaemon(config) {
 async function restartDaemon(config, extensionDir, options = {}) {
   const pollIntervalMs = options.pollIntervalMs ?? HEALTH_POLL_MS;
   const stopTimeoutMs = options.stopTimeoutMs ?? STOP_TIMEOUT_MS;
-  const wasHealthy = await isDaemonHealthy(config.daemonPort);
-  const previousStartedAt = wasHealthy ? await getDaemonStartedAt(config) : null;
+  const activePortBefore = await resolveActivePort(config, extensionDir);
+  const wasHealthy = await isDaemonHealthy(activePortBefore);
+  const previousStartedAt = wasHealthy ? await getDaemonStartedAt(config, activePortBefore) : null;
   if (wasHealthy) {
-    await shutdownDaemon(config);
-    const stopped = await waitForHealthState(config.daemonPort, false, stopTimeoutMs, pollIntervalMs);
+    await shutdownDaemon(config, extensionDir);
+    const stopped = await waitForHealthState(activePortBefore, false, stopTimeoutMs, pollIntervalMs);
     if (!stopped) {
       throw new Error("daemon_failed_to_stop");
     }
   }
   await ensureDaemonRunning(config, extensionDir);
   if (wasHealthy && previousStartedAt) {
-    const restarted = await waitForNewStartTime(config, previousStartedAt, stopTimeoutMs, pollIntervalMs);
+    const activePortAfter = await resolveActivePort(config, extensionDir);
+    const restarted = await waitForNewStartTime(config, activePortAfter, previousStartedAt, stopTimeoutMs, pollIntervalMs);
     if (!restarted) {
       throw new Error("daemon_restart_not_observed");
     }
@@ -573,13 +592,21 @@ async function startDaemonProcess(config, extensionDir) {
     env: { ...process.env }
   });
   child.unref();
-  const started = await waitForHealth(config.daemonPort, 15e4);
+  const started = await waitForHealthAfterStart(config, extensionDir, 15e3);
   if (!started) {
     throw new Error("daemon_failed_to_start");
   }
 }
-async function waitForHealth(port, timeoutMs) {
-  return waitForHealthState(port, true, timeoutMs, HEALTH_POLL_MS);
+async function waitForHealthAfterStart(config, extensionDir, timeoutMs) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const activePort = await resolveActivePort(config, extensionDir);
+    if (await isDaemonHealthy(activePort)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, HEALTH_POLL_MS));
+  }
+  return false;
 }
 async function waitForHealthState(port, shouldBeHealthy, timeoutMs, pollIntervalMs) {
   const startedAt = Date.now();
@@ -591,12 +618,12 @@ async function waitForHealthState(port, shouldBeHealthy, timeoutMs, pollInterval
   }
   return false;
 }
-async function getDaemonStartedAt(config) {
+async function getDaemonStartedAt(config, port) {
   return new Promise((resolve) => {
     const req = http.request(
       {
         hostname: "127.0.0.1",
-        port: config.daemonPort,
+        port,
         path: "/status",
         method: "GET",
         timeout: 2e3
@@ -626,10 +653,10 @@ async function getDaemonStartedAt(config) {
     req.end();
   });
 }
-async function waitForNewStartTime(config, previousStartedAt, timeoutMs, pollIntervalMs) {
+async function waitForNewStartTime(config, port, previousStartedAt, timeoutMs, pollIntervalMs) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const currentStartedAt = await getDaemonStartedAt(config);
+    const currentStartedAt = await getDaemonStartedAt(config, port);
     if (currentStartedAt && currentStartedAt !== previousStartedAt) {
       return true;
     }

@@ -20,7 +20,7 @@ export async function resolveActivePort(config: Config, extensionDir: string): P
     if (fs.existsSync(portPath)) {
       const content = fs.readFileSync(portPath, 'utf-8').trim();
       const port = parseInt(content, 10);
-      if (Number.isFinite(port) && port > 0) {
+      if (Number.isInteger(port) && port > 0 && port <= 65535 && String(port) === content) {
         return port;
       }
     }

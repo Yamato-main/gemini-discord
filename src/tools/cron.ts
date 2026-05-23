@@ -5,7 +5,6 @@ import { daemonRequest } from './client.js';
 import {
   authorizeMcpToolAction,
   formatPermissionDenial,
-  resolveMcpRoleContextFromEnv,
 } from '../daemon/permissions.js';
 import {
   clearPendingDelivery,
@@ -37,25 +36,13 @@ export function registerCronTools(server: McpServer, config: Config) {
       }
 
       if (action === 'list') {
-        const roleContext = resolveMcpRoleContextFromEnv(process.env, config);
-        const resp = await fetch(`http://127.0.0.1:${config.daemonPort}/cron`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${config.daemonApiToken}`,
-            ...(roleContext ? {
-              'X-Gemini-Discord-Role': roleContext.role,
-              'X-Gemini-Discord-Sender-Id': roleContext.senderDiscordId,
-              'X-Gemini-Discord-Sender-Label': roleContext.senderDisplayLabel,
-            } : {}),
-          },
-        });
+        const resp = await daemonRequest({ method: 'GET', path: '/cron', config });
 
         if (!resp.ok) {
           return { content: [{ type: 'text', text: 'Failed to fetch cron jobs' }], isError: true };
         }
 
-        const data = await resp.json();
-        const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+        const jobs = Array.isArray(resp.data.jobs) ? resp.data.jobs : [];
         if (jobs.length === 0) {
           return { content: [{ type: 'text', text: 'No cron jobs are currently scheduled.' }] };
         }

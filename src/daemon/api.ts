@@ -9,6 +9,7 @@ import type {
   Config,
 } from '../shared/types.js';
 import { log } from './log.js';
+import { resetConversationSession } from './session-reset.js';
 import { resolveDmUserIdForChannel } from './dm-pairing.js';
 import {
   respond,
@@ -23,7 +24,7 @@ import { handleDiscoveryRoutes } from './api/discovery.js';
 import { handleMessageRoutes } from './api/messages.js';
 import { handleCronRoutes } from './api/cron.js';
 import { handleModerationRoutes } from './api/moderation.js';
-import { resolveRuntimePaths } from '../shared/runtime-paths.js';
+import { ensureRuntimePaths } from '../shared/runtime-paths.js';
 
 export {
   respond,
@@ -72,6 +73,7 @@ export function startControlApi(deps: ApiDependencies): http.Server {
 
       if (handleStatusRoutes(req, res, url, deps)) return;
       if (await handleDiscoveryRoutes(req, res, url, deps)) return;
+      if (await handleCronRoutes(req, res, pathname, null, deps)) return;
 
       if (req.method === 'POST') {
         if (!requireAuth(req, config)) {
@@ -129,12 +131,10 @@ export function startControlApi(deps: ApiDependencies): http.Server {
       
       log.info('Control API listening', { port: actualPort, host: '127.0.0.1' });
       
-      // Update config object so other components in daemon know the real port
-      (config as any).daemonPort = actualPort;
+      config.daemonPort = actualPort;
 
-      // Write port to runtime file for discovery by MCP server
       try {
-        const portPath = resolveRuntimePaths(extensionDir).daemonPortFile;
+        const portPath = ensureRuntimePaths(extensionDir).daemonPortFile;
         fs.writeFileSync(portPath, String(actualPort), 'utf-8');
       } catch (e) {
         log.warn('Failed to write daemon port discovery file', { error: String(e) });

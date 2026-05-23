@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { Config } from '../src/shared/types.js';
+import { ensureRuntimePaths } from '../src/shared/runtime-paths.js';
 
 const requestMock = vi.hoisted(() => vi.fn());
 const spawnMock = vi.hoisted(() => vi.fn());
@@ -22,7 +26,7 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
-import { restartDaemon } from '../src/shared/daemon-runtime.js';
+import { resolveActivePort, restartDaemon } from '../src/shared/daemon-runtime.js';
 
 interface FakeDaemonState {
   healthy: boolean;
@@ -129,6 +133,34 @@ describe('restartDaemon', () => {
     ).rejects.toThrow('daemon_failed_to_stop');
 
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveActivePort', () => {
+  it('uses a valid discovered daemon port', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-runtime-'));
+    const paths = ensureRuntimePaths(tmpDir);
+
+    try {
+      fs.writeFileSync(paths.daemonPortFile, '18791');
+
+      await expect(resolveActivePort(config, tmpDir)).resolves.toBe(18791);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to config when the discovered daemon port is invalid', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-runtime-'));
+    const paths = ensureRuntimePaths(tmpDir);
+
+    try {
+      fs.writeFileSync(paths.daemonPortFile, '18791 trailing-data');
+
+      await expect(resolveActivePort(config, tmpDir)).resolves.toBe(config.daemonPort);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 
