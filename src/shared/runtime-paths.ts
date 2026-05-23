@@ -7,6 +7,7 @@ export interface RuntimePaths {
   managedConfigFile: string;
   daemonTokenFile: string;
   daemonLogFile: string;
+  daemonPortFile: string;
   memoryFile: string;
   memoryTmpFile: string;
   cronFile: string;
@@ -22,6 +23,7 @@ export function resolveRuntimePaths(extensionDir: string): RuntimePaths {
     managedConfigFile: resolveManagedRuntimePath(extensionDir, 'config.json'),
     daemonTokenFile: resolveManagedRuntimePath(extensionDir, 'daemon-token', '.daemon-token'),
     daemonLogFile: resolveManagedRuntimePath(extensionDir, 'daemon.log', 'daemon.log'),
+    daemonPortFile: resolveManagedRuntimePath(extensionDir, 'daemon.port', '.daemon-port'),
     memoryFile: resolveManagedRuntimePath(extensionDir, 'memory.json', '.memory.json'),
     memoryTmpFile: resolveManagedRuntimePath(extensionDir, 'memory.json.tmp', '.memory.json.tmp'),
     cronFile: resolveManagedRuntimePath(extensionDir, 'cron.json', '.cron.json'),

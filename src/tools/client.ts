@@ -6,7 +6,7 @@
 import * as http from 'node:http';
 import type { Config } from '../shared/types.js';
 import { resolveExtensionDir } from '../shared/config.js';
-import { ensureDaemonRunning } from '../shared/daemon-runtime.js';
+import { ensureDaemonRunning, resolveActivePort } from '../shared/daemon-runtime.js';
 import { resolveMcpRoleContextFromEnv } from '../daemon/permissions.js';
 
 interface RequestOptions {
@@ -48,13 +48,18 @@ export async function daemonRequest(opts: RequestOptions): Promise<DaemonRespons
 
 async function requestOnce(opts: RequestOptions): Promise<DaemonResponse> {
   const { method, path, config, body, timeoutMs } = opts;
+  let tmpDir = process.cwd();
+  try { tmpDir = __dirname; } catch {}
+  const extensionDir = resolveExtensionDir(tmpDir);
+  const activePort = await resolveActivePort(config, extensionDir);
+
   return new Promise((resolve) => {
     const payload = body ? JSON.stringify(body) : undefined;
 
     const req = http.request(
       {
         hostname: '127.0.0.1',
-        port: config.daemonPort,
+        port: activePort,
         path,
         method,
         headers: {
