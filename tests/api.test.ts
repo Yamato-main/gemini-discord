@@ -368,6 +368,87 @@ describe('control API moderation', () => {
     }
   });
 
+  it('allows removing the bot user from a polluted allowlist', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-remove-bot-'));
+    const botId = '888888888888888888';
+    const client = createModerationClient({ member: { timeout: vi.fn(), kick: vi.fn() } });
+    (client.user as { id: string }).id = botId;
+    const config = createConfig({
+      daemonPort: 0,
+      discordBossUserId: '111111111111111111',
+      allowedUserIds: [botId, '222222222222222222'],
+    });
+    const server = startControlApi({
+      config,
+      state: createState(),
+      memory: {} as any,
+      queue: { depth: () => 0 } as any,
+      extensionDir: tmpDir,
+      client: client as any,
+      isShuttingDown: () => false,
+      shutdown: async () => {},
+    });
+
+    try {
+      await once(server, 'listening');
+      const port = (server.address() as AddressInfo).port;
+      const response = await fetch(`http://127.0.0.1:${port}/allowlist`, {
+        method: 'POST',
+        headers: bossHeaders(config.daemonApiToken),
+        body: JSON.stringify({ action: 'remove', user_id: botId }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, action: 'remove', user_id: botId, count: 1 });
+      expect(config.allowedUserIds).toEqual(['222222222222222222']);
+      expect(readManagedConfigFile(resolveRuntimePaths(tmpDir).managedConfigFile).env.DISCORD_ALLOWED_USER_IDS)
+        .toBe('222222222222222222');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows removing an agent id from a polluted allowlist', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-remove-agent-'));
+    const agentId = '333333333333333333';
+    const config = createConfig({
+      daemonPort: 0,
+      discordBossUserId: '111111111111111111',
+      allowedAgentIds: [agentId],
+      allowedUserIds: [agentId, '222222222222222222'],
+    });
+    const server = startControlApi({
+      config,
+      state: createState(),
+      memory: {} as any,
+      queue: { depth: () => 0 } as any,
+      extensionDir: tmpDir,
+      client: null,
+      isShuttingDown: () => false,
+      shutdown: async () => {},
+    });
+
+    try {
+      await once(server, 'listening');
+      const port = (server.address() as AddressInfo).port;
+      const response = await fetch(`http://127.0.0.1:${port}/allowlist`, {
+        method: 'POST',
+        headers: bossHeaders(config.daemonApiToken),
+        body: JSON.stringify({ action: 'remove', user_id: agentId }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, action: 'remove', user_id: agentId, count: 1 });
+      expect(config.allowedUserIds).toEqual(['222222222222222222']);
+      expect(readManagedConfigFile(resolveRuntimePaths(tmpDir).managedConfigFile).env.DISCORD_ALLOWED_USER_IDS)
+        .toBe('222222222222222222');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('refuses to allowlist a discovered bot member', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-discord-api-allowlist-bot-member-'));
     const botMemberId = '777777777777777777';

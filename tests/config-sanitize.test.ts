@@ -17,6 +17,19 @@ describe('sanitizeAllowedUserIds', () => {
     expect(result.warnings.some((warning) => warning.includes('boss user'))).toBe(true);
   });
 
+  it('removes allowed agent ids from the human guest allowlist', () => {
+    const config = createConfig({
+      allowedAgentIds: ['333333333333333333'],
+      allowedUserIds: ['222222222222222222', '333333333333333333'],
+    });
+
+    const result = sanitizeAllowedUserIds(config, null);
+
+    expect(result.allowedUserIds).toEqual(['222222222222222222']);
+    expect(result.changed).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes('agent/bot user'))).toBe(true);
+  });
+
   it('warns when the boss id matches the bot account', () => {
     const config = createConfig({
       discordBossUserId: '999999999999999999',

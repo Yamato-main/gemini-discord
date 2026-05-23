@@ -35,11 +35,11 @@ export async function handleModerationRoutes(
       });
       return true;
     }
-    if (userId === deps.client?.user?.id) {
+    if (action === 'add' && userId === deps.client?.user?.id) {
       respond(res, 400, { error: 'Refusing to allowlist the bot user. Use user discovery to find a human member instead.' });
       return true;
     }
-    if (config.allowedAgentIds.includes(userId)) {
+    if (action === 'add' && config.allowedAgentIds.includes(userId)) {
       respond(res, 400, { error: 'Refusing to allowlist an agent/bot user ID in the human guest allowlist.' });
       return true;
     }

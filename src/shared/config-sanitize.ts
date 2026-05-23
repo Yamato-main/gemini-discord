@@ -25,6 +25,9 @@ export function sanitizeAllowedUserIds(
   if (boss.valid) {
     drop.add(boss.bossUserId);
   }
+  for (const id of config.allowedAgentIds) {
+    drop.add(id);
+  }
 
   const before = config.allowedUserIds;
   const allowedUserIds = before.filter((id) => {
@@ -38,6 +41,10 @@ export function sanitizeAllowedUserIds(
     } else if (boss.valid && id === boss.bossUserId) {
       warnings.push(
         `Removed boss user ${id} from DISCORD_ALLOWED_USER_IDS. Boss authority comes from DISCORD_BOSS_USER_ID, not the guest allowlist.`,
+      );
+    } else if (config.allowedAgentIds.includes(id)) {
+      warnings.push(
+        `Removed agent/bot user ${id} from DISCORD_ALLOWED_USER_IDS. Agent identities belong in DISCORD_ALLOWED_AGENT_IDS, not the human guest allowlist.`,
       );
     }
     return false;
