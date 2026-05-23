@@ -1,11 +1,11 @@
 ---
 name: discord-troubleshooting
-description: Troubleshoots and resolves gemini-discord bot connection and gateway issues (e.g. fatal disconnects with code 4014 or 4004). Ensures the bot gets online and operational by running loops to verify success.
+description: Troubleshoots and resolves gemini-discord bot connection, gateway issues (e.g. fatal disconnects 4014, 4004), and port conflicts. Ensures the bot gets online and operational by running loops to verify success.
 ---
 
 ## Core Concepts
 
-When the `gemini-discord` extension is installed, the bot might fail to connect due to missing Discord Developer Portal settings or an invalid bot token.
+When the `gemini-discord` extension is installed, the bot might fail to connect due to missing Discord Developer Portal settings, an invalid bot token, or local networking conflicts.
 
 This skill provides a systematic diagnosis and resolution flow to ensure the bot is successfully connected and online.
 
@@ -15,9 +15,10 @@ This skill provides a systematic diagnosis and resolution flow to ensure the bot
 
 Start by checking if the daemon is running and what its current status is:
 1. Read the daemon log file at `.gemini-discord/daemon.log` (relative to the extension installation directory).
-2. Look for the last startup sequence and any errors, specifically gateway close codes:
+2. Look for the last startup sequence and any errors, specifically gateway close codes or startup failures:
    - **4014 (Disallowed Intents)**: The bot is requesting privileged intents (Message Content and/or Server Members) that are not enabled in the Discord Developer Portal.
    - **4004 (Invalid Token)**: The configured `DISCORD_BOT_TOKEN` is invalid or expired.
+   - **Port in use**: The daemon fails to start with `❌ ERROR Port in use. Is the daemon already running?`.
    - **ECONNREFUSED**: The daemon control API server is not running or unreachable on its configured port.
 
 ### 2. Resolve Intent Issues (4014 / Disallowed Intents)
@@ -41,14 +42,22 @@ If the Message Content Intent itself is missing, the bot *cannot* connect and yo
 4. Toggle on **Message Content Intent** (Mandatory) and **Server Members Intent** (Optional but enabled by default in configuration).
 5. Save changes.
 
-### 3. Resolve Token Issues (4004 / Invalid Token)
+### 3. Resolve Port Conflicts
+
+If you identify a "Port in use" error:
+1. Check if another instance is already running using `ps -ef | grep node`.
+2. If another user's process is blocking the port and cannot be killed, change the `DAEMON_PORT` in `.env` and `.gemini-discord/config.json`.
+3. If the bot is used as an MCP server, also update the `DAEMON_PORT` in the `env` section of `gemini-extension.json`.
+4. Restart the daemon.
+
+### 4. Resolve Token Issues (4004 / Invalid Token)
 
 If you identify a 4004 disconnect code:
 1. Ask the user to verify their bot token or generate a new one in the **Bot** tab of their developer portal application.
 2. Update the `DISCORD_BOT_TOKEN` variable in the `.env` file with the correct token.
 3. Restart the daemon.
 
-### 4. Verification Loop (Crucial)
+### 5. Verification Loop (Crucial)
 
 **IMPORTANT: Do not assume the bot works after making changes. Loop and check status until verified.**
 
@@ -59,4 +68,4 @@ Execute this loop:
    ```
 2. Set a 5-second timer or reminder, then read the trailing 50 lines of `.gemini-discord/daemon.log`.
 3. Check if the log shows `Discord bot connected` or `Daemon ready`.
-4. If it still fails with a fatal gateway code, identify the new failure and repeat the diagnostic/resolution flow. Do not stop until the connection successfully establishes or is blocked awaiting user portal updates.
+4. If it still fails with a fatal gateway code or port error, identify the new failure and repeat the diagnostic/resolution flow. Do not stop until the connection successfully establishes or is blocked awaiting user portal updates.
