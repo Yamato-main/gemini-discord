@@ -12,13 +12,13 @@ export interface ConfigSanitizeResult {
  */
 export function sanitizeAllowedUserIds(
   config: Config,
-  botUserId: string | null | undefined,
+  bridgeAdminUserId: string | null | undefined,
 ): ConfigSanitizeResult {
   const warnings: string[] = [];
   const drop = new Set<string>();
 
-  if (botUserId?.trim()) {
-    drop.add(botUserId.trim());
+  if (bridgeAdminUserId?.trim()) {
+    drop.add(bridgeAdminUserId.trim());
   }
 
   const boss = validateBossConfig(config);
@@ -34,9 +34,9 @@ export function sanitizeAllowedUserIds(
     if (!drop.has(id)) {
       return true;
     }
-    if (botUserId && id === botUserId) {
+    if (bridgeAdminUserId && id === bridgeAdminUserId) {
       warnings.push(
-        `Removed bot user ${id} from DISCORD_ALLOWED_USER_IDS. The guest allowlist is for humans only; the bot must never be allowlisted.`,
+        `Removed bridge admin ${id} from DISCORD_ALLOWED_USER_IDS. The guest allowlist is for humans only; the bridge admin/service principal must never be allowlisted.`,
       );
     } else if (boss.valid && id === boss.bossUserId) {
       warnings.push(
@@ -50,9 +50,9 @@ export function sanitizeAllowedUserIds(
     return false;
   });
 
-  if (boss.valid && botUserId && boss.bossUserId === botUserId) {
+  if (boss.valid && bridgeAdminUserId && boss.bossUserId === bridgeAdminUserId) {
     warnings.push(
-      'DISCORD_BOSS_USER_ID matches the bot account. Set it to the human operator\'s numeric Discord user ID or privileged actions will fail.',
+      'DISCORD_BOSS_USER_ID matches the bridge admin account. Set it to the human operator\'s numeric Discord user ID or privileged actions will fail.',
     );
   }
 

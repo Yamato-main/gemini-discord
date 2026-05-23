@@ -35,29 +35,9 @@ export async function handleModerationRoutes(
       });
       return true;
     }
-    if (action === 'add' && userId === deps.client?.user?.id) {
-      respond(res, 400, { error: 'Refusing to allowlist the bot user. Use user discovery to find a human member instead.' });
-      return true;
-    }
-    if (action === 'add' && config.allowedAgentIds.includes(userId)) {
-      respond(res, 400, { error: 'Refusing to allowlist an agent/bot user ID in the human guest allowlist.' });
-      return true;
-    }
-
-    if (action === 'add' && deps.client && config.discordServerId) {
-      try {
-        const guild = await deps.client.guilds.fetch(config.discordServerId);
-        const member = await guild.members.fetch(userId);
-        if (member.user.bot) {
-          respond(res, 400, { error: 'Refusing to allowlist a bot account. Use user discovery to find a human member instead.' });
-          return true;
-        }
-      } catch {
-        // If discovery cannot confirm membership, still allow boss-provided stable IDs.
-      }
-    }
-
     if (action === 'add') {
+      // Ordered guard block: reject non-human identities from the human guest allowlist.
+      // 1. Bridge admin / bot identity (probed or gateway)
       const isBridgeAdmin = (deps.state?.bridgeAdminUserId && userId === deps.state.bridgeAdminUserId) ||
         (deps.client?.user?.id && userId === deps.client.user.id);
       if (isBridgeAdmin) {
@@ -65,6 +45,7 @@ export async function handleModerationRoutes(
         return true;
       }
 
+      // 2. Boss user ID — boss authority comes from DISCORD_BOSS_USER_ID, not the guest allowlist
       if (config.discordBossUserId && userId === config.discordBossUserId) {
         respond(res, 400, {
           error: 'Refusing to add the boss user to the guest allowlist. Boss authority comes from DISCORD_BOSS_USER_ID, not DISCORD_ALLOWED_USER_IDS.',
@@ -72,21 +53,23 @@ export async function handleModerationRoutes(
         return true;
       }
 
+      // 3. Configured agent/bot identities
       if (config.allowedAgentIds.includes(userId)) {
         respond(res, 400, { error: 'Refusing to allowlist an agent/bot user ID in the human guest allowlist.' });
         return true;
       }
 
+      // 4. Discovered bot accounts via guild member fetch (single fetch)
       if (deps.client && config.discordServerId) {
         try {
           const guild = await deps.client.guilds.fetch(config.discordServerId);
           const member = await guild.members.fetch(userId);
           if (member?.user?.bot) {
-            respond(res, 400, { error: 'Refusing to allowlist an agent/bot user ID in the human guest allowlist.' });
+            respond(res, 400, { error: 'Refusing to allowlist a bot account. Use user discovery to find a human member instead.' });
             return true;
           }
         } catch {
-          // Ignore and continue if fetch fails
+          // If discovery cannot confirm membership, still allow boss-provided stable IDs.
         }
       }
     }

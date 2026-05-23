@@ -50,7 +50,7 @@ export function handleStatusRoutes(
       useGeminiCliSessions: config.useGeminiCliSessions,
       allowlistedUsers: config.allowedUserIds.length,
       allowlistedAgents: config.allowedAgentIds.length,
-      configWarnings: sanitizeAllowedUserIds(config, deps.client?.user?.id ?? null).warnings,
+      configWarnings: sanitizeAllowedUserIds(config, state.bridgeAdminUserId ?? deps.client?.user?.id ?? null).warnings,
       requireMention: config.requireMention,
       channels: getChannelMapEntries().map(([name, { id }]) => ({ name, id })),
       cronJobs: listJobs(),

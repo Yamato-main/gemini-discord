@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DISCORD_BRIDGE_TOOL_NAMES } from '../src/shared/tool-names.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -268,7 +269,9 @@ describe('BOSS/GUEST permissions', () => {
 
     for (const mode of ['chat', 'web', 'discord', 'web_discord', 'full'] as const) {
       const allowed = resolveGeminiAllowedTools(guestRole, mode);
-      expect(allowed).not.toContain('discord_');
+      for (const toolName of DISCORD_BRIDGE_TOOL_NAMES) {
+        expect(allowed, `guest mode=${mode} should not include ${toolName}`).not.toContain(toolName);
+      }
       expect(allowed).not.toBe('all');
     }
   });
