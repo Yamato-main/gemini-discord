@@ -65,8 +65,10 @@ describe('loadConfig', () => {
       expect(managedConfig.env.DISCORD_BOT_TOKEN).toBe('test-token');
       expect(managedConfig.env.DISCORD_CHANNEL_ID).toBe('channel-1');
       expect(managedConfig.env.DISCORD_OWNER_IDS).toBe('owner-1');
-      const mode = fs.statSync(resolveRuntimePaths(tmpDir).managedConfigFile).mode & 0o777;
-      expect(mode).toBe(0o600);
+      if (process.platform !== 'win32') {
+        const mode = fs.statSync(resolveRuntimePaths(tmpDir).managedConfigFile).mode & 0o777;
+        expect(mode).toBe(0o600);
+      }
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -90,8 +92,10 @@ describe('loadConfig', () => {
 
       loadConfig(tmpDir);
 
-      const mode = fs.statSync(configPath).mode & 0o777;
-      expect(mode).toBe(0o600);
+      if (process.platform !== 'win32') {
+        const mode = fs.statSync(configPath).mode & 0o777;
+        expect(mode).toBe(0o600);
+      }
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

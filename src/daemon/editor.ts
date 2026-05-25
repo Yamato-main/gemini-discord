@@ -14,6 +14,7 @@ import type { Message, TextChannel, DMChannel, NewsChannel } from 'discord.js';
 import { withRetry, retrySend } from './retry.js';
 
 import { sanitizeStreamChunk } from './sanitizer.js';
+import { SUPPRESS_DISCORD_MENTIONS } from './mention-safety.js';
 
 const STREAM_EDIT_INTERVAL = 1000; // Fastest steady pacing that respects Discord's 5 edits / 5s rate limit
 const DISPLAY_CAP = 1900;
@@ -22,6 +23,7 @@ const FIRST_MESSAGE_THRESHOLD = 12; // Small enough to feel immediate without fl
 export interface LiveEditorOptions {
   placeholderDelayMs?: number | null;
   placeholderText?: string;
+  suppressMentions?: boolean;
 }
 
 export interface FinalizeOptions {
@@ -46,10 +48,12 @@ export class LiveEditor {
   private lastSentContent = '';
   private readonly placeholderDelayMs: number | null;
   private readonly placeholderText: string;
+  private readonly suppressMentions: boolean;
 
   constructor(options: LiveEditorOptions = {}) {
     this.placeholderDelayMs = options.placeholderDelayMs === undefined ? 4000 : options.placeholderDelayMs;
     this.placeholderText = options.placeholderText ?? '⚔️ Thinking…';
+    this.suppressMentions = options.suppressMentions ?? false;
   }
 
   /**
@@ -150,16 +154,16 @@ export class LiveEditor {
 
   private async sendChunks(chunks: string[]): Promise<string[]> {
     if (this.message) {
-      await retrySend(() => this.message!.edit(chunks[0]));
+      await retrySend(() => this.message!.edit(this.messagePayload(chunks[0])));
       this.sentMessageIds = [this.message.id];
       for (const chunk of chunks.slice(1)) {
-        const sent = await retrySend(() => this.channel!.send(chunk));
+        const sent = await retrySend(() => this.channel!.send(this.messagePayload(chunk)));
         this.sentMessageIds.push(sent.id);
       }
     } else {
       // If we never even created the first message, send it now
       for (const chunk of chunks) {
-        const sent = await retrySend(() => this.channel!.send(chunk));
+        const sent = await retrySend(() => this.channel!.send(this.messagePayload(chunk)));
         this.sentMessageIds.push(sent.id);
       }
     }
@@ -180,9 +184,9 @@ export class LiveEditor {
     }
 
     if (this.message) {
-      await retrySend(() => this.message!.edit(text));
+      await retrySend(() => this.message!.edit(this.messagePayload(text)));
     } else if (this.channel) {
-      await retrySend(() => this.channel!.send(text));
+      await retrySend(() => this.channel!.send(this.messagePayload(text)));
     }
   }
 
@@ -217,7 +221,7 @@ export class LiveEditor {
       // First time sending text — stop typing indicator, create the message
       this.clearTypingInterval();
       this.clearPlaceholderTimer();
-      this.editInFlight = retrySend(() => this.channel!.send(content))
+      this.editInFlight = retrySend(() => this.channel!.send(this.messagePayload(content)))
         .then((msg) => {
           this.message = msg;
           this.lastEditAt = Date.now();
@@ -229,7 +233,7 @@ export class LiveEditor {
         });
     } else {
       // Subsequent updates, edit the existing message
-      this.editInFlight = retrySend(() => this.message!.edit(content))
+      this.editInFlight = retrySend(() => this.message!.edit(this.messagePayload(content)))
         .then(() => {
           this.lastEditAt = Date.now();
         })
@@ -246,7 +250,7 @@ export class LiveEditor {
 
     this.clearTypingInterval();
     this.lastSentContent = this.placeholderText;
-    this.editInFlight = retrySend(() => this.channel!.send(this.placeholderText))
+    this.editInFlight = retrySend(() => this.channel!.send(this.messagePayload(this.placeholderText)))
       .then((msg) => {
         this.message = msg;
         this.lastEditAt = Date.now();
@@ -281,5 +285,11 @@ export class LiveEditor {
     }
     this.clearPlaceholderTimer();
     this.clearTypingInterval();
+  }
+
+  private messagePayload(content: string): string | { content: string; allowedMentions: typeof SUPPRESS_DISCORD_MENTIONS } {
+    return this.suppressMentions
+      ? { content, allowedMentions: SUPPRESS_DISCORD_MENTIONS }
+      : content;
   }
 }

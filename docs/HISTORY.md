@@ -1,5 +1,13 @@
 # Change History
 
+## [2026-05-25] Mention-Safe Workflow Output
+
+Prevented monitored workflow thread output from accidentally notifying Discord users, roles, or everyone when task summaries, trace output, validation errors, or streamed/final assistant responses contain mention syntax.
+
+### Changed
+- **Workflow Mention Safety**: Workflow seed messages, run headers, trace messages, workflow command replies, and workflow assistant responses now send with Discord mention parsing disabled.
+- **Streaming Coverage**: Live streaming edits can opt into mention suppression, so the streamed draft and final edited response use the same safety behavior.
+
 ## [2026-05-25] Terminal-Style Workflow Trace Visuals
 
 Aligned monitored workflow traces with the Gemini CLI terminal presentation inside Discord.

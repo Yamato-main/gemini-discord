@@ -28,6 +28,7 @@ import { sanitizeFullResponse } from './sanitizer.js';
 import { getBackgroundOperationsContext } from './background-context.js';
 import { runtimeStore } from './runtime.js';
 import { log } from './log.js';
+import { SUPPRESS_DISCORD_MENTIONS } from './mention-safety.js';
 import {
   authorizeAction,
   formatPermissionDenial,
@@ -89,7 +90,9 @@ export async function processViaCli(
   if ((targetMessage.attachments.size > 0 || attachmentMetadata.length > 0) && !isBoss(accepted.roleContext)) {
     const decision = authorizeAction('attachment_processing', accepted.roleContext);
     const responseText = formatPermissionDenial(decision);
-    const messageIds = await sendPreparedDisplayText(channel, responseText);
+    const messageIds = await sendPreparedDisplayText(channel, responseText, {
+      suppressMentions: isWorkflowThread(extensionDir, message.channelId),
+    });
     return { response: responseText, messageIds, attachments: [], sessionId: undefined };
   }
 
@@ -140,12 +143,12 @@ export async function processViaCli(
       channelName: accepted.channelName,
     })
     : undefined;
+  const isWorkflow = isWorkflowThread(extensionDir, message.channelId);
 
   if (allowPersistentSession) {
     const immediateContext = shouldUseImmediateMentionContext(accepted.trigger, accepted.content)
       ? selectImmediateMentionContext(memory.snapshot(processingContext.sessionKey), incomingPrompt)
       : [];
-    const isWorkflow = isWorkflowThread(extensionDir, message.channelId);
     let seedContextOverride: string | undefined;
     if (isWorkflow && !resumeSessionId) {
       const manifest = loadThreadManifest(extensionDir, message.channelId);
@@ -187,7 +190,7 @@ export async function processViaCli(
   let responseMessageIds: string[] = [];
   let currentSessionId: string | null = null;
 
-  const editor = config.streaming ? new LiveEditor({ placeholderDelayMs: null }) : null;
+  const editor = config.streaming ? new LiveEditor({ placeholderDelayMs: null, suppressMentions: isWorkflow }) : null;
   if (editor) await editor.init(channel);
 
   let feedbackMessageId: string | null = null;
@@ -283,7 +286,7 @@ export async function processViaCli(
 
         const prepared = await finalizeAssistantResponse(response, message, isBoss(accepted.roleContext));
         response = prepared.responseText;
-        responseMessageIds = await sendPreparedDisplayText(channel, prepared.displayText);
+        responseMessageIds = await sendPreparedDisplayText(channel, prepared.displayText, { suppressMentions: isWorkflow });
         responseMessageIds.push(...prepared.actionMessageIds);
         if (allowPersistentSession) {
           recordGeminiBindingSession(processingContext.bindingDir, currentSessionId ?? bindingState.lastSessionId);
@@ -354,6 +357,7 @@ export async function finalizeAssistantResponse(
 export async function sendPreparedDisplayText(
   channel: TextChannel | DMChannel | NewsChannel,
   displayText: string,
+  options: { suppressMentions?: boolean } = {},
 ): Promise<string[]> {
   if (!displayText.trim()) {
     return [];
@@ -362,7 +366,10 @@ export async function sendPreparedDisplayText(
   const messageIds: string[] = [];
   const chunks = chunkMessage(displayText);
   for (const chunk of chunks) {
-    const sent = await retrySend(() => channel.send(chunk));
+    const payload = options.suppressMentions
+      ? { content: chunk, allowedMentions: SUPPRESS_DISCORD_MENTIONS }
+      : chunk;
+    const sent = await retrySend(() => channel.send(payload));
     messageIds.push(sent.id);
   }
   return messageIds;

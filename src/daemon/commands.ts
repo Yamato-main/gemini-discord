@@ -28,6 +28,7 @@ import {
 } from './permissions.js';
 import { createWorkflowThread } from './workflow/thread-creator.js';
 import { validateWorkflowTaskSummary, WorkflowTaskValidationError } from './workflow/task-validation.js';
+import { SUPPRESS_DISCORD_MENTIONS } from './mention-safety.js';
 
 export interface WorkflowThreadCreatedEvent {
   interaction: CommandInteraction;
@@ -353,7 +354,11 @@ Action: Reverted to \`${oldModel}\`.`);
         task = validateWorkflowTaskSummary(task);
       } catch (error) {
         const message = error instanceof WorkflowTaskValidationError ? error.message : String(error);
-        await interaction.reply({ content: `❌ ${message}`, ephemeral: true });
+        await interaction.reply({
+          content: `❌ ${message}`,
+          ephemeral: true,
+          allowedMentions: SUPPRESS_DISCORD_MENTIONS,
+        });
         return;
       }
 
@@ -371,11 +376,17 @@ Action: Reverted to \`${oldModel}\`.`);
             sourceMessageId: messageId,
           }
         );
-        await interaction.editReply(`🧹 **Monitored Workflow Thread Created:** <#${threadId}>`);
+        await interaction.editReply({
+          content: `🧹 **Monitored Workflow Thread Created:** <#${threadId}>`,
+          allowedMentions: SUPPRESS_DISCORD_MENTIONS,
+        });
         onWorkflowThreadCreated?.({ interaction, thread, task, roleContext });
       } catch (error) {
         log.error('Failed to create workflow thread from slash command', { error: error instanceof Error ? error.message : String(error) });
-        await interaction.editReply(`❌ **Failed to create workflow thread:** ${error instanceof Error ? error.message : String(error)}`);
+        await interaction.editReply({
+          content: `❌ **Failed to create workflow thread:** ${error instanceof Error ? error.message : String(error)}`,
+          allowedMentions: SUPPRESS_DISCORD_MENTIONS,
+        });
       }
       return;
     }

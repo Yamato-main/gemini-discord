@@ -87729,6 +87729,15 @@ var init_thread_manifest = __esm({
   }
 });
 
+// src/daemon/mention-safety.ts
+var SUPPRESS_DISCORD_MENTIONS;
+var init_mention_safety = __esm({
+  "src/daemon/mention-safety.ts"() {
+    "use strict";
+    SUPPRESS_DISCORD_MENTIONS = { parse: [] };
+  }
+});
+
 // src/daemon/workflow/thread-creator.ts
 var thread_creator_exports = {};
 __export(thread_creator_exports, {
@@ -87783,7 +87792,8 @@ async function createWorkflowThread(client, config, extensionDir2, opts) {
   const seedMsg = await thread.send({
     content: `> ${taskSummary}
 
-\u25CC **Workflow queued** \xB7 requested by <@${creatorUserId}>`
+\u25CC **Workflow queued** \xB7 requested by <@${creatorUserId}>`,
+    allowedMentions: SUPPRESS_DISCORD_MENTIONS
   });
   const manifest = {
     threadId: thread.id,
@@ -87815,6 +87825,7 @@ var init_thread_creator = __esm({
     init_api_utils();
     init_log();
     init_task_validation();
+    init_mention_safety();
   }
 });
 
@@ -88606,7 +88617,11 @@ Action: Reverted to \`${oldModel}\`.`);
         task = validateWorkflowTaskSummary(task);
       } catch (error) {
         const message = error instanceof WorkflowTaskValidationError ? error.message : String(error);
-        await interaction.reply({ content: `\u274C ${message}`, ephemeral: true });
+        await interaction.reply({
+          content: `\u274C ${message}`,
+          ephemeral: true,
+          allowedMentions: SUPPRESS_DISCORD_MENTIONS
+        });
         return;
       }
       await interaction.deferReply();
@@ -88622,11 +88637,17 @@ Action: Reverted to \`${oldModel}\`.`);
             sourceMessageId: messageId
           }
         );
-        await interaction.editReply(`\u{1F9F9} **Monitored Workflow Thread Created:** <#${threadId}>`);
+        await interaction.editReply({
+          content: `\u{1F9F9} **Monitored Workflow Thread Created:** <#${threadId}>`,
+          allowedMentions: SUPPRESS_DISCORD_MENTIONS
+        });
         onWorkflowThreadCreated?.({ interaction, thread, task, roleContext });
       } catch (error) {
         log.error("Failed to create workflow thread from slash command", { error: error instanceof Error ? error.message : String(error) });
-        await interaction.editReply(`\u274C **Failed to create workflow thread:** ${error instanceof Error ? error.message : String(error)}`);
+        await interaction.editReply({
+          content: `\u274C **Failed to create workflow thread:** ${error instanceof Error ? error.message : String(error)}`,
+          allowedMentions: SUPPRESS_DISCORD_MENTIONS
+        });
       }
       return;
     }
@@ -88674,6 +88695,7 @@ var init_commands = __esm({
     init_permissions();
     init_thread_creator();
     init_task_validation();
+    init_mention_safety();
     COMMANDS = [
       new import_discord5.SlashCommandBuilder().setName("new").setDescription("Start a fresh Gemini conversation for this channel.").setDefaultMemberPermissions(import_discord5.PermissionFlagsBits.ManageMessages),
       new import_discord5.SlashCommandBuilder().setName("model").setDescription("Switch the active Gemini model.").addStringOption(
@@ -88739,6 +88761,7 @@ var init_editor = __esm({
     "use strict";
     init_retry();
     init_sanitizer();
+    init_mention_safety();
     STREAM_EDIT_INTERVAL = 1e3;
     DISPLAY_CAP = 1900;
     FIRST_MESSAGE_THRESHOLD = 12;
@@ -88756,9 +88779,11 @@ var init_editor = __esm({
       lastSentContent = "";
       placeholderDelayMs;
       placeholderText;
+      suppressMentions;
       constructor(options = {}) {
         this.placeholderDelayMs = options.placeholderDelayMs === void 0 ? 4e3 : options.placeholderDelayMs;
         this.placeholderText = options.placeholderText ?? "\u2694\uFE0F Thinking\u2026";
+        this.suppressMentions = options.suppressMentions ?? false;
       }
       /**
        * Start the native Discord typing indicator.
@@ -88840,15 +88865,15 @@ var init_editor = __esm({
       }
       async sendChunks(chunks) {
         if (this.message) {
-          await retrySend(() => this.message.edit(chunks[0]));
+          await retrySend(() => this.message.edit(this.messagePayload(chunks[0])));
           this.sentMessageIds = [this.message.id];
           for (const chunk of chunks.slice(1)) {
-            const sent = await retrySend(() => this.channel.send(chunk));
+            const sent = await retrySend(() => this.channel.send(this.messagePayload(chunk)));
             this.sentMessageIds.push(sent.id);
           }
         } else {
           for (const chunk of chunks) {
-            const sent = await retrySend(() => this.channel.send(chunk));
+            const sent = await retrySend(() => this.channel.send(this.messagePayload(chunk)));
             this.sentMessageIds.push(sent.id);
           }
         }
@@ -88864,9 +88889,9 @@ var init_editor = __esm({
           await this.editInFlight;
         }
         if (this.message) {
-          await retrySend(() => this.message.edit(text));
+          await retrySend(() => this.message.edit(this.messagePayload(text)));
         } else if (this.channel) {
-          await retrySend(() => this.channel.send(text));
+          await retrySend(() => this.channel.send(this.messagePayload(text)));
         }
       }
       // ── Private ─────────────────────────────────────────────────
@@ -88890,7 +88915,7 @@ var init_editor = __esm({
         if (!this.message) {
           this.clearTypingInterval();
           this.clearPlaceholderTimer();
-          this.editInFlight = retrySend(() => this.channel.send(content)).then((msg) => {
+          this.editInFlight = retrySend(() => this.channel.send(this.messagePayload(content))).then((msg) => {
             this.message = msg;
             this.lastEditAt = Date.now();
           }).catch(() => {
@@ -88899,7 +88924,7 @@ var init_editor = __esm({
             this.scheduleEdit();
           });
         } else {
-          this.editInFlight = retrySend(() => this.message.edit(content)).then(() => {
+          this.editInFlight = retrySend(() => this.message.edit(this.messagePayload(content))).then(() => {
             this.lastEditAt = Date.now();
           }).catch(() => {
           }).finally(() => {
@@ -88912,7 +88937,7 @@ var init_editor = __esm({
         if (!this.channel || this.message || this.finished || this.editInFlight) return;
         this.clearTypingInterval();
         this.lastSentContent = this.placeholderText;
-        this.editInFlight = retrySend(() => this.channel.send(this.placeholderText)).then((msg) => {
+        this.editInFlight = retrySend(() => this.channel.send(this.messagePayload(this.placeholderText))).then((msg) => {
           this.message = msg;
           this.lastEditAt = Date.now();
         }).catch(() => {
@@ -88942,6 +88967,9 @@ var init_editor = __esm({
         }
         this.clearPlaceholderTimer();
         this.clearTypingInterval();
+      }
+      messagePayload(content) {
+        return this.suppressMentions ? { content, allowedMentions: SUPPRESS_DISCORD_MENTIONS } : content;
       }
     };
   }
@@ -89079,7 +89107,9 @@ async function processViaCli(message, accepted, config, memory, processingContex
   if ((targetMessage.attachments.size > 0 || attachmentMetadata.length > 0) && !isBoss(accepted.roleContext)) {
     const decision = authorizeAction("attachment_processing", accepted.roleContext);
     const responseText = formatPermissionDenial(decision);
-    const messageIds = await sendPreparedDisplayText(channel, responseText);
+    const messageIds = await sendPreparedDisplayText(channel, responseText, {
+      suppressMentions: isWorkflowThread(extensionDir2, message.channelId)
+    });
     return { response: responseText, messageIds, attachments: [], sessionId: void 0 };
   }
   const allowPersistentSession = isBoss(accepted.roleContext) && config.useGeminiCliSessions;
@@ -89116,9 +89146,9 @@ async function processViaCli(message, accepted, config, memory, processingContex
     channelId: message.channelId,
     channelName: accepted.channelName
   }) : void 0;
+  const isWorkflow = isWorkflowThread(extensionDir2, message.channelId);
   if (allowPersistentSession) {
     const immediateContext = shouldUseImmediateMentionContext(accepted.trigger, accepted.content) ? selectImmediateMentionContext(memory.snapshot(processingContext.sessionKey), incomingPrompt) : [];
-    const isWorkflow = isWorkflowThread(extensionDir2, message.channelId);
     let seedContextOverride;
     if (isWorkflow && !resumeSessionId) {
       const manifest = loadThreadManifest(extensionDir2, message.channelId);
@@ -89156,7 +89186,7 @@ async function processViaCli(message, accepted, config, memory, processingContex
   let response = "";
   let responseMessageIds = [];
   let currentSessionId = null;
-  const editor = config.streaming ? new LiveEditor({ placeholderDelayMs: null }) : null;
+  const editor = config.streaming ? new LiveEditor({ placeholderDelayMs: null, suppressMentions: isWorkflow }) : null;
   if (editor) await editor.init(channel);
   let feedbackMessageId = null;
   await geminiSemaphore.acquireWithTimeout(2e3, () => {
@@ -89246,7 +89276,7 @@ async function processViaCli(message, accepted, config, memory, processingContex
         clearInterval(typingInterval);
         const prepared = await finalizeAssistantResponse(response, message, isBoss(accepted.roleContext));
         response = prepared.responseText;
-        responseMessageIds = await sendPreparedDisplayText(channel, prepared.displayText);
+        responseMessageIds = await sendPreparedDisplayText(channel, prepared.displayText, { suppressMentions: isWorkflow });
         responseMessageIds.push(...prepared.actionMessageIds);
         if (allowPersistentSession) {
           recordGeminiBindingSession(processingContext.bindingDir, currentSessionId ?? bindingState.lastSessionId);
@@ -89300,14 +89330,15 @@ async function finalizeAssistantResponse(rawResponse, message, allowPrivilegedAc
     actionMessageIds: actionResult.messageIds
   };
 }
-async function sendPreparedDisplayText(channel, displayText) {
+async function sendPreparedDisplayText(channel, displayText, options = {}) {
   if (!displayText.trim()) {
     return [];
   }
   const messageIds = [];
   const chunks = chunkMessage(displayText);
   for (const chunk of chunks) {
-    const sent = await retrySend(() => channel.send(chunk));
+    const payload = options.suppressMentions ? { content: chunk, allowedMentions: SUPPRESS_DISCORD_MENTIONS } : chunk;
+    const sent = await retrySend(() => channel.send(payload));
     messageIds.push(sent.id);
   }
   return messageIds;
@@ -89381,6 +89412,7 @@ var init_engine_cli = __esm({
     init_background_context();
     init_runtime();
     init_log();
+    init_mention_safety();
     init_permissions();
     init_binding();
     init_thread_manifest();
@@ -90107,6 +90139,7 @@ var init_trace_dispatcher = __esm({
   "src/daemon/workflow/trace-dispatcher.ts"() {
     "use strict";
     init_log();
+    init_mention_safety();
     TraceDispatcher = class {
       constructor(threadChannel, registry) {
         this.threadChannel = threadChannel;
@@ -90134,7 +90167,8 @@ var init_trace_dispatcher = __esm({
           const payload = {
             content: rendered.content,
             embeds: rendered.embeds,
-            files: rendered.files
+            files: rendered.files,
+            allowedMentions: SUPPRESS_DISCORD_MENTIONS
           };
           this.hasTraceEvents = true;
           const toolCallId = resolveToolCallId(event);
@@ -90177,7 +90211,8 @@ var init_trace_dispatcher = __esm({
           this.seenToolCallIds.clear();
           this.hasTraceEvents = false;
           this.headerMessage = await this.threadChannel.send({
-            content: `\u25CC **Queued** \xB7 ${this.formatTask(manifest.taskSummary)}`
+            content: `\u25CC **Queued** \xB7 ${this.formatTask(manifest.taskSummary)}`,
+            allowedMentions: SUPPRESS_DISCORD_MENTIONS
           });
           this.startHeartbeat();
           await this.updateRunHeader("running");
@@ -90197,7 +90232,8 @@ var init_trace_dispatcher = __esm({
       async dispatchFinalResponse(response) {
         try {
           await this.threadChannel.send({
-            content: response
+            content: response,
+            allowedMentions: SUPPRESS_DISCORD_MENTIONS
           });
         } catch (error) {
           log.warn("Failed to dispatch final response", { error: String(error) });
@@ -90217,7 +90253,10 @@ var init_trace_dispatcher = __esm({
           content = `\u2301 **Running** \`${elapsed}\`${suffix}`;
         }
         try {
-          await this.headerMessage.edit(content);
+          await this.headerMessage.edit({
+            content,
+            allowedMentions: SUPPRESS_DISCORD_MENTIONS
+          });
         } catch (error) {
           log.warn("Failed to update trace run header", { error: String(error) });
         }
@@ -90353,7 +90392,10 @@ async function initGateway(config, state2, memory, queue, apiServer, extensionDi
             task = validateWorkflowTaskSummary(task);
           } catch (err) {
             const validationMessage = err instanceof WorkflowTaskValidationError ? err.message : String(err);
-            retrySend(() => message.reply(`\u274C ${validationMessage}`)).catch(() => {
+            retrySend(() => message.reply({
+              content: `\u274C ${validationMessage}`,
+              allowedMentions: SUPPRESS_DISCORD_MENTIONS
+            })).catch(() => {
             });
             return;
           }
@@ -90363,7 +90405,10 @@ async function initGateway(config, state2, memory, queue, apiServer, extensionDi
             sourceChannelId: message.channelId,
             sourceMessageId: message.id
           }).then(({ threadId, thread }) => {
-            retrySend(() => message.reply(`\u{1F9F9} **Monitored Workflow Thread Created:** <#${threadId}>`)).catch(() => {
+            retrySend(() => message.reply({
+              content: `\u{1F9F9} **Monitored Workflow Thread Created:** <#${threadId}>`,
+              allowedMentions: SUPPRESS_DISCORD_MENTIONS
+            })).catch(() => {
             });
             enqueueInitialWorkflowRun({
               message,
@@ -90377,7 +90422,10 @@ async function initGateway(config, state2, memory, queue, apiServer, extensionDi
             });
           }).catch((err) => {
             log.error("Failed to create workflow thread from text command", { error: String(err) });
-            retrySend(() => message.reply(`\u274C **Failed to create workflow thread:** ${err instanceof Error ? err.message : String(err)}`)).catch(() => {
+            retrySend(() => message.reply({
+              content: `\u274C **Failed to create workflow thread:** ${err instanceof Error ? err.message : String(err)}`,
+              allowedMentions: SUPPRESS_DISCORD_MENTIONS
+            })).catch(() => {
             });
           });
           return;
@@ -90538,7 +90586,10 @@ function enqueueWorkflowRun(opts) {
     extensionDir: opts.extensionDir
   });
   if (!enqueued) {
-    retrySend(() => opts.thread.send("\u23F3 Too many pending messages for this workflow. Please wait a moment and retry in the thread.")).catch(() => {
+    retrySend(() => opts.thread.send({
+      content: "\u23F3 Too many pending messages for this workflow. Please wait a moment and retry in the thread.",
+      allowedMentions: SUPPRESS_DISCORD_MENTIONS
+    })).catch(() => {
     });
     return false;
   }
@@ -90962,6 +91013,7 @@ var init_gateway = __esm({
     init_task_validation();
     init_trace_renderer();
     init_trace_dispatcher();
+    init_mention_safety();
     MAX_AGENT_EXCHANGES = 6;
   }
 });

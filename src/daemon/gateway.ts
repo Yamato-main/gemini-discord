@@ -52,6 +52,7 @@ import { validateWorkflowTaskSummary, WorkflowTaskValidationError } from './work
 import { TraceRendererRegistry } from './workflow/trace-renderer.js';
 import { TraceDispatcher } from './workflow/trace-dispatcher.js';
 import type { TraceEvent } from './workflow/trace-event.js';
+import { SUPPRESS_DISCORD_MENTIONS } from './mention-safety.js';
 
 const MAX_AGENT_EXCHANGES = 6;
 
@@ -168,7 +169,10 @@ export async function initGateway(
             task = validateWorkflowTaskSummary(task);
           } catch (err) {
             const validationMessage = err instanceof WorkflowTaskValidationError ? err.message : String(err);
-            retrySend(() => message.reply(`❌ ${validationMessage}`)).catch(() => {});
+            retrySend(() => message.reply({
+              content: `❌ ${validationMessage}`,
+              allowedMentions: SUPPRESS_DISCORD_MENTIONS,
+            })).catch(() => {});
             return;
           }
           createWorkflowThread(client, config, extensionDir, {
@@ -177,7 +181,10 @@ export async function initGateway(
             sourceChannelId: message.channelId,
             sourceMessageId: message.id,
           }).then(({ threadId, thread }) => {
-            retrySend(() => message.reply(`🧹 **Monitored Workflow Thread Created:** <#${threadId}>`)).catch(() => {});
+            retrySend(() => message.reply({
+              content: `🧹 **Monitored Workflow Thread Created:** <#${threadId}>`,
+              allowedMentions: SUPPRESS_DISCORD_MENTIONS,
+            })).catch(() => {});
             enqueueInitialWorkflowRun({
               message,
               accepted,
@@ -190,7 +197,10 @@ export async function initGateway(
             });
           }).catch((err) => {
             log.error('Failed to create workflow thread from text command', { error: String(err) });
-            retrySend(() => message.reply(`❌ **Failed to create workflow thread:** ${err instanceof Error ? err.message : String(err)}`)).catch(() => {});
+            retrySend(() => message.reply({
+              content: `❌ **Failed to create workflow thread:** ${err instanceof Error ? err.message : String(err)}`,
+              allowedMentions: SUPPRESS_DISCORD_MENTIONS,
+            })).catch(() => {});
           });
           return;
         }
@@ -399,7 +409,10 @@ function enqueueWorkflowRun(opts: {
   });
 
   if (!enqueued) {
-    retrySend(() => opts.thread.send('⏳ Too many pending messages for this workflow. Please wait a moment and retry in the thread.'))
+    retrySend(() => opts.thread.send({
+      content: '⏳ Too many pending messages for this workflow. Please wait a moment and retry in the thread.',
+      allowedMentions: SUPPRESS_DISCORD_MENTIONS,
+    }))
       .catch(() => {});
     return false;
   }

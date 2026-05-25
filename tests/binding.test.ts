@@ -73,7 +73,7 @@ describe('binding workspace state', () => {
     expect(fs.existsSync(path.join(second, 'Gemini.md'))).toBe(false);
   });
 
-  it('migrates legacy binding folders without losing existing sessions', () => {
+  it.runIf(process.platform !== 'win32')('migrates legacy binding folders without losing existing sessions', () => {
     const legacyDir = path.join(tmpDir, '.gemini-discord', 'bindings', 'channel:c1');
     fs.mkdirSync(path.join(legacyDir, 'discord-attachments'), { recursive: true });
     fs.writeFileSync(path.join(legacyDir, '.binding-state.json'), JSON.stringify({

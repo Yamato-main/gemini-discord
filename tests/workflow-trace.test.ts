@@ -224,6 +224,7 @@ describe('workflow trace events & renderer integration', () => {
     const sentArgs = mockChannel.send.mock.calls[0][0];
     expect(sentArgs.content).toContain('git status');
     expect(sentArgs.content).not.toContain('<!-- trace:doNotPersist -->');
+    expect(sentArgs.allowedMentions).toEqual({ parse: [] });
   });
 
   it('derives shell commands from top-level ACP titles when raw input is absent', () => {
@@ -319,8 +320,14 @@ describe('workflow trace events & renderer integration', () => {
     await dispatcher.dispatchRunComplete();
 
     expect(mockChannel.send).toHaveBeenCalledTimes(2);
-    expect(header.edit).toHaveBeenCalledWith(expect.stringContaining('⌁ **Running**'));
-    expect(header.edit).toHaveBeenLastCalledWith(expect.stringContaining('✓ **Complete**'));
+    expect(header.edit).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining('Running'),
+      allowedMentions: { parse: [] },
+    }));
+    expect(header.edit).toHaveBeenLastCalledWith(expect.objectContaining({
+      content: expect.stringContaining('Complete'),
+      allowedMentions: { parse: [] },
+    }));
   });
 
   it('correlates top-level ACP toolCallId updates into one trace message and one count', async () => {
@@ -384,6 +391,9 @@ describe('workflow trace events & renderer integration', () => {
 
     expect(mockChannel.send).toHaveBeenCalledTimes(2);
     expect(toolMessage.edit).not.toHaveBeenCalled();
-    expect(header.edit).toHaveBeenLastCalledWith(expect.stringContaining('`1` tool calls'));
+    expect(header.edit).toHaveBeenLastCalledWith(expect.objectContaining({
+      content: expect.stringContaining('`1` tool calls'),
+      allowedMentions: { parse: [] },
+    }));
   });
 });

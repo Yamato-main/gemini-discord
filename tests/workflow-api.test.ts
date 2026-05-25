@@ -98,6 +98,10 @@ describe('Workflow API', () => {
       expect(mockChannel.threads.create).toHaveBeenCalledWith({
         name: 'gemini-workflow-fix-the-job',
       });
+      expect(mockThread.send).toHaveBeenCalledWith(expect.objectContaining({
+        content: expect.stringContaining('Fix the job'),
+        allowedMentions: { parse: [] },
+      }));
       expect(enqueueWorkflowRun).toHaveBeenCalledWith({
         thread: mockThread,
         task: 'Fix the job',

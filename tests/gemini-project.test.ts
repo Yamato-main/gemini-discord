@@ -8,13 +8,14 @@ import {
 
 describe('Gemini project resolution', () => {
   it('uses the global .gemini folder when the extension is installed there', () => {
-    const extensionDir = path.join(path.sep, 'home', 'user', '.gemini', 'extensions', 'gemini-discord');
+    const geminiDir = path.resolve(path.sep, 'home', 'user', '.gemini');
+    const extensionDir = path.join(geminiDir, 'extensions', 'gemini-discord');
 
-    expect(resolveGeminiProjectDir(extensionDir)).toBe(path.join(path.sep, 'home', 'user', '.gemini'));
+    expect(resolveGeminiProjectDir(extensionDir)).toBe(geminiDir);
   });
 
   it('falls back to the extension directory for local development', () => {
-    const extensionDir = path.join(path.sep, 'workspace', 'gemini-discord');
+    const extensionDir = path.resolve(path.sep, 'workspace', 'gemini-discord');
 
     expect(resolveGeminiProjectDir(extensionDir)).toBe(extensionDir);
   });
@@ -25,7 +26,7 @@ describe('Gemini project resolution', () => {
   });
 
   it('builds attachment references relative to the Gemini project', () => {
-    const projectDir = path.join(path.sep, 'home', 'user', '.gemini');
+    const projectDir = path.resolve(path.sep, 'home', 'user', '.gemini');
     const filePath = path.join(projectDir, 'extensions', 'gemini-discord', '.gemini-discord', 'bindings', 'global', 'briefing.md');
 
     expect(toGeminiProjectRelativePath(projectDir, filePath)).toBe(

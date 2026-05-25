@@ -4,6 +4,7 @@ import { type ThreadManifest, saveThreadManifest } from './thread-manifest.js';
 import { fetchTextChannel, isWritableTarget } from '../api-utils.js';
 import { log } from '../log.js';
 import { validateWorkflowTaskSummary } from './task-validation.js';
+import { SUPPRESS_DISCORD_MENTIONS } from '../mention-safety.js';
 
 export interface CreateThreadOptions {
   taskSummary: string;
@@ -84,6 +85,7 @@ export async function createWorkflowThread(
   // 5. Post seed message in the thread
   const seedMsg = await thread.send({
     content: `> ${taskSummary}\n\n◌ **Workflow queued** · requested by <@${creatorUserId}>`,
+    allowedMentions: SUPPRESS_DISCORD_MENTIONS,
   });
 
   // 6. Save manifest
