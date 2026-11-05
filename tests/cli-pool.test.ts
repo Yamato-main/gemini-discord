@@ -148,27 +148,46 @@ describe('CliProcessPool', () => {
     expect(args).not.toContain('gemini-discord');
   });
 
-  it('builds an explicit ACP descriptor for the Discord bridge MCP server', () => {
-    const config = createConfig({ extensionDir: path.join(path.sep, 'extension') });
+  it('splits comma-separated allowedTools into individual --allowed-tools CLI parameters', () => {
+    const args = buildGeminiAcpArgs(createConfig({ geminiModel: 'auto' }), 'google_web_search,discord_fetch_web_page');
 
-    expect(buildDiscordBridgeAcpMcpServer(config)).toEqual({
+    const allowedIndices = args.reduce<number[]>((acc, item, idx) => {
+      if (item === '--allowed-tools') acc.push(idx);
+      return acc;
+    }, []);
+
+    expect(allowedIndices).toHaveLength(2);
+    expect(args[allowedIndices[0] + 1]).toBe('google_web_search');
+    expect(args[allowedIndices[1] + 1]).toBe('discord_fetch_web_page');
+  });
+
+  it('builds an explicit ACP descriptor for the Discord bridge MCP server with role environment', () => {
+    const config = createConfig({ extensionDir: path.join(path.sep, 'extension') });
+    const roleContext = createRoleContext();
+
+    expect(buildDiscordBridgeAcpMcpServer(config, roleContext)).toEqual({
       name: 'discord-bridge',
       command: process.execPath,
       args: [path.join(path.sep, 'extension', 'dist', 'server.cjs')],
-      env: [],
+      env: [
+        { name: 'GEMINI_DISCORD_ROLE', value: 'GUEST' },
+        { name: 'GEMINI_DISCORD_SENDER_ID', value: '222222222222222222' },
+        { name: 'GEMINI_DISCORD_SENDER_LABEL', value: 'Guest#0001' },
+      ],
     });
   });
 
-  it('includes the Discord bridge MCP descriptor when starting a new ACP session', async () => {
+  it('includes the Discord bridge MCP descriptor with roleContext when starting a new ACP session', async () => {
     const pool = new CliProcessPool(createConfig({ extensionDir: path.join(path.sep, 'extension') }));
     const entry = createEntry('key-1') as any;
     const sendRequest = vi.fn().mockResolvedValue({ sessionId: 'session-1' });
+    const roleContext = createRoleContext();
 
     (pool as any).sendRequest = sendRequest;
 
     await (pool as any).ensureSession(entry, {
       cwd: '/tmp/project',
-      roleContext: createRoleContext(),
+      roleContext,
       toolMode: 'chat',
     });
 
@@ -177,16 +196,17 @@ describe('CliProcessPool', () => {
       'session/new',
       {
         cwd: '/tmp/project',
-        mcpServers: [buildDiscordBridgeAcpMcpServer(createConfig({ extensionDir: path.join(path.sep, 'extension') }))],
+        mcpServers: [buildDiscordBridgeAcpMcpServer(createConfig({ extensionDir: path.join(path.sep, 'extension') }), roleContext)],
       },
       expect.any(Number),
     );
   });
 
-  it('includes the Discord bridge MCP descriptor when loading an ACP session', async () => {
+  it('includes the Discord bridge MCP descriptor with roleContext when loading an ACP session', async () => {
     const pool = new CliProcessPool(createConfig({ extensionDir: path.join(path.sep, 'extension') }));
     const entry = createEntry('key-1') as any;
     const sendRequest = vi.fn().mockResolvedValue({});
+    const roleContext = createRoleContext();
 
     (pool as any).sendRequest = sendRequest;
     (pool as any).waitForSessionReplayToDrain = vi.fn().mockResolvedValue(undefined);
@@ -194,7 +214,7 @@ describe('CliProcessPool', () => {
     await (pool as any).ensureSession(entry, {
       cwd: '/tmp/project',
       resumeSessionId: 'session-1',
-      roleContext: createRoleContext(),
+      roleContext,
       toolMode: 'chat',
     });
 
@@ -204,7 +224,7 @@ describe('CliProcessPool', () => {
       {
         sessionId: 'session-1',
         cwd: '/tmp/project',
-        mcpServers: [buildDiscordBridgeAcpMcpServer(createConfig({ extensionDir: path.join(path.sep, 'extension') }))],
+        mcpServers: [buildDiscordBridgeAcpMcpServer(createConfig({ extensionDir: path.join(path.sep, 'extension') }), roleContext)],
       },
       expect.any(Number),
     );

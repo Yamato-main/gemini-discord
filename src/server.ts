@@ -13,6 +13,7 @@ import { registerMessageTool } from './tools/message.js';
 import { registerHistoryTool } from './tools/history.js';
 import { registerFindMediaTool } from './tools/find-media.js';
 import { registerCronTools } from './tools/cron.js';
+import { registerFetchWebPageTool } from './tools/fetch-web-page.js';
 import { ensureDaemonRunning } from './shared/daemon-runtime.js';
 
 // Resolve extension directory
@@ -33,6 +34,7 @@ registerMessageTool(server, config);
 registerHistoryTool(server, config);
 registerFindMediaTool(server, config);
 registerCronTools(server, config);
+registerFetchWebPageTool(server, config);
 
 // Connect via stdio (Gemini CLI manages the process lifecycle)
 async function main() {

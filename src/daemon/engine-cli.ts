@@ -216,7 +216,7 @@ export async function processViaCli(
 
     const sendViaCli = async (callbacks: { onToken: (token: string) => void; onThought: () => void; onTraceEvent?: (event: TraceEvent) => void }): Promise<string> => {
       const baseOptions = {
-        cwd: processingContext.geminiProjectDir,
+        cwd: isWorkflow ? processingContext.geminiProjectDir : processingContext.bindingDir,
         useResume: allowPersistentSession,
         resumeSessionId: resumeSessionId,
         roleContext: accepted.roleContext,

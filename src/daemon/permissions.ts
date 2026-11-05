@@ -312,19 +312,22 @@ export function resolveGeminiAllowedTools(roleContext: RoleContext, toolMode: To
     return toolMode === 'web' ? 'google_web_search' : 'none';
   }
 
+  // Boss users always have at least web search + local web fetch as a floor.
+  // The built-in web_fetch is disabled because it hangs for minutes trying to use
+  // the Gemini API's urlContext before falling back. We use our fast local mcp tool instead.
   switch (toolMode) {
     case 'chat':
-      return 'none';
+      return 'google_web_search,discord_fetch_web_page';
     case 'web':
-      return 'google_web_search,web_fetch';
+      return 'google_web_search,discord_fetch_web_page';
     case 'discord':
       return DISCORD_BRIDGE_TOOLS;
     case 'web_discord':
-      return `google_web_search,web_fetch,${DISCORD_BRIDGE_TOOLS}`;
+      return `google_web_search,${DISCORD_BRIDGE_TOOLS}`;
     case 'full':
       return 'all';
     default:
-      return 'none';
+      return 'google_web_search,discord_fetch_web_page';
   }
 }
 

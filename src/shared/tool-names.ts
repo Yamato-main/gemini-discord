@@ -1,4 +1,5 @@
 export const DISCORD_BRIDGE_TOOL_NAMES = [
+  'discord_fetch_web_page',
   'discord_message',
   'discord_admin',
   'discord_history',

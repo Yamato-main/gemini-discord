@@ -222,7 +222,7 @@ describe('BOSS/GUEST permissions', () => {
     expect(resolveGeminiAllowedTools(guestRole, 'chat')).toBe('none');
     expect(resolveGeminiAllowedTools(guestRole, 'full')).toBe('none');
     expect(resolveGeminiAllowedTools(guestRole, 'discord')).toBe('none');
-    expect(resolveGeminiAllowedTools(bossRole, 'web')).toBe('google_web_search,web_fetch');
+    expect(resolveGeminiAllowedTools(bossRole, 'web')).toBe('google_web_search,discord_fetch_web_page');
     expect(resolveGeminiAllowedTools(bossRole, 'full')).toBe('all');
   });
 
@@ -231,8 +231,8 @@ describe('BOSS/GUEST permissions', () => {
 
     expect(authorizeGuestRequest({ content: 'normal full request', toolMode: 'full' }, bossRole))
       .toMatchObject({ decision: 'allow' });
-    expect(resolveGeminiAllowedTools(bossRole, 'web')).toBe('google_web_search,web_fetch');
-    expect(resolveGeminiAllowedTools(bossRole, 'web_discord')).toContain('google_web_search,web_fetch');
+    expect(resolveGeminiAllowedTools(bossRole, 'web')).toBe('google_web_search,discord_fetch_web_page');
+    expect(resolveGeminiAllowedTools(bossRole, 'web_discord')).toContain('google_web_search,discord_fetch_web_page');
   });
 
   it('fails closed for missing or malformed boss ids while preserving guest-safe chat and search', () => {
