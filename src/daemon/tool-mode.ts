@@ -16,6 +16,7 @@ const EXPLICIT_WEB_TOOL_PATTERNS = [
   /(?:https?:\/\/)?(?:www\.)?reddit\.com/i,
   /(?:https?:\/\/)?(?:www\.)?github\.com/i,
   /(?:https?:\/\/)?(?:www\.)?stackoverflow\.com/i,
+  /https?:\/\/[^\s]+/i,
 ];
 
 const DISCORD_ACTION_PATTERNS = [
@@ -37,10 +38,10 @@ const DISCORD_ACTION_PATTERNS = [
   /\breset (?:the )?(?:session|conversation)\b/i,
   /\bstart (?:a )?new session\b/i,
   /\bhistory\b/i,
-  /\bfind (?:an |the )?image\b/i,
-  /\b(?:find|send|attach|fetch|get|grab|show|upload)\b.*\b(?:media|file|image|photo|picture|screenshot|video|movie|audio|song|music|clip|gif)\b/i,
-  /\b(?:media|file|image|photo|picture|screenshot|video|movie|audio|song|music|clip|gif)\b.*\b(?:from|on) (?:my|the) (?:device|computer|mac|machine)\b/i,
-  /\brandom (?:media|file|image|photo|picture|video|movie|audio|song|clip|gif)\b/i,
+  /\bfind (?:an |the )?images?\b/i,
+  /\b(?:find|send|attach|fetch|get|grab|show|upload)\b.*\b(?:media|files?|images?|photos?|pictures?|screenshots?|videos?|movies?|audio|songs?|music|clips?|gifs?)\b/i,
+  /\b(?:media|files?|images?|photos?|pictures?|screenshots?|videos?|movies?|audio|songs?|music|clips?|gifs?)\b.*\b(?:from|on) (?:my|the) (?:device|computer|mac|machine)\b/i,
+  /\brandom (?:media|files?|images?|photos?|pictures?|videos?|movies?|audio|songs?|clips?|gifs?)\b/i,
 ];
 
 const CHANNEL_DELIVERY_ACTIONS = 'send|post|write|put|drop|move|copy';

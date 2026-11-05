@@ -21702,6 +21702,7 @@ async function waitForNewStartTime(config3, port, previousStartedAt, timeoutMs, 
 
 // src/shared/tool-names.ts
 var DISCORD_BRIDGE_TOOL_NAMES = [
+  "discord_fetch_web_page",
   "discord_message",
   "discord_admin",
   "discord_history",
@@ -22932,6 +22933,66 @@ function registerCronTools(server2, config3) {
   );
 }
 
+// src/tools/fetch-web-page.ts
+function registerFetchWebPageTool(server2, config3) {
+  server2.tool(
+    "discord_fetch_web_page",
+    "Fetch and extract the clean text content of a web page/URL. Use this instead of web_fetch to read the content of any links or websites.",
+    {
+      url: external_exports.string().url().describe("The URL to fetch (must start with http:// or https://)")
+    },
+    async ({ url }) => {
+      const gate = authorizeMcpToolAction("external_web", config3);
+      if (gate.decision !== "allow") {
+        return { content: [{ type: "text", text: formatPermissionDenial(gate) }], isError: true };
+      }
+      try {
+        const response = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5"
+          },
+          signal: AbortSignal.timeout(15e3)
+          // 15s timeout
+        });
+        if (!response.ok) {
+          return {
+            content: [{ type: "text", text: `\u274C HTTP Error ${response.status}: ${response.statusText}` }],
+            isError: true
+          };
+        }
+        const html = await response.text();
+        const cleanText = cleanHtml(html);
+        if (!cleanText.trim()) {
+          return { content: [{ type: "text", text: "The page returned no readable text content." }] };
+        }
+        return {
+          content: [{
+            type: "text",
+            text: `Content of ${url}:
+
+${cleanText.slice(0, 15e3)}`
+            // Limit output size to prevent token blowup
+          }]
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: `\u274C Failed to fetch page: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true
+        };
+      }
+    }
+  );
+}
+function cleanHtml(html) {
+  let text4 = html.replace(/<head[^>]*>[\s\S]*?<\/head>/gi, "").replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "").replace(/<svg[^>]*>[\s\S]*?<\/svg>/gi, "");
+  text4 = text4.replace(/<[^>]+>/g, " ");
+  text4 = text4.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  text4 = text4.replace(/\s+/g, " ").trim();
+  return text4.replace(/(.{1,100})(\s+|$)/g, "$1\n").slice(0, 2e4);
+}
+
 // src/server.ts
 var tmpDir = process.cwd();
 try {
@@ -22949,6 +23010,7 @@ registerMessageTool(server, config2);
 registerHistoryTool(server, config2);
 registerFindMediaTool(server, config2);
 registerCronTools(server, config2);
+registerFetchWebPageTool(server, config2);
 async function main() {
   if (config2.autoStartDaemon) {
     try {

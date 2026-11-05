@@ -108,11 +108,11 @@ function buildPoolKey(bindingKey: string, allowedTools: string): string {
       ? 'chat'
       : allowedTools === 'google_web_search'
         ? 'public-web-search'
-        : allowedTools === 'google_web_search,web_fetch'
+        : allowedTools === 'google_web_search,discord_fetch_web_page'
           ? 'web'
-          : allowedTools.includes('google_web_search,web_fetch')
-            ? 'web-discord'
-          : 'discord';
+          : allowedTools.includes('discord_message')
+            ? (allowedTools.includes('google_web_search') ? 'web-discord' : 'discord')
+          : 'web';
   return `${bindingKey}:${tier}`;
 }
 
@@ -131,21 +131,42 @@ export function buildGeminiProcessEnv(
 }
 
 export function buildGeminiAcpArgs(config: Config, allowedTools: string): string[] {
-  return [
+  const args = [
     '--acp',
     '--model', config.geminiModel,
     '--approval-mode', 'yolo',
-    '--allowed-tools', allowedTools,
     '--allowed-mcp-server-names', 'discord-bridge',
   ];
+
+  if (allowedTools && allowedTools !== 'none') {
+    for (const tool of allowedTools.split(',')) {
+      const trimmed = tool.trim();
+      if (trimmed) {
+        args.push('--allowed-tools', trimmed);
+      }
+    }
+  }
+
+  return args;
 }
 
-export function buildDiscordBridgeAcpMcpServer(config: Config): AcpMcpServer {
+export function buildDiscordBridgeAcpMcpServer(
+  config: Config,
+  roleContext?: RoleContext,
+): AcpMcpServer {
+  const env: Array<{ name: string; value: string }> = [];
+  if (roleContext) {
+    env.push(
+      { name: 'GEMINI_DISCORD_ROLE', value: roleContext.role },
+      { name: 'GEMINI_DISCORD_SENDER_ID', value: roleContext.senderDiscordId },
+      { name: 'GEMINI_DISCORD_SENDER_LABEL', value: roleContext.senderDisplayLabel },
+    );
+  }
   return {
     name: 'discord-bridge',
     command: process.execPath,
     args: [path.join(config.extensionDir, 'dist', 'server.cjs')],
-    env: [],
+    env,
   };
 }
 
@@ -361,7 +382,11 @@ export class CliProcessPool {
     };
 
     proc.stderr?.on('data', (chunk: Buffer) => {
-      entry.stderrTail = `${entry.stderrTail}${chunk.toString()}`.slice(-4000);
+      const text = chunk.toString();
+      entry.stderrTail = `${entry.stderrTail}${text}`.slice(-4000);
+      if (text.trim()) {
+        log.warn('CLI pool: ACP stderr', { poolKey, text: text.trim().slice(0, 300) });
+      }
     });
 
     rl.on('line', (line: string) => {
@@ -432,7 +457,7 @@ export class CliProcessPool {
         await this.sendRequest(entry, 'session/load', {
           sessionId: resumeSessionId,
           cwd: opts.cwd,
-          mcpServers: [buildDiscordBridgeAcpMcpServer(this.config)],
+          mcpServers: [buildDiscordBridgeAcpMcpServer(this.config, opts.roleContext)],
         }, SESSION_REQUEST_TIMEOUT_MS);
         entry.sessionId = resumeSessionId;
         entry.cwd = opts.cwd;
@@ -458,7 +483,7 @@ export class CliProcessPool {
 
     const result = await this.sendRequest(entry, 'session/new', {
       cwd: opts.cwd,
-      mcpServers: [buildDiscordBridgeAcpMcpServer(this.config)],
+      mcpServers: [buildDiscordBridgeAcpMcpServer(this.config, opts.roleContext)],
     }, SESSION_REQUEST_TIMEOUT_MS);
 
     if (!result || typeof result !== 'object' || typeof (result as Record<string, unknown>)['sessionId'] !== 'string') {
@@ -527,8 +552,8 @@ export class CliProcessPool {
       const maxTotalTimeoutMs = this.config.geminiTimeoutMs;
       const firstOutputTimeoutMs = hasAttachments
         ? Math.min(maxTotalTimeoutMs, 600_000)
-        : Math.min(maxTotalTimeoutMs, 120_000);
-      const postOutputTimeoutMs = 120_000;
+        : Math.min(maxTotalTimeoutMs, 300_000);
+      const postOutputTimeoutMs = 300_000;
 
       const activePrompt: ActivePrompt = {
         requestId,
@@ -547,6 +572,13 @@ export class CliProcessPool {
           const totalMs = Date.now() - current.startedAt;
           if (!current.sawAssistantOutput && idleMs > firstOutputTimeoutMs) {
             const error = new Error(`Gemini stalled — no output for ${Math.round(idleMs / 1000)}s`);
+            log.warn('CLI pool: stall detected (no first output)', {
+              poolKey: entry.poolKey,
+              sessionId: entry.sessionId,
+              idleMs: Math.round(idleMs),
+              totalMs: Math.round(totalMs),
+              stderrTail: entry.stderrTail.slice(-500) || '(empty)',
+            });
             this.failPrompt(entry, error, true);
             return;
           }
@@ -597,7 +629,7 @@ export class CliProcessPool {
           method: 'session/prompt',
           params: {
             sessionId: entry.sessionId,
-            prompt: buildAcpPromptBlocks(prompt, opts.attachments),
+            prompt: buildAcpPromptBlocks(prompt, opts.attachments, opts.roleContext),
           },
         });
       } catch (error) {
@@ -614,6 +646,23 @@ export class CliProcessPool {
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(line) as Record<string, unknown>;
+      // Log session updates and JSON-RPC results for tracking/diagnostics
+      if (parsed['method'] === 'session/update') {
+        const update = (parsed['params'] as Record<string, unknown>)?.[ 'update'] as Record<string, unknown>;
+        log.info('CLI pool: ACP update', {
+          poolKey: entry.poolKey,
+          sessionId: entry.sessionId,
+          type: update?.['sessionUpdate'],
+          toolCallId: update?.['toolCallId'],
+          status: update?.['status'],
+        });
+      } else {
+        log.info('CLI pool: ACP response', {
+          poolKey: entry.poolKey,
+          id: parsed['id'],
+          error: parsed['error'] ? true : undefined,
+        });
+      }
     } catch {
       return;
     }
@@ -623,6 +672,28 @@ export class CliProcessPool {
       const params = parsed['params'];
       if (params && typeof params === 'object') {
         this.handleSessionUpdate(entry, params as Record<string, unknown>);
+      }
+      return;
+    }
+
+    if (method === 'session/request_permission') {
+      const reqId = parsed['id'];
+      log.info('CLI pool: auto-approving session/request_permission', {
+        poolKey: entry.poolKey,
+        sessionId: entry.sessionId,
+        requestId: reqId,
+      });
+      if (typeof reqId === 'number' || typeof reqId === 'string') {
+        const response = JSON.stringify({
+          jsonrpc: '2.0',
+          id: reqId,
+          result: {
+            outcome: {
+              optionId: 'proceed_always',
+            },
+          },
+        }) + '\n';
+        entry.proc.stdin?.write(response);
       }
       return;
     }
@@ -680,6 +751,7 @@ export class CliProcessPool {
     const update = rawUpdate as Record<string, unknown>;
     const sessionUpdate = typeof update['sessionUpdate'] === 'string' ? update['sessionUpdate'] : '';
     activePrompt.lastOutputAt = Date.now();
+    activePrompt.sawAssistantOutput = true;
 
     if (sessionUpdate === 'agent_message_chunk') {
       const candidate = extractUpdateText(update);
